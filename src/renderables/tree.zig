@@ -90,18 +90,30 @@ pub const Tree = struct {
             try segments.append(allocator, Segment.line());
         }
 
-        try self.renderChildren(&segments, allocator, &self.root, "");
+        // Track ancestor levels: true = has more siblings (show vertical), false = last child (show space)
+        var levels: std.ArrayList(bool) = .empty;
+        defer levels.deinit(allocator);
+
+        try self.renderChildren(&segments, allocator, &self.root, &levels);
 
         return segments.toOwnedSlice(allocator);
     }
 
-    fn renderChildren(self: Tree, segments: *std.ArrayList(Segment), allocator: std.mem.Allocator, node: *const TreeNode, prefix: []const u8) !void {
+    fn renderChildren(self: Tree, segments: *std.ArrayList(Segment), allocator: std.mem.Allocator, node: *const TreeNode, levels: *std.ArrayList(bool)) !void {
         if (!node.expanded) return;
 
         for (node.children.items, 0..) |*child, i| {
             const is_last = (i == node.children.items.len - 1);
 
-            try segments.append(allocator, Segment.plain(prefix));
+            // Render prefix based on ancestor levels (uses static string refs, no lifetime issues)
+            for (levels.items) |has_more_siblings| {
+                if (has_more_siblings) {
+                    try segments.append(allocator, Segment.styled(self.guide.vertical, node.guide_style));
+                    try segments.append(allocator, Segment.plain("  "));
+                } else {
+                    try segments.append(allocator, Segment.plain(self.guide.space));
+                }
+            }
 
             const guide_char = if (is_last) self.guide.corner else self.guide.tee;
             try segments.append(allocator, Segment.styled(guide_char, node.guide_style));
@@ -114,19 +126,9 @@ pub const Tree = struct {
 
             // Recurse
             if (child.children.items.len > 0 and child.expanded) {
-                // Build new prefix
-                var new_prefix_list: std.ArrayList(u8) = .empty;
-                defer new_prefix_list.deinit(allocator);
-                try new_prefix_list.appendSlice(allocator, prefix);
-
-                if (is_last) {
-                    try new_prefix_list.appendSlice(allocator, self.guide.space);
-                } else {
-                    try new_prefix_list.appendSlice(allocator, self.guide.vertical);
-                    try new_prefix_list.appendSlice(allocator, "  ");
-                }
-
-                try self.renderChildren(segments, allocator, child, new_prefix_list.items);
+                try levels.append(allocator, !is_last);
+                try self.renderChildren(segments, allocator, child, levels);
+                _ = levels.pop();
             }
         }
     }

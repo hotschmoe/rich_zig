@@ -2,6 +2,10 @@ const std = @import("std");
 const rich = @import("rich_zig");
 
 pub fn main() !void {
+    // Enable UTF-8 output on Windows
+    _ = rich.terminal.enableUtf8();
+    _ = rich.terminal.enableVirtualTerminal();
+
     var stdout_buffer: [4096]u8 = undefined;
     var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);
     const stdout = &stdout_writer.interface;

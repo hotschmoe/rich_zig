@@ -200,6 +200,15 @@ pub fn enableVirtualTerminal() bool {
     return true; // Always supported on POSIX
 }
 
+pub fn enableUtf8() bool {
+    if (builtin.os.tag == .windows) {
+        // Set console output code page to UTF-8 (65001)
+        const CP_UTF8 = 65001;
+        return std.os.windows.kernel32.SetConsoleOutputCP(CP_UTF8) != 0;
+    }
+    return true; // POSIX terminals typically use UTF-8 by default
+}
+
 // Tests
 test "TerminalInfo defaults" {
     const info = TerminalInfo{};
