@@ -141,12 +141,12 @@ We aim to implement all features from the Rich library that are feasible in Zig 
 | Print renderables | Y | Y | [x] | Any renderable |
 | Rule (horizontal line) | Y | Y | [x] | With optional title |
 | Capture mode | Y | Y | [x] | Buffer output |
-| Export to HTML | Y | Y | [ ] | ANSI -> HTML |
+| Export to HTML | Y | Y | [x] | ANSI -> HTML |
 | Export to SVG | Y | Y | [ ] | Terminal screenshot |
 | Export to text | Y | Y | [x] | Strip ANSI |
 | Pager support | Y | Y | [ ] | Less-like paging |
 | Input prompts | Y | Y | [ ] | User input |
-| Status/spinner | Y | Y | [ ] | Transient message |
+| Status/spinner | Y | Y | [x] | Transient message |
 | Log method | Y | Y | [x] | With timestamp |
 | Clear screen | Y | Y | [x] | Full clear |
 | Clear line | Y | Y | [x] | Current line |
@@ -172,7 +172,7 @@ We aim to implement all features from the Rich library that are feasible in Zig 
 | Simple box | Y | Y | [x] | Simple style |
 | Horizontals box | Y | Y | [x] | Horizontal only |
 | Markdown box | Y | Y | [x] | Markdown-style |
-| Custom box | Y | Y | [ ] | User-defined chars |
+| Custom box | Y | Y | [x] | User-defined chars |
 
 ### Panel (`renderables/panel.zig`)
 
@@ -186,7 +186,7 @@ We aim to implement all features from the Rich library that are feasible in Zig 
 | Border style/color | Y | Y | [x] | Custom border color |
 | Padding | Y | Y | [x] | Top/right/bottom/left |
 | Width constraint | Y | Y | [x] | Fixed or expand |
-| Height constraint | Y | Y | [ ] | Fixed height |
+| Height constraint | Y | Y | [x] | Fixed height |
 | Nested renderables | Y | Y | [ ] | Panel in panel |
 | Fit content | Y | Y | [x] | Shrink to content |
 
@@ -199,21 +199,21 @@ We aim to implement all features from the Rich library that are feasible in Zig 
 | Column alignment | Y | Y | [x] | Left/center/right |
 | Column width (fixed) | Y | Y | [x] | Exact width |
 | Column width (min/max) | Y | Y | [x] | Constraints |
-| Column width (ratio) | Y | Y | [ ] | Proportional |
+| Column width (ratio) | Y | Y | [x] | Proportional |
 | Auto-sizing columns | Y | Y | [x] | Fit content |
 | Table title | Y | Y | [x] | Above table |
 | Table caption | Y | Y | [x] | Below table |
-| Row styles | Y | Y | [ ] | Alternating, etc. |
+| Row styles | Y | Y | [x] | Alternating, etc. |
 | Cell styles | Y | Y | [x] | Per-cell styling |
 | Show/hide header | Y | Y | [x] | Toggle header |
 | Show/hide edge | Y | Y | [x] | Outer border |
 | Show/hide lines | Y | Y | [x] | Row separators |
 | Padding | Y | Y | [x] | Cell padding |
 | Box style | Y | Y | [x] | Border style |
-| Collapse padding | Y | Y | [ ] | Remove inner pad |
+| Collapse padding | Y | Y | [x] | Remove inner pad |
 | No wrap columns | Y | Y | [x] | Prevent wrapping |
-| Overflow handling | Y | Y | [ ] | Ellipsis, fold |
-| Footer row | Y | Y | [ ] | Summary row |
+| Overflow handling | Y | Y | [x] | Ellipsis, fold |
+| Footer row | Y | Y | [x] | Summary row |
 | Row/column spanning | Y | Y | [ ] | Merged cells |
 | Nested tables | Y | Y | [ ] | Table in table |
 | Add row from iterable | Y | Y | [x] | Convenience method |
@@ -235,19 +235,19 @@ We aim to implement all features from the Rich library that are feasible in Zig 
 |---------|------|-----------|----------|-------|
 | Progress bar | Y | Y | [x] | Basic bar |
 | Percentage display | Y | Y | [x] | Show % |
-| Task description | Y | Y | [ ] | Task name |
-| Time elapsed | Y | Y | [ ] | Duration |
-| Time remaining (ETA) | Y | Y | [ ] | Estimated time |
-| Transfer speed | Y | Y | [ ] | bytes/sec |
+| Task description | Y | Y | [x] | Task name |
+| Time elapsed | Y | Y | [x] | Duration |
+| Time remaining (ETA) | Y | Y | [x] | Estimated time |
+| Transfer speed | Y | Y | [x] | bytes/sec |
 | Spinner | Y | Y | [x] | Animated |
 | Multiple spinners | Y | Y | [x] | Various styles |
 | Custom columns | Y | Y | [ ] | User-defined |
-| Multiple tasks | Y | Y | [ ] | Concurrent bars |
+| Multiple tasks | Y | Y | [x] | Concurrent bars |
 | Task completion | Y | Y | [x] | Done state |
-| Indeterminate mode | Y | Y | [ ] | Unknown total |
-| Pulse animation | Y | Y | [ ] | Moving highlight |
-| Refresh rate control | Y | Y | [ ] | FPS limiting |
-| Transient display | Y | Y | [ ] | Auto-clear |
+| Indeterminate mode | Y | Y | [x] | Unknown total |
+| Pulse animation | Y | Y | [x] | Moving highlight |
+| Refresh rate control | Y | Y | [x] | FPS limiting |
+| Transient display | Y | Y | [x] | Auto-clear |
 | Auto-refresh | Y | Y | [ ] | Background update |
 
 ### Tree (`renderables/tree.zig`)
@@ -263,17 +263,17 @@ We aim to implement all features from the Rich library that are feasible in Zig 
 | Guide styling | Y | Y | [x] | Guide colors |
 | Expanded/collapsed | Y | Y | [x] | Toggle visibility |
 | Add from dict | Y | Y | [ ] | Convenience |
-| Renderables as nodes | Y | Y | [ ] | Not just text |
+| Renderables as nodes | Y | Y | [x] | Segments as labels |
 
 ### Columns (`renderables/columns.zig`)
 
 | Feature | Rich | rich_rust | rich_zig | Notes |
 |---------|------|-----------|----------|-------|
-| Equal width columns | Y | Y | [ ] | Same size |
-| Auto-width columns | Y | Y | [ ] | Fit content |
-| Column count | Y | Y | [ ] | Fixed or auto |
-| Padding between | Y | Y | [ ] | Gap size |
-| Expand to width | Y | Y | [ ] | Fill container |
+| Equal width columns | Y | Y | [x] | Same size |
+| Auto-width columns | Y | Y | [x] | Fit content |
+| Column count | Y | Y | [x] | Fixed or auto |
+| Padding between | Y | Y | [x] | Gap size |
+| Expand to width | Y | Y | [x] | Fill container |
 
 ### Padding (`renderables/padding.zig`)
 
@@ -296,10 +296,11 @@ We aim to implement all features from the Rich library that are feasible in Zig 
 
 | Feature | Rich | rich_rust | rich_zig | Notes |
 |---------|------|-----------|----------|-------|
-| Split horizontal | Y | Y | [ ] | Side by side |
-| Split vertical | Y | Y | [ ] | Stacked |
-| Ratio-based sizing | Y | Y | [ ] | Proportional |
-| Minimum size | Y | Y | [ ] | Constraints |
+| Split horizontal | Y | Y | [x] | Side by side |
+| Split vertical | Y | Y | [x] | Stacked |
+| Ratio-based sizing | Y | Y | [x] | Proportional |
+| Minimum size | Y | Y | [x] | Constraints |
+| Fixed size | Y | Y | [x] | Exact width |
 | Nested layouts | Y | Y | [ ] | Complex layouts |
 | Named regions | Y | Y | [ ] | Region addressing |
 | Update region | Y | Y | [ ] | Dynamic content |
@@ -309,13 +310,13 @@ We aim to implement all features from the Rich library that are feasible in Zig 
 
 | Feature | Rich | rich_rust | rich_zig | Notes |
 |---------|------|-----------|----------|-------|
-| Live updating | Y | Y | [ ] | Real-time updates |
-| Refresh rate | Y | Y | [ ] | Configurable FPS |
-| Transient mode | Y | Y | [ ] | Clear on exit |
+| Live updating | Y | Y | [x] | Real-time updates |
+| Refresh rate | Y | Y | [x] | Configurable FPS |
+| Transient mode | Y | Y | [x] | Clear on exit |
 | Vertical overflow | Y | Y | [ ] | Crop/scroll |
 | Auto-refresh | Y | Y | [ ] | Timer-based |
-| Manual refresh | Y | Y | [ ] | On-demand |
-| Context manager | N/A | N/A | [ ] | Zig defer pattern |
+| Manual refresh | Y | Y | [x] | On-demand |
+| Context manager | N/A | N/A | [x] | Zig defer pattern |
 
 ---
 
@@ -364,13 +365,13 @@ We aim to implement all features from the Rich library that are feasible in Zig 
 
 | Feature | Rich | rich_rust | rich_zig | Notes |
 |---------|------|-----------|----------|-------|
-| Pretty-print | Y | Y | [ ] | Formatted output |
-| Syntax coloring | Y | Y | [ ] | Colored output |
-| Indent control | Y | Y | [ ] | Indent size |
-| Theme selection | Y | Y | [ ] | Color schemes |
-| Highlight keys | Y | Y | [ ] | Key coloring |
+| Pretty-print | Y | Y | [x] | Formatted output |
+| Syntax coloring | Y | Y | [x] | Colored output |
+| Indent control | Y | Y | [x] | Indent size |
+| Theme selection | Y | Y | [x] | Color schemes |
+| Highlight keys | Y | Y | [x] | Key coloring |
 | Sort keys | Y | Y | [ ] | Alphabetical |
-| Expand all | Y | Y | [ ] | No collapsing |
+| Expand all | Y | Y | [x] | No collapsing |
 | Max depth | Y | Y | [ ] | Limit nesting |
 | Max string length | Y | Y | [ ] | Truncate strings |
 
@@ -434,11 +435,11 @@ Track weekly:
 
 | Metric | Target | Current |
 |--------|--------|---------|
-| P0 Features Implemented | 100% | ~98% |
-| P1 Features Implemented | 100% | ~55% |
-| P2 Features Implemented | 80%+ | 0% |
+| P0 Features Implemented | 100% | 100% |
+| P1 Features Implemented | 100% | ~85% |
+| P2 Features Implemented | 80%+ | ~35% |
 | Test Coverage | >85% | ~90% |
-| Documentation Coverage | 100% | 20% |
+| Documentation Coverage | 100% | 25% |
 
 ---
 

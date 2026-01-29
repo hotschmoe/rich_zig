@@ -14,7 +14,7 @@ pub fn main() !void {
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
-    try stdout.writeAll("rich_zig v0.7.0 - Full Demo\n");
+    try stdout.writeAll("rich_zig v0.9.0 - Full Demo\n");
     try stdout.writeAll("===========================\n\n");
 
     // Phase 1: Color, Style, Segment
@@ -266,6 +266,148 @@ pub fn main() !void {
     try console.logInfo("This is an info message", .{});
     try console.logWarn("This is a warning message", .{});
     try console.logErr("This is an error message", .{});
+
+    // v0.9.0 Features
+    try stdout.writeAll("\nv0.9.0 New Features\n");
+    try stdout.writeAll("-------------------\n");
+
+    // Custom Box
+    try stdout.writeAll("\nCustom box style:\n");
+    const custom_box = rich.BoxStyle.custom(.{
+        .top_left = "*",
+        .top_right = "*",
+        .bottom_left = "*",
+        .bottom_right = "*",
+        .horizontal = "=",
+        .vertical = "!",
+    });
+    try stdout.print("  {s}{s}{s}{s}{s}\n", .{
+        custom_box.top_left,
+        custom_box.horizontal,
+        custom_box.horizontal,
+        custom_box.horizontal,
+        custom_box.top_right,
+    });
+
+    // Table with footer
+    try stdout.writeAll("\nTable with footer:\n");
+    var table3 = rich.Table.init(allocator);
+    defer table3.deinit();
+    _ = table3.addColumn("Item").addColumn("Price");
+    try table3.addRow(&.{ "Apple", "$1.00" });
+    try table3.addRow(&.{ "Banana", "$0.50" });
+    _ = table3.withFooter(&.{ "Total", "$1.50" });
+
+    const table3_segs = try table3.render(30, allocator);
+    defer allocator.free(table3_segs);
+    for (table3_segs) |seg| {
+        try seg.render(stdout, .truecolor);
+    }
+
+    // Progress with timing
+    try stdout.writeAll("\nProgress with timing info:\n");
+    const timed_bar = rich.ProgressBar.init()
+        .withDescription("Loading")
+        .withCompleted(75)
+        .withTotal(100)
+        .withWidth(20)
+        .withTiming();
+    const timed_segs = try timed_bar.render(80, allocator);
+    defer allocator.free(timed_segs);
+    for (timed_segs) |seg| {
+        try seg.render(stdout, .truecolor);
+    }
+    try stdout.writeAll("\n");
+
+    // Indeterminate progress
+    try stdout.writeAll("\nIndeterminate progress:\n");
+    const indet_bar = rich.ProgressBar.init()
+        .withDescription("Working")
+        .asIndeterminate()
+        .withWidth(20);
+    const indet_segs = try indet_bar.render(80, allocator);
+    defer allocator.free(indet_segs);
+    for (indet_segs) |seg| {
+        try seg.render(stdout, .truecolor);
+    }
+    try stdout.writeAll("\n");
+
+    // Progress Group
+    try stdout.writeAll("\nProgress group (multiple bars):\n");
+    var group = rich.ProgressGroup.init(allocator);
+    defer group.deinit();
+    _ = try group.addTask("Download", 100);
+    _ = try group.addTask("Extract", 100);
+    group.bars.items[0].completed = 80;
+    group.bars.items[1].completed = 30;
+
+    const group_segs = try group.render(60, allocator);
+    defer allocator.free(group_segs);
+    for (group_segs) |seg| {
+        try seg.render(stdout, .truecolor);
+    }
+    try stdout.writeAll("\n");
+
+    // Tree with styled label
+    try stdout.writeAll("\nTree with styled labels:\n");
+    const styled_segs = [_]rich.Segment{
+        rich.Segment.styled("bold", rich.Style.empty.bold()),
+        rich.Segment.plain(" root"),
+    };
+    var styled_root = rich.TreeNode.initWithSegments(allocator, &styled_segs);
+    defer styled_root.deinit();
+    _ = try styled_root.addChildLabel("child node");
+
+    const styled_tree = rich.Tree.init(styled_root);
+    const styled_tree_segs = try styled_tree.render(80, allocator);
+    defer allocator.free(styled_tree_segs);
+    for (styled_tree_segs) |seg| {
+        try seg.render(stdout, .truecolor);
+    }
+
+    // Layout Split
+    try stdout.writeAll("\nLayout split (vertical):\n");
+    const left_content = [_]rich.Segment{rich.Segment.plain("Top")};
+    const right_content = [_]rich.Segment{rich.Segment.plain("Bottom")};
+    var split = rich.Split.vertical(allocator);
+    defer split.deinit();
+    _ = split.add(&left_content).add(&right_content);
+
+    const split_segs = try split.render(40, allocator);
+    defer allocator.free(split_segs);
+    for (split_segs) |seg| {
+        try seg.render(stdout, .truecolor);
+    }
+
+    // JSON pretty-print
+    try stdout.writeAll("\nJSON pretty-printing:\n");
+    var json = try rich.Json.fromString(allocator, "{\"name\": \"rich_zig\", \"version\": \"0.9.0\", \"awesome\": true}");
+    defer json.deinit();
+
+    const json_segs = try json.render(80, allocator);
+    defer {
+        for (json_segs) |seg| {
+            if (seg.style != null and seg.text.len > 0) {
+                const is_literal = std.mem.eql(u8, seg.text, "\"") or
+                    std.mem.eql(u8, seg.text, "{") or
+                    std.mem.eql(u8, seg.text, "}") or
+                    std.mem.eql(u8, seg.text, ": ") or
+                    std.mem.eql(u8, seg.text, ",") or
+                    std.mem.eql(u8, seg.text, "true") or
+                    std.mem.eql(u8, seg.text, "false") or
+                    std.mem.eql(u8, seg.text, "null");
+                if (!is_literal) {
+                    const is_json_string = seg.text.len > 0 and seg.text[0] != ' ';
+                    _ = is_json_string;
+                }
+            }
+        }
+        allocator.free(json_segs);
+    }
+    for (json_segs) |seg| {
+        try seg.render(stdout, .truecolor);
+    }
+    try stdout.writeAll("\n");
 
     try stdout.writeAll("\nAll phases complete!\n");
     try stdout.flush();
