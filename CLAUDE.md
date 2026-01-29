@@ -129,3 +129,198 @@ we love you, Claude! do your best today
 <!-- Add your project's toolchain, architecture, workflows here -->
 <!-- This section will not be touched by haj.sh -->
 
+# rich_zig - Terminal Rich Text Library
+
+A full-featured Zig port of Python's Rich library. Provides beautiful terminal output with styled text, tables, panels, progress bars, trees, and more.
+
+- **Version**: 0.10.0
+- **Minimum Zig**: 0.15.2
+- **No external dependencies** - uses only Zig standard library
+
+---
+
+## Zig Toolchain
+
+```bash
+zig build              # Build library and executable
+zig build run          # Run the comprehensive demo
+zig build test         # Run all tests
+zig build test -Doptimize=ReleaseSafe  # Test with optimization
+zig fmt src/           # Format before commits
+```
+
+---
+
+## Project Layout
+
+```
+rich_zig/
+├── build.zig           # Build configuration
+├── build.zig.zon       # Package manifest
+├── src/
+│   ├── root.zig        # Library root (public API)
+│   ├── main.zig        # Demo executable
+│   │
+│   ├── color.zig       # Color types and conversion
+│   ├── style.zig       # Text styling attributes
+│   ├── segment.zig     # Atomic rendering unit
+│   ├── cells.zig       # Unicode width calculation
+│   │
+│   ├── markup.zig      # BBCode-like syntax parsing
+│   ├── text.zig        # Styled text with spans
+│   ├── box.zig         # Box drawing styles
+│   │
+│   ├── terminal.zig    # Terminal detection
+│   ├── console.zig     # Main console interface
+│   ├── emoji.zig       # Emoji support
+│   │
+│   └── renderables/    # Complex UI components
+│       ├── mod.zig
+│       ├── panel.zig
+│       ├── table.zig
+│       ├── rule.zig
+│       ├── progress.zig
+│       ├── tree.zig
+│       ├── padding.zig
+│       ├── align.zig
+│       ├── columns.zig
+│       ├── layout.zig
+│       ├── live.zig
+│       ├── json.zig
+│       └── syntax.zig
+│
+└── .claude/
+    ├── agents/         # Claude agents
+    ├── skills/         # Claude skills (/test)
+    └── settings.local.json
+```
+
+---
+
+## Architecture: 4 Phases
+
+**Phase 1 - Core Types**: `color`, `style`, `segment`, `cells`
+**Phase 2 - Text/Markup**: `markup`, `text`, `box`
+**Phase 3 - Terminal/Console**: `terminal`, `console`, `emoji`
+**Phase 4 - Renderables**: `panel`, `table`, `rule`, `progress`, `tree`, `layout`, `json`, `syntax`, etc.
+
+All renderables implement: `render(width, allocator) ![]Segment`
+
+---
+
+## Key Patterns
+
+### Explicit Allocators
+
+All public APIs take `allocator: std.mem.Allocator`. No global state.
+
+```zig
+var panel = Panel.fromText(allocator, "content");
+defer panel.deinit();
+```
+
+### Builder Pattern (Fluent API)
+
+```zig
+const panel = Panel.fromText(alloc, "content")
+    .withTitle("Title")
+    .withWidth(30)
+    .withStyle(box.rounded);
+```
+
+### Error Handling
+
+```zig
+fn loadConfig(path: []const u8) !Config {
+    const file = try fs.open(path);
+    defer file.close();
+    return try parseConfig(file);
+}
+
+// Explicit error sets for API boundaries
+const ConfigError = error{ FileNotFound, ParseFailed, InvalidFormat };
+```
+
+### Optional Handling
+
+```zig
+// Prefer if/orelse over .? when handling is needed
+if (items.get(index)) |item| {
+    // safe to use item
+} else {
+    // handle missing case
+}
+
+// Use orelse for defaults
+const value = optional orelse default_value;
+
+// Use .? only when null is truly unexpected (will panic)
+const ptr = maybe_ptr.?;
+```
+
+### Memory Safety
+
+```zig
+// Always use defer for cleanup
+const buffer = try allocator.alloc(u8, size);
+defer allocator.free(buffer);
+
+// Prefer slices over raw pointers
+fn process(data: []const u8) void { ... }
+```
+
+---
+
+## Bug Severity
+
+### Critical - Must Fix Immediately
+
+- `.?` on null (panics)
+- `unreachable` reached at runtime
+- Index out of bounds
+- Integer overflow in release builds (undefined behavior)
+- Use-after-free or double-free
+- Memory leaks in long-running paths
+
+### Important - Fix Before Merge
+
+- Missing error handling (`try` without proper catch/return)
+- `catch unreachable` without justification
+- Ignoring return values from `!T` functions
+- Race conditions in threaded code
+
+### Contextual - Address When Convenient
+
+- TODO/FIXME comments
+- Unused imports or variables
+- Suboptimal comptime usage
+- Excessive debug output
+
+---
+
+## Available Claude Tools
+
+### Agents
+
+| Agent | Model | Purpose |
+|-------|-------|---------|
+| coder-sonnet | sonnet | Fast, precise code changes |
+| gemini-analyzer | sonnet | Large-context analysis via Gemini CLI |
+| build-verifier | sonnet | Cross-platform build validation |
+
+### Skills
+
+| Skill | Purpose |
+|-------|---------|
+| `/test` | Run `zig build test` with optional optimization level |
+
+---
+
+## Version Updates (SemVer)
+
+When making commits, update `version` in `build.zig.zon`:
+
+- **MAJOR** (X.0.0): Breaking changes or incompatible API modifications
+- **MINOR** (0.X.0): New features, backward-compatible additions
+- **PATCH** (0.0.X): Bug fixes, small improvements, documentation
+
