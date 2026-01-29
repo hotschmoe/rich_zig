@@ -1,10 +1,37 @@
 const std = @import("std");
 const Style = @import("style.zig").Style;
 const Segment = @import("segment.zig").Segment;
+const segment = @import("segment.zig");
 const Text = @import("text.zig").Text;
 const ColorSystem = @import("color.zig").ColorSystem;
+const Color = @import("color.zig").Color;
 const terminal = @import("terminal.zig");
 const markup = @import("markup.zig");
+
+pub const LogLevel = enum {
+    debug,
+    info,
+    warn,
+    err,
+
+    pub fn toString(self: LogLevel) []const u8 {
+        return switch (self) {
+            .debug => "DEBUG",
+            .info => "INFO",
+            .warn => "WARN",
+            .err => "ERROR",
+        };
+    }
+
+    pub fn style(self: LogLevel) Style {
+        return switch (self) {
+            .debug => Style.empty.dim(),
+            .info => Style.empty,
+            .warn => Style.empty.foreground(Color.yellow),
+            .err => Style.empty.foreground(Color.red),
+        };
+    }
+};
 
 pub const ConsoleOptions = struct {
     width: ?u16 = null,
@@ -227,6 +254,18 @@ pub const Console = struct {
         return null;
     }
 
+    pub fn exportText(segments: []const Segment, allocator: std.mem.Allocator) ![]u8 {
+        return segment.joinText(segments, allocator);
+    }
+
+    pub fn exportCapture(self: *Console) ?[]u8 {
+        if (self.capture_buffer) |buf| {
+            const result = self.allocator.dupe(u8, buf.items) catch return null;
+            return result;
+        }
+        return null;
+    }
+
     pub fn setTitle(self: *Console, title: []const u8) !void {
         var writer = self.getWriter();
         try writer.interface.print("\x1b]0;{s}\x07", .{title});
@@ -257,6 +296,50 @@ pub const Console = struct {
 
     pub fn exitAltScreen(self: *Console) !void {
         try self.writeEscapeSequence("\x1b[?1049l");
+    }
+
+    pub fn log(self: *Console, level: LogLevel, comptime fmt: []const u8, args: anytype) !void {
+        var writer = self.getWriter();
+
+        // Get current time
+        const timestamp = std.time.timestamp();
+        const epoch_seconds: std.time.epoch.EpochSeconds = .{ .secs = @intCast(timestamp) };
+        const day_seconds = epoch_seconds.getDaySeconds();
+        const hours = day_seconds.getHoursIntoDay();
+        const minutes = day_seconds.getMinutesIntoHour();
+        const seconds = day_seconds.getSecondsIntoMinute();
+
+        // Format: [HH:MM:SS] [LEVEL] message
+        try writer.interface.print("[{d:0>2}:{d:0>2}:{d:0>2}] ", .{ hours, minutes, seconds });
+
+        // Level with styling
+        const level_style = level.style();
+        try self.setStyle(level_style, &writer.interface);
+        try writer.interface.print("[{s}]", .{level.toString()});
+        try self.resetStyle(&writer.interface);
+
+        try writer.interface.writeAll(" ");
+
+        // Message
+        try writer.interface.print(fmt, args);
+        try writer.interface.writeAll("\n");
+        try writer.interface.flush();
+    }
+
+    pub fn logDebug(self: *Console, comptime fmt: []const u8, args: anytype) !void {
+        try self.log(.debug, fmt, args);
+    }
+
+    pub fn logInfo(self: *Console, comptime fmt: []const u8, args: anytype) !void {
+        try self.log(.info, fmt, args);
+    }
+
+    pub fn logWarn(self: *Console, comptime fmt: []const u8, args: anytype) !void {
+        try self.log(.warn, fmt, args);
+    }
+
+    pub fn logErr(self: *Console, comptime fmt: []const u8, args: anytype) !void {
+        try self.log(.err, fmt, args);
     }
 };
 
@@ -293,4 +376,33 @@ test "Console.no_color option" {
     defer console.deinit();
 
     try std.testing.expectEqual(ColorSystem.standard, console.colorSystem());
+}
+
+test "Console.exportText" {
+    const allocator = std.testing.allocator;
+    const segments = [_]Segment{
+        Segment.plain("Hello"),
+        Segment.plain(" "),
+        Segment.plain("World"),
+    };
+
+    const text = try Console.exportText(&segments, allocator);
+    defer allocator.free(text);
+
+    try std.testing.expectEqualStrings("Hello World", text);
+}
+
+test "LogLevel.toString" {
+    try std.testing.expectEqualStrings("DEBUG", LogLevel.debug.toString());
+    try std.testing.expectEqualStrings("INFO", LogLevel.info.toString());
+    try std.testing.expectEqualStrings("WARN", LogLevel.warn.toString());
+    try std.testing.expectEqualStrings("ERROR", LogLevel.err.toString());
+}
+
+test "LogLevel.style" {
+    const debug_style = LogLevel.debug.style();
+    try std.testing.expect(debug_style.hasAttribute(.dim));
+
+    const err_style = LogLevel.err.style();
+    try std.testing.expect(err_style.color != null);
 }

@@ -5,6 +5,12 @@ const Text = @import("../text.zig").Text;
 const BoxStyle = @import("../box.zig").BoxStyle;
 const cells = @import("../cells.zig");
 
+pub const Alignment = enum {
+    left,
+    center,
+    right,
+};
+
 pub const Panel = struct {
     content: Content,
     title: ?[]const u8 = null,
@@ -14,6 +20,8 @@ pub const Panel = struct {
     border_style: Style = Style.empty,
     title_style: Style = Style.empty,
     subtitle_style: Style = Style.empty,
+    title_align: Alignment = .center,
+    subtitle_align: Alignment = .center,
     width: ?usize = null,
     padding: Padding = .{ .top = 0, .right = 1, .bottom = 0, .left = 1 },
     expand: bool = true,
@@ -79,6 +87,18 @@ pub const Panel = struct {
     pub fn withTitleStyle(self: Panel, style: Style) Panel {
         var p = self;
         p.title_style = style;
+        return p;
+    }
+
+    pub fn withTitleAlignment(self: Panel, alignment: Alignment) Panel {
+        var p = self;
+        p.title_align = alignment;
+        return p;
+    }
+
+    pub fn withSubtitleAlignment(self: Panel, alignment: Alignment) Panel {
+        var p = self;
+        p.subtitle_align = alignment;
         return p;
     }
 
@@ -180,7 +200,12 @@ pub const Panel = struct {
         if (self.title) |title| {
             const title_len = cells.cellLen(title);
             const available = if (width > title_len + 2) width - title_len - 2 else 0;
-            const left_pad = available / 2;
+
+            const left_pad: usize = switch (self.title_align) {
+                .left => 1,
+                .center => available / 2,
+                .right => if (available > 1) available - 1 else 0,
+            };
             const right_pad = available - left_pad;
 
             try self.renderHorizontal(segments, allocator, left_pad, b);
@@ -202,7 +227,12 @@ pub const Panel = struct {
         if (self.subtitle) |subtitle| {
             const subtitle_len = cells.cellLen(subtitle);
             const available = if (width > subtitle_len + 2) width - subtitle_len - 2 else 0;
-            const left_pad = available / 2;
+
+            const left_pad: usize = switch (self.subtitle_align) {
+                .left => 1,
+                .center => available / 2,
+                .right => if (available > 1) available - 1 else 0,
+            };
             const right_pad = available - left_pad;
 
             try self.renderHorizontal(segments, allocator, left_pad, b);
@@ -306,4 +336,48 @@ test "Panel box styles" {
 
     const heavy_panel = Panel.fromText(allocator, "Test").heavy();
     try std.testing.expectEqualStrings("\u{250F}", heavy_panel.box_style.top_left);
+}
+
+test "Panel.withTitleAlignment" {
+    const allocator = std.testing.allocator;
+    const panel = Panel.fromText(allocator, "Content")
+        .withTitle("Title")
+        .withTitleAlignment(.left);
+
+    try std.testing.expectEqual(Alignment.left, panel.title_align);
+}
+
+test "Panel.withSubtitleAlignment" {
+    const allocator = std.testing.allocator;
+    const panel = Panel.fromText(allocator, "Content")
+        .withSubtitle("Subtitle")
+        .withSubtitleAlignment(.right);
+
+    try std.testing.expectEqual(Alignment.right, panel.subtitle_align);
+}
+
+test "Panel.render with left-aligned title" {
+    const allocator = std.testing.allocator;
+    const panel = Panel.fromText(allocator, "Content")
+        .withTitle("T")
+        .withTitleAlignment(.left)
+        .withWidth(20);
+
+    const segments = try panel.render(80, allocator);
+    defer allocator.free(segments);
+
+    try std.testing.expect(segments.len > 0);
+}
+
+test "Panel.render with right-aligned title" {
+    const allocator = std.testing.allocator;
+    const panel = Panel.fromText(allocator, "Content")
+        .withTitle("T")
+        .withTitleAlignment(.right)
+        .withWidth(20);
+
+    const segments = try panel.render(80, allocator);
+    defer allocator.free(segments);
+
+    try std.testing.expect(segments.len > 0);
 }

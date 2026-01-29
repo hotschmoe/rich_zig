@@ -21,7 +21,7 @@ We aim to implement all features from the Rich library that are feasible in Zig 
 | Hex color parsing (#RRGGBB) | Y | Y | [x] | With/without # prefix |
 | RGB color creation | Y | Y | [x] | From r, g, b values |
 | Named color lookup | Y | Y | [x] | "red", "green", etc. |
-| Color blending/interpolation | Y | Y | [ ] | Gradient support |
+| Color blending/interpolation | Y | Y | [x] | Gradient support |
 | Auto-downgrade truecolor->256 | Y | Y | [x] | Distance-based matching |
 | Auto-downgrade 256->16 | Y | Y | [x] | Nearest color matching |
 | ANSI escape code generation | Y | Y | [x] | SGR sequences |
@@ -143,11 +143,11 @@ We aim to implement all features from the Rich library that are feasible in Zig 
 | Capture mode | Y | Y | [x] | Buffer output |
 | Export to HTML | Y | Y | [ ] | ANSI -> HTML |
 | Export to SVG | Y | Y | [ ] | Terminal screenshot |
-| Export to text | Y | Y | [ ] | Strip ANSI |
+| Export to text | Y | Y | [x] | Strip ANSI |
 | Pager support | Y | Y | [ ] | Less-like paging |
 | Input prompts | Y | Y | [ ] | User input |
 | Status/spinner | Y | Y | [ ] | Transient message |
-| Log method | Y | Y | [ ] | With timestamp |
+| Log method | Y | Y | [x] | With timestamp |
 | Clear screen | Y | Y | [x] | Full clear |
 | Clear line | Y | Y | [x] | Current line |
 | Bell | Y | Y | [x] | Terminal bell |
@@ -181,7 +181,7 @@ We aim to implement all features from the Rich library that are feasible in Zig 
 | Basic panel | Y | Y | [x] | Border + content |
 | Title (top) | Y | Y | [x] | Centered in border |
 | Subtitle (bottom) | Y | Y | [x] | Centered in border |
-| Title alignment | Y | Y | [ ] | Left/center/right |
+| Title alignment | Y | Y | [x] | Left/center/right |
 | Box style selection | Y | Y | [x] | Any box style |
 | Border style/color | Y | Y | [x] | Custom border color |
 | Padding | Y | Y | [x] | Top/right/bottom/left |
@@ -202,7 +202,7 @@ We aim to implement all features from the Rich library that are feasible in Zig 
 | Column width (ratio) | Y | Y | [ ] | Proportional |
 | Auto-sizing columns | Y | Y | [x] | Fit content |
 | Table title | Y | Y | [x] | Above table |
-| Table caption | Y | Y | [ ] | Below table |
+| Table caption | Y | Y | [x] | Below table |
 | Row styles | Y | Y | [ ] | Alternating, etc. |
 | Cell styles | Y | Y | [x] | Per-cell styling |
 | Show/hide header | Y | Y | [x] | Toggle header |
@@ -279,18 +279,18 @@ We aim to implement all features from the Rich library that are feasible in Zig 
 
 | Feature | Rich | rich_rust | rich_zig | Notes |
 |---------|------|-----------|----------|-------|
-| Uniform padding | Y | Y | [ ] | All sides |
-| Per-side padding | Y | Y | [ ] | Top/right/bottom/left |
-| Padding style | Y | Y | [ ] | Background color |
+| Uniform padding | Y | Y | [x] | All sides |
+| Per-side padding | Y | Y | [x] | Top/right/bottom/left |
+| Padding style | Y | Y | [x] | Background color |
 
 ### Align (`renderables/align.zig`)
 
 | Feature | Rich | rich_rust | rich_zig | Notes |
 |---------|------|-----------|----------|-------|
-| Left align | Y | Y | [ ] | Left + pad right |
-| Center align | Y | Y | [ ] | Center + pad both |
-| Right align | Y | Y | [ ] | Pad left + right |
-| Vertical align | Y | Y | [ ] | Top/middle/bottom |
+| Left align | Y | Y | [x] | Left + pad right |
+| Center align | Y | Y | [x] | Center + pad both |
+| Right align | Y | Y | [x] | Pad left + right |
+| Vertical align | Y | Y | [x] | Top/middle/bottom |
 
 ### Layout (`renderables/layout.zig`)
 
@@ -434,8 +434,8 @@ Track weekly:
 
 | Metric | Target | Current |
 |--------|--------|---------|
-| P0 Features Implemented | 100% | ~95% |
-| P1 Features Implemented | 100% | ~45% |
+| P0 Features Implemented | 100% | ~98% |
+| P1 Features Implemented | 100% | ~55% |
 | P2 Features Implemented | 80%+ | 0% |
 | Test Coverage | >85% | ~90% |
 | Documentation Coverage | 100% | 20% |

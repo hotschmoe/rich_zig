@@ -59,17 +59,24 @@ pub const TerminalInfo = terminal.TerminalInfo;
 pub const console = @import("console.zig");
 pub const Console = console.Console;
 pub const ConsoleOptions = console.ConsoleOptions;
+pub const LogLevel = console.LogLevel;
 
 // Phase 4: Renderables
 pub const renderables = @import("renderables/mod.zig");
 pub const Panel = renderables.Panel;
+pub const Alignment = renderables.Alignment;
 pub const Table = renderables.Table;
 pub const Column = renderables.Column;
+pub const JustifyMethod = renderables.JustifyMethod;
 pub const Rule = renderables.Rule;
 pub const ProgressBar = renderables.ProgressBar;
 pub const Spinner = renderables.Spinner;
 pub const Tree = renderables.Tree;
 pub const TreeNode = renderables.TreeNode;
+pub const Padding = renderables.Padding;
+pub const Align = renderables.Align;
+pub const HAlign = renderables.HAlign;
+pub const VAlign = renderables.VAlign;
 
 // Re-export tests from all modules
 test {

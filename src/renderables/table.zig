@@ -66,6 +66,9 @@ pub const Table = struct {
     rows: std.ArrayList([]const []const u8),
     title: ?[]const u8 = null,
     title_style: Style = Style.empty,
+    caption: ?[]const u8 = null,
+    caption_style: Style = Style.empty,
+    caption_justify: JustifyMethod = .center,
     header_style: Style = Style.empty,
     border_style: Style = Style.empty,
     box_style: BoxStyle = BoxStyle.square,
@@ -126,6 +129,21 @@ pub const Table = struct {
         return self;
     }
 
+    pub fn withCaption(self: *Table, caption_text: []const u8) *Table {
+        self.caption = caption_text;
+        return self;
+    }
+
+    pub fn withCaptionStyle(self: *Table, style: Style) *Table {
+        self.caption_style = style;
+        return self;
+    }
+
+    pub fn withCaptionJustify(self: *Table, justify: JustifyMethod) *Table {
+        self.caption_justify = justify;
+        return self;
+    }
+
     pub fn render(self: Table, max_width: usize, allocator: std.mem.Allocator) ![]Segment {
         var segments: std.ArrayList(Segment) = .empty;
 
@@ -161,6 +179,11 @@ pub const Table = struct {
         // Bottom border
         if (self.show_edge) {
             try self.renderHorizontalBorder(&segments, allocator, col_widths, b.bottom_left, b.horizontal, b.bottom_right, b.bottom_tee);
+        }
+
+        // Caption
+        if (self.caption) |caption_text| {
+            try self.renderCaption(&segments, allocator, col_widths, caption_text);
         }
 
         return segments.toOwnedSlice(allocator);
@@ -290,6 +313,43 @@ pub const Table = struct {
             try segments.append(allocator, Segment.plain(" "));
         }
     }
+
+    fn renderCaption(self: Table, segments: *std.ArrayList(Segment), allocator: std.mem.Allocator, widths: []usize, caption_text: []const u8) !void {
+        // Calculate total table width
+        var total_width: usize = 0;
+        for (widths) |w| {
+            total_width += w;
+        }
+        // Add separators between columns
+        if (widths.len > 1) {
+            total_width += widths.len - 1;
+        }
+        // Add edge borders
+        if (self.show_edge) {
+            total_width += 2;
+        }
+
+        const caption_len = cells.cellLen(caption_text);
+        const padding_total = if (total_width > caption_len) total_width - caption_len else 0;
+
+        const left_pad: usize = switch (self.caption_justify) {
+            .left => 0,
+            .center => padding_total / 2,
+            .right => padding_total,
+        };
+        const right_pad = padding_total - left_pad;
+
+        // Left padding
+        try self.renderSpaces(segments, allocator, left_pad);
+
+        // Caption text
+        try segments.append(allocator, Segment.styledOptional(caption_text, if (self.caption_style.isEmpty()) null else self.caption_style));
+
+        // Right padding
+        try self.renderSpaces(segments, allocator, right_pad);
+
+        try segments.append(allocator, Segment.line());
+    }
 };
 
 // Tests
@@ -342,4 +402,56 @@ test "Column justify methods" {
     const col = Column.init("Test").withJustify(.center).withWidth(10);
     try std.testing.expectEqual(JustifyMethod.center, col.justify);
     try std.testing.expectEqual(@as(?usize, 10), col.width);
+}
+
+test "Table.withCaption" {
+    const allocator = std.testing.allocator;
+    var table = Table.init(allocator);
+    defer table.deinit();
+
+    _ = table.withCaption("Table Caption");
+
+    try std.testing.expectEqualStrings("Table Caption", table.caption.?);
+}
+
+test "Table.withCaptionStyle" {
+    const allocator = std.testing.allocator;
+    var table = Table.init(allocator);
+    defer table.deinit();
+
+    _ = table.withCaptionStyle(Style.empty.italic());
+
+    try std.testing.expect(table.caption_style.hasAttribute(.italic));
+}
+
+test "Table.withCaptionJustify" {
+    const allocator = std.testing.allocator;
+    var table = Table.init(allocator);
+    defer table.deinit();
+
+    _ = table.withCaptionJustify(.right);
+
+    try std.testing.expectEqual(JustifyMethod.right, table.caption_justify);
+}
+
+test "Table.render with caption" {
+    const allocator = std.testing.allocator;
+    var table = Table.init(allocator);
+    defer table.deinit();
+
+    _ = table.addColumn("A").addColumn("B").withCaption("My Caption");
+    try table.addRow(&.{ "1", "2" });
+
+    const segments = try table.render(80, allocator);
+    defer allocator.free(segments);
+
+    // Verify caption is in output
+    var found_caption = false;
+    for (segments) |seg| {
+        if (std.mem.indexOf(u8, seg.text, "My Caption") != null) {
+            found_caption = true;
+            break;
+        }
+    }
+    try std.testing.expect(found_caption);
 }
