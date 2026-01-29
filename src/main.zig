@@ -14,7 +14,7 @@ pub fn main() !void {
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
-    try stdout.writeAll("rich_zig v0.9.0 - Full Demo\n");
+    try stdout.writeAll("rich_zig v0.9.1 - Full Demo\n");
     try stdout.writeAll("===========================\n\n");
 
     // Phase 1: Color, Style, Segment
@@ -306,16 +306,19 @@ pub fn main() !void {
 
     // Progress with timing
     try stdout.writeAll("\nProgress with timing info:\n");
-    const timed_bar = rich.ProgressBar.init()
-        .withDescription("Loading")
-        .withCompleted(75)
-        .withTotal(100)
-        .withWidth(20)
-        .withTiming();
-    const timed_segs = try timed_bar.render(80, allocator);
-    defer allocator.free(timed_segs);
-    for (timed_segs) |seg| {
-        try seg.render(stdout, .truecolor);
+    {
+        var arena = std.heap.ArenaAllocator.init(allocator);
+        defer arena.deinit();
+        const timed_bar = rich.ProgressBar.init()
+            .withDescription("Loading")
+            .withCompleted(75)
+            .withTotal(100)
+            .withWidth(20)
+            .withTiming();
+        const timed_segs = try timed_bar.render(80, arena.allocator());
+        for (timed_segs) |seg| {
+            try seg.render(stdout, .truecolor);
+        }
     }
     try stdout.writeAll("\n");
 

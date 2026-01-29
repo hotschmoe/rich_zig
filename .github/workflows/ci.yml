@@ -155,7 +155,9 @@ jobs:
           cat > src/main.zig << 'EOF'
           const rich_zig = @import("rich_zig");
           pub fn main() !void {
-              _ = rich_zig.add(1, 2);
+              // Verify package exports are accessible
+              const style = rich_zig.Style.empty.bold();
+              _ = style;
           }
           EOF
 

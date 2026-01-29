@@ -144,13 +144,20 @@ pub const Json = struct {
         }
     }
 
+    const max_indent_spaces = 128;
+    const indent_buffer: *const [max_indent_spaces]u8 = &([1]u8{' '} ** max_indent_spaces);
+
     fn renderIndent(self: Json, segments: *std.ArrayList(Segment), allocator: std.mem.Allocator, depth: usize) !void {
         const total_spaces = depth * self.indent;
         if (total_spaces == 0) return;
 
-        const spaces = try allocator.alloc(u8, total_spaces);
-        @memset(spaces, ' ');
-        try segments.append(allocator, Segment.plain(spaces));
+        if (total_spaces <= max_indent_spaces) {
+            try segments.append(allocator, Segment.plain(indent_buffer[0..total_spaces]));
+        } else {
+            const spaces = try allocator.alloc(u8, total_spaces);
+            @memset(spaces, ' ');
+            try segments.append(allocator, Segment.plain(spaces));
+        }
     }
 };
 
@@ -219,15 +226,16 @@ test "Json.render string" {
 
 test "Json.render integer" {
     const allocator = std.testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+
     const value = std.json.Value{ .integer = 42 };
     const json = Json.init(allocator, value);
 
-    const segments = try json.render(80, allocator);
+    const segments = try json.render(80, arena.allocator());
 
     try std.testing.expect(segments.len > 0);
-
-    allocator.free(@constCast(segments[0].text));
-    allocator.free(segments);
+    try std.testing.expectEqualStrings("42", segments[0].text);
 }
 
 test "Json.fromString" {
@@ -236,4 +244,87 @@ test "Json.fromString" {
     defer json.deinit();
 
     try std.testing.expectEqual(@as(i64, 42), json.value.integer);
+}
+
+test "Json.render object with properties" {
+    const allocator = std.testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+
+    var json = try Json.fromString(allocator,
+        \\{"name": "test", "value": 42}
+    );
+    defer json.deinit();
+
+    const segments = try json.render(80, arena.allocator());
+    const text = try @import("../segment.zig").joinText(segments, arena.allocator());
+
+    try std.testing.expect(std.mem.indexOf(u8, text, "name") != null);
+    try std.testing.expect(std.mem.indexOf(u8, text, "test") != null);
+    try std.testing.expect(std.mem.indexOf(u8, text, "42") != null);
+}
+
+test "Json.render array with items" {
+    const allocator = std.testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+
+    var json = try Json.fromString(allocator, "[1, 2, 3]");
+    defer json.deinit();
+
+    const segments = try json.render(80, arena.allocator());
+    const text = try @import("../segment.zig").joinText(segments, arena.allocator());
+
+    try std.testing.expect(std.mem.indexOf(u8, text, "1") != null);
+    try std.testing.expect(std.mem.indexOf(u8, text, "2") != null);
+    try std.testing.expect(std.mem.indexOf(u8, text, "3") != null);
+}
+
+test "Json.render nested structure" {
+    const allocator = std.testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+
+    var json = try Json.fromString(allocator,
+        \\{"outer": {"inner": {"deep": true}}}
+    );
+    defer json.deinit();
+
+    const segments = try json.render(80, arena.allocator());
+    const text = try @import("../segment.zig").joinText(segments, arena.allocator());
+
+    try std.testing.expect(std.mem.indexOf(u8, text, "outer") != null);
+    try std.testing.expect(std.mem.indexOf(u8, text, "inner") != null);
+    try std.testing.expect(std.mem.indexOf(u8, text, "deep") != null);
+    try std.testing.expect(std.mem.indexOf(u8, text, "true") != null);
+}
+
+test "Json.render deeply nested array" {
+    const allocator = std.testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+
+    var json = try Json.fromString(allocator, "[[[[1]]]]");
+    defer json.deinit();
+
+    const segments = try json.render(80, arena.allocator());
+
+    try std.testing.expect(segments.len > 0);
+}
+
+test "Json.render mixed nested structure" {
+    const allocator = std.testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+
+    var json = try Json.fromString(allocator,
+        \\{"items": [{"id": 1}, {"id": 2}], "count": 2}
+    );
+    defer json.deinit();
+
+    const segments = try json.render(80, arena.allocator());
+    const text = try @import("../segment.zig").joinText(segments, arena.allocator());
+
+    try std.testing.expect(std.mem.indexOf(u8, text, "items") != null);
+    try std.testing.expect(std.mem.indexOf(u8, text, "id") != null);
 }

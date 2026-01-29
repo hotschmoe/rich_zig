@@ -3,6 +3,25 @@ const Segment = @import("../segment.zig").Segment;
 const Style = @import("../style.zig").Style;
 const Color = @import("../color.zig").Color;
 
+const percentage_strings = blk: {
+    var strings: [101][5]u8 = undefined;
+    for (0..101) |i| {
+        const pct: u8 = @intCast(i);
+        strings[i][0] = ' ';
+        strings[i][1] = if (pct >= 100) '1' else ' ';
+        strings[i][2] = if (pct >= 10) '0' + ((pct / 10) % 10) else ' ';
+        strings[i][3] = '0' + (pct % 10);
+        strings[i][4] = '%';
+    }
+    break :blk strings;
+};
+
+fn getPercentageString(pct: f64) []const u8 {
+    const clamped = @min(@max(pct, 0.0), 100.0);
+    const index: usize = @intFromFloat(@round(clamped));
+    return &percentage_strings[index];
+}
+
 pub const SpeedUnit = enum {
     items,
     bytes,
@@ -251,9 +270,7 @@ pub const ProgressBar = struct {
         }
 
         if (!self.indeterminate and self.show_percentage) {
-            var pct_buf: [8]u8 = undefined;
-            const pct_str = std.fmt.bufPrint(&pct_buf, " {d:>3.0}%", .{self.percentage()}) catch " ???%";
-            try segments.append(allocator, Segment.plain(pct_str));
+            try segments.append(allocator, Segment.plain(getPercentageString(self.percentage())));
         }
 
         if (self.show_elapsed) {
@@ -261,7 +278,7 @@ pub const ProgressBar = struct {
             const elapsed = self.calculateElapsed();
             const time_str = formatTime(elapsed, &time_buf);
             try segments.append(allocator, Segment.plain(" "));
-            try segments.append(allocator, Segment.plain(time_str));
+            try segments.append(allocator, Segment.plain(try allocator.dupe(u8, time_str)));
         }
 
         if (self.show_eta and !self.indeterminate) {
@@ -269,7 +286,7 @@ pub const ProgressBar = struct {
                 var eta_buf: [16]u8 = undefined;
                 const eta_str = formatTime(eta, &eta_buf);
                 try segments.append(allocator, Segment.plain(" ETA "));
-                try segments.append(allocator, Segment.plain(eta_str));
+                try segments.append(allocator, Segment.plain(try allocator.dupe(u8, eta_str)));
             }
         }
 
@@ -278,7 +295,7 @@ pub const ProgressBar = struct {
             const rate = self.calculateSpeed();
             const speed_str = formatSpeed(rate, self.speed_unit, self.speed_suffix, &speed_buf);
             try segments.append(allocator, Segment.plain(" "));
-            try segments.append(allocator, Segment.plain(speed_str));
+            try segments.append(allocator, Segment.plain(try allocator.dupe(u8, speed_str)));
         }
 
         return segments.toOwnedSlice(allocator);
@@ -558,6 +575,70 @@ test "ProgressBar.shouldHide" {
 
     const non_transient = ProgressBar.init().withCompleted(100).withTotal(100);
     try std.testing.expect(!non_transient.shouldHide());
+}
+
+test "ProgressBar.render with timing enabled" {
+    const allocator = std.testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+
+    const bar = ProgressBar.init()
+        .withCompleted(50)
+        .withTotal(100)
+        .withWidth(10)
+        .withTiming();
+
+    const segments = try bar.render(80, arena.allocator());
+
+    const text = try @import("../segment.zig").joinText(segments, arena.allocator());
+
+    try std.testing.expect(std.mem.indexOf(u8, text, ":") != null);
+    for (text) |c| {
+        try std.testing.expect(c >= 0x20 or c == '\n');
+    }
+}
+
+test "ProgressBar.render with elapsed only" {
+    const allocator = std.testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+
+    const bar = ProgressBar.init()
+        .withCompleted(75)
+        .withTotal(100)
+        .withWidth(10)
+        .withElapsed();
+
+    const segments = try bar.render(80, arena.allocator());
+
+    const text = try @import("../segment.zig").joinText(segments, arena.allocator());
+
+    try std.testing.expect(std.mem.indexOf(u8, text, "00:00") != null);
+}
+
+test "ProgressBar.render with speed" {
+    const allocator = std.testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+
+    const bar = ProgressBar.init()
+        .withCompleted(100)
+        .withTotal(100)
+        .withWidth(10)
+        .withSpeed();
+
+    const segments = try bar.render(80, arena.allocator());
+
+    try std.testing.expect(segments.len > 0);
+}
+
+test "ProgressBar percentage string lookup" {
+    try std.testing.expectEqualStrings("   0%", getPercentageString(0.0));
+    try std.testing.expectEqualStrings("  50%", getPercentageString(50.0));
+    try std.testing.expectEqualStrings(" 100%", getPercentageString(100.0));
+    try std.testing.expectEqualStrings("  75%", getPercentageString(75.4));
+    try std.testing.expectEqualStrings("   0%", getPercentageString(-5.0));
+    try std.testing.expectEqualStrings(" 100%", getPercentageString(150.0));
 }
 
 pub const ProgressGroup = struct {
