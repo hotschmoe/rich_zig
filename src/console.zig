@@ -259,11 +259,8 @@ pub const Console = struct {
     }
 
     pub fn exportCapture(self: *Console) ?[]u8 {
-        if (self.capture_buffer) |buf| {
-            const result = self.allocator.dupe(u8, buf.items) catch return null;
-            return result;
-        }
-        return null;
+        const buf = self.capture_buffer orelse return null;
+        return self.allocator.dupe(u8, buf.items) catch null;
     }
 
     pub fn setTitle(self: *Console, title: []const u8) !void {

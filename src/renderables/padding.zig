@@ -11,13 +11,9 @@ pub const Padding = struct {
     bottom: u8 = 0,
     left: u8 = 0,
     style: ?Style = null,
-    allocator: std.mem.Allocator,
 
-    pub fn init(allocator: std.mem.Allocator, content: []const Segment) Padding {
-        return .{
-            .content = content,
-            .allocator = allocator,
-        };
+    pub fn init(content: []const Segment) Padding {
+        return .{ .content = content };
     }
 
     pub fn uniform(self: Padding, n: u8) Padding {
@@ -61,50 +57,25 @@ pub const Padding = struct {
     pub fn render(self: Padding, max_width: usize, allocator: std.mem.Allocator) ![]Segment {
         var result: std.ArrayList(Segment) = .empty;
 
-        // Split content into lines
-        var lines: std.ArrayList([]const Segment) = .empty;
-        defer lines.deinit(allocator);
+        const lines = try segment.splitIntoLines(self.content, allocator);
+        defer allocator.free(lines);
 
-        var line_start: usize = 0;
-        for (self.content, 0..) |seg, i| {
-            if (std.mem.eql(u8, seg.text, "\n")) {
-                try lines.append(allocator, self.content[line_start..i]);
-                line_start = i + 1;
-            }
-        }
-        if (line_start < self.content.len) {
-            try lines.append(allocator, self.content[line_start..]);
-        }
-        if (lines.items.len == 0) {
-            try lines.append(allocator, &[_]Segment{});
-        }
-
-        // Calculate max content width
-        var max_content_width: usize = 0;
-        for (lines.items) |line| {
-            const line_width = segment.totalCellLength(line);
-            if (line_width > max_content_width) {
-                max_content_width = line_width;
-            }
-        }
-
+        const max_content_width = segment.maxLineWidth(lines);
         const total_width = max_content_width + self.left + self.right;
         const effective_width = @min(total_width, max_width);
 
         // Top padding
-        var i: u8 = 0;
-        while (i < self.top) : (i += 1) {
+        for (0..self.top) |_| {
             try self.renderBlankLine(&result, allocator, effective_width);
         }
 
         // Content lines with left/right padding
-        for (lines.items) |line| {
+        for (lines) |line| {
             try self.renderContentLine(&result, allocator, line, max_content_width);
         }
 
         // Bottom padding
-        i = 0;
-        while (i < self.bottom) : (i += 1) {
+        for (0..self.bottom) |_| {
             try self.renderBlankLine(&result, allocator, effective_width);
         }
 
@@ -112,95 +83,79 @@ pub const Padding = struct {
     }
 
     fn renderBlankLine(self: Padding, result: *std.ArrayList(Segment), allocator: std.mem.Allocator, width: usize) !void {
-        for (0..width) |_| {
-            try result.append(allocator, if (self.style) |s|
-                Segment.styled(" ", s)
-            else
-                Segment.plain(" "));
-        }
+        try self.renderSpaces(result, allocator, width);
         try result.append(allocator, Segment.line());
     }
 
     fn renderContentLine(self: Padding, result: *std.ArrayList(Segment), allocator: std.mem.Allocator, line: []const Segment, max_content_width: usize) !void {
-        // Left padding
-        for (0..self.left) |_| {
-            try result.append(allocator, if (self.style) |s|
-                Segment.styled(" ", s)
-            else
-                Segment.plain(" "));
-        }
+        try self.renderSpaces(result, allocator, self.left);
 
-        // Content
         for (line) |seg| {
             try result.append(allocator, seg);
         }
 
-        // Right padding to fill to max_content_width
         const line_width = segment.totalCellLength(line);
         const right_fill = if (max_content_width > line_width) max_content_width - line_width else 0;
-        for (0..right_fill + self.right) |_| {
-            try result.append(allocator, if (self.style) |s|
-                Segment.styled(" ", s)
-            else
-                Segment.plain(" "));
-        }
+        try self.renderSpaces(result, allocator, right_fill + self.right);
 
         try result.append(allocator, Segment.line());
+    }
+
+    fn renderSpaces(self: Padding, result: *std.ArrayList(Segment), allocator: std.mem.Allocator, count: usize) !void {
+        const space_seg = Segment.styledOptional(" ", self.style);
+        for (0..count) |_| {
+            try result.append(allocator, space_seg);
+        }
     }
 };
 
 // Tests
 test "Padding.init" {
-    const allocator = std.testing.allocator;
     const segments = [_]Segment{Segment.plain("Hello")};
-    const padding = Padding.init(allocator, &segments);
+    const pad = Padding.init(&segments);
 
-    try std.testing.expectEqual(@as(u8, 0), padding.top);
-    try std.testing.expectEqual(@as(u8, 0), padding.right);
+    try std.testing.expectEqual(@as(u8, 0), pad.top);
+    try std.testing.expectEqual(@as(u8, 0), pad.right);
 }
 
 test "Padding.uniform" {
-    const allocator = std.testing.allocator;
     const segments = [_]Segment{Segment.plain("Hello")};
-    const padding = Padding.init(allocator, &segments).uniform(2);
+    const pad = Padding.init(&segments).uniform(2);
 
-    try std.testing.expectEqual(@as(u8, 2), padding.top);
-    try std.testing.expectEqual(@as(u8, 2), padding.right);
-    try std.testing.expectEqual(@as(u8, 2), padding.bottom);
-    try std.testing.expectEqual(@as(u8, 2), padding.left);
+    try std.testing.expectEqual(@as(u8, 2), pad.top);
+    try std.testing.expectEqual(@as(u8, 2), pad.right);
+    try std.testing.expectEqual(@as(u8, 2), pad.bottom);
+    try std.testing.expectEqual(@as(u8, 2), pad.left);
 }
 
 test "Padding.horizontal" {
-    const allocator = std.testing.allocator;
     const segments = [_]Segment{Segment.plain("Hello")};
-    const padding = Padding.init(allocator, &segments).horizontal(3);
+    const pad = Padding.init(&segments).horizontal(3);
 
-    try std.testing.expectEqual(@as(u8, 0), padding.top);
-    try std.testing.expectEqual(@as(u8, 3), padding.right);
-    try std.testing.expectEqual(@as(u8, 0), padding.bottom);
-    try std.testing.expectEqual(@as(u8, 3), padding.left);
+    try std.testing.expectEqual(@as(u8, 0), pad.top);
+    try std.testing.expectEqual(@as(u8, 3), pad.right);
+    try std.testing.expectEqual(@as(u8, 0), pad.bottom);
+    try std.testing.expectEqual(@as(u8, 3), pad.left);
 }
 
 test "Padding.vertical" {
-    const allocator = std.testing.allocator;
     const segments = [_]Segment{Segment.plain("Hello")};
-    const padding = Padding.init(allocator, &segments).vertical(1);
+    const pad = Padding.init(&segments).vertical(1);
 
-    try std.testing.expectEqual(@as(u8, 1), padding.top);
-    try std.testing.expectEqual(@as(u8, 0), padding.right);
-    try std.testing.expectEqual(@as(u8, 1), padding.bottom);
-    try std.testing.expectEqual(@as(u8, 0), padding.left);
+    try std.testing.expectEqual(@as(u8, 1), pad.top);
+    try std.testing.expectEqual(@as(u8, 0), pad.right);
+    try std.testing.expectEqual(@as(u8, 1), pad.bottom);
+    try std.testing.expectEqual(@as(u8, 0), pad.left);
 }
 
 test "Padding.render basic" {
     const allocator = std.testing.allocator;
     const segments = [_]Segment{Segment.plain("Hi")};
-    const padding = Padding.init(allocator, &segments).uniform(1);
+    const pad = Padding.init(&segments).uniform(1);
 
-    const rendered = try padding.render(80, allocator);
+    const rendered = try pad.render(80, allocator);
     defer allocator.free(rendered);
 
-    // Should have: 1 blank line top + 1 content line + 1 blank line bottom = 3 lines
     var line_count: usize = 0;
     for (rendered) |seg| {
         if (std.mem.eql(u8, seg.text, "\n")) {
@@ -211,21 +166,19 @@ test "Padding.render basic" {
 }
 
 test "Padding.withPadding" {
-    const allocator = std.testing.allocator;
     const segments = [_]Segment{Segment.plain("Test")};
-    const padding = Padding.init(allocator, &segments).withPadding(1, 2, 3, 4);
+    const pad = Padding.init(&segments).withPadding(1, 2, 3, 4);
 
-    try std.testing.expectEqual(@as(u8, 1), padding.top);
-    try std.testing.expectEqual(@as(u8, 2), padding.right);
-    try std.testing.expectEqual(@as(u8, 3), padding.bottom);
-    try std.testing.expectEqual(@as(u8, 4), padding.left);
+    try std.testing.expectEqual(@as(u8, 1), pad.top);
+    try std.testing.expectEqual(@as(u8, 2), pad.right);
+    try std.testing.expectEqual(@as(u8, 3), pad.bottom);
+    try std.testing.expectEqual(@as(u8, 4), pad.left);
 }
 
 test "Padding.withStyle" {
-    const allocator = std.testing.allocator;
     const segments = [_]Segment{Segment.plain("Test")};
-    const padding = Padding.init(allocator, &segments).withStyle(Style.empty.bold());
+    const pad = Padding.init(&segments).withStyle(Style.empty.bold());
 
-    try std.testing.expect(padding.style != null);
-    try std.testing.expect(padding.style.?.hasAttribute(.bold));
+    try std.testing.expect(pad.style != null);
+    try std.testing.expect(pad.style.?.hasAttribute(.bold));
 }

@@ -268,6 +268,37 @@ pub fn divide(segments: []const Segment, cuts: []const usize, allocator: std.mem
     return result.toOwnedSlice(allocator);
 }
 
+pub fn splitIntoLines(segments: []const Segment, allocator: std.mem.Allocator) ![][]const Segment {
+    var lines: std.ArrayList([]const Segment) = .empty;
+    var line_start: usize = 0;
+
+    for (segments, 0..) |seg, i| {
+        if (std.mem.eql(u8, seg.text, "\n")) {
+            try lines.append(allocator, segments[line_start..i]);
+            line_start = i + 1;
+        }
+    }
+    if (line_start < segments.len) {
+        try lines.append(allocator, segments[line_start..]);
+    }
+    if (lines.items.len == 0) {
+        try lines.append(allocator, &[_]Segment{});
+    }
+
+    return lines.toOwnedSlice(allocator);
+}
+
+pub fn maxLineWidth(lines: []const []const Segment) usize {
+    var max_width: usize = 0;
+    for (lines) |line| {
+        const line_width = totalCellLength(line);
+        if (line_width > max_width) {
+            max_width = line_width;
+        }
+    }
+    return max_width;
+}
+
 pub fn adjustLineLength(segments: []const Segment, target_length: usize, pad_char: u8, allocator: std.mem.Allocator) ![]Segment {
     const current_len = totalCellLength(segments);
 
@@ -466,4 +497,49 @@ test "adjustLineLength truncating" {
 
     try std.testing.expectEqual(@as(usize, 5), totalCellLength(adjusted));
     try std.testing.expectEqualStrings("Hello", adjusted[0].text);
+}
+
+test "splitIntoLines single line" {
+    const allocator = std.testing.allocator;
+    const segments = [_]Segment{Segment.plain("Hello")};
+
+    const lines = try splitIntoLines(&segments, allocator);
+    defer allocator.free(lines);
+
+    try std.testing.expectEqual(@as(usize, 1), lines.len);
+    try std.testing.expectEqual(@as(usize, 1), lines[0].len);
+}
+
+test "splitIntoLines multiple lines" {
+    const allocator = std.testing.allocator;
+    const segments = [_]Segment{
+        Segment.plain("Hello"),
+        Segment.line(),
+        Segment.plain("World"),
+    };
+
+    const lines = try splitIntoLines(&segments, allocator);
+    defer allocator.free(lines);
+
+    try std.testing.expectEqual(@as(usize, 2), lines.len);
+    try std.testing.expectEqual(@as(usize, 1), lines[0].len);
+    try std.testing.expectEqual(@as(usize, 1), lines[1].len);
+}
+
+test "splitIntoLines empty" {
+    const allocator = std.testing.allocator;
+    const segments = [_]Segment{};
+
+    const lines = try splitIntoLines(&segments, allocator);
+    defer allocator.free(lines);
+
+    try std.testing.expectEqual(@as(usize, 1), lines.len);
+}
+
+test "maxLineWidth" {
+    const line1 = [_]Segment{Segment.plain("Hi")};
+    const line2 = [_]Segment{Segment.plain("Hello")};
+    const lines = [_][]const Segment{ &line1, &line2 };
+
+    try std.testing.expectEqual(@as(usize, 5), maxLineWidth(&lines));
 }
