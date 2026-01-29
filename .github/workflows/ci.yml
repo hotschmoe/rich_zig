@@ -113,7 +113,7 @@ jobs:
           .{
               .name = .test_consumer,
               .version = "0.0.0",
-              .fingerprint = 0x0,
+              .fingerprint = 0xe5383c7136a60b55,
               .dependencies = .{
                   .rich_zig = .{
                       .path = "${{ github.workspace }}",
