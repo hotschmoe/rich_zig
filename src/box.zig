@@ -212,8 +212,7 @@ pub const BoxStyle = struct {
     pub fn getHorizontal(self: BoxStyle, count: usize, allocator: std.mem.Allocator) ![]u8 {
         const char_len = self.horizontal.len;
         const result = try allocator.alloc(u8, count * char_len);
-        var i: usize = 0;
-        while (i < count) : (i += 1) {
+        for (0..count) |i| {
             @memcpy(result[i * char_len ..][0..char_len], self.horizontal);
         }
         return result;
@@ -221,10 +220,9 @@ pub const BoxStyle = struct {
 
     pub fn getVertical(self: BoxStyle, count: usize, allocator: std.mem.Allocator) ![]u8 {
         const char_len = self.vertical.len;
-        const line_len = char_len + 1; // +1 for newline
+        const line_len = char_len + 1;
         const result = try allocator.alloc(u8, count * line_len);
-        var i: usize = 0;
-        while (i < count) : (i += 1) {
+        for (0..count) |i| {
             @memcpy(result[i * line_len ..][0..char_len], self.vertical);
             result[i * line_len + char_len] = '\n';
         }

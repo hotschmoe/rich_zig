@@ -115,7 +115,7 @@ pub const Tree = struct {
         var segments: std.ArrayList(Segment) = .empty;
 
         if (!self.hide_root) {
-            try self.renderLabel(&segments, allocator, &self.root);
+            try renderLabel(&segments, allocator, &self.root);
             try segments.append(allocator, Segment.line());
         }
 
@@ -128,7 +128,7 @@ pub const Tree = struct {
         return segments.toOwnedSlice(allocator);
     }
 
-    fn renderLabel(_: Tree, segments: *std.ArrayList(Segment), allocator: std.mem.Allocator, node: *const TreeNode) !void {
+    fn renderLabel(segments: *std.ArrayList(Segment), allocator: std.mem.Allocator, node: *const TreeNode) !void {
         const content = node.getLabelContent();
         switch (content) {
             .text => |t| {
@@ -164,8 +164,7 @@ pub const Tree = struct {
             try segments.append(allocator, Segment.styled(self.guide.horizontal, node.guide_style));
             try segments.append(allocator, Segment.plain(" "));
 
-            // Label
-            try self.renderLabel(segments, allocator, child);
+            try renderLabel(segments, allocator, child);
             try segments.append(allocator, Segment.line());
 
             // Recurse

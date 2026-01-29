@@ -43,22 +43,17 @@ pub const Live = struct {
         }
         self.last_refresh_time = now;
 
-        try self.clearPrevious();
-
-        var line_count: usize = 1;
-        for (segments) |seg| {
-            if (std.mem.eql(u8, seg.text, "\n")) {
-                line_count += 1;
-            }
-        }
-
-        try self.console.printSegments(segments);
-        self.lines_rendered = line_count;
+        try self.renderSegments(segments);
     }
 
     pub fn forceUpdate(self: *Live, segments: []const Segment) !void {
         if (!self.is_started) return;
 
+        try self.renderSegments(segments);
+        self.last_refresh_time = std.time.milliTimestamp();
+    }
+
+    fn renderSegments(self: *Live, segments: []const Segment) !void {
         try self.clearPrevious();
 
         var line_count: usize = 1;
@@ -70,7 +65,6 @@ pub const Live = struct {
 
         try self.console.printSegments(segments);
         self.lines_rendered = line_count;
-        self.last_refresh_time = std.time.milliTimestamp();
     }
 
     fn clearPrevious(self: *Live) !void {

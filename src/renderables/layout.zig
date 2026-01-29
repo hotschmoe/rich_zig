@@ -163,15 +163,11 @@ pub const Split = struct {
 
         var total_ratio: usize = 0;
         var fixed_width: usize = 0;
-        var ratio_count: usize = 0;
         var auto_count: usize = 0;
 
         for (self.children.items, 0..) |child, i| {
             switch (child.constraint) {
-                .ratio => |r| {
-                    total_ratio += r;
-                    ratio_count += 1;
-                },
+                .ratio => |r| total_ratio += r,
                 .fixed => |f| {
                     widths[i] = f;
                     fixed_width += f;
@@ -180,32 +176,24 @@ pub const Split = struct {
                     widths[i] = m;
                     fixed_width += m;
                 },
-                .auto => {
-                    auto_count += 1;
-                },
+                .auto => auto_count += 1,
             }
         }
 
         const remaining = if (max_width > fixed_width) max_width - fixed_width else 0;
+        var ratio_used: usize = 0;
 
-        if (ratio_count > 0 and total_ratio > 0) {
+        if (total_ratio > 0) {
             for (self.children.items, 0..) |child, i| {
                 if (child.constraint == .ratio) {
                     widths[i] = (remaining * child.constraint.ratio) / total_ratio;
+                    ratio_used += widths[i];
                 }
             }
         }
 
         if (auto_count > 0) {
-            var auto_remaining = remaining;
-            if (ratio_count > 0 and total_ratio > 0) {
-                for (self.children.items, 0..) |child, i| {
-                    if (child.constraint == .ratio) {
-                        auto_remaining -= widths[i];
-                    }
-                }
-            }
-            const auto_width = auto_remaining / auto_count;
+            const auto_width = (remaining - ratio_used) / auto_count;
             for (self.children.items, 0..) |child, i| {
                 if (child.constraint == .auto) {
                     widths[i] = auto_width;

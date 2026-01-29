@@ -146,9 +146,11 @@ pub const Json = struct {
 
     fn renderIndent(self: Json, segments: *std.ArrayList(Segment), allocator: std.mem.Allocator, depth: usize) !void {
         const total_spaces = depth * self.indent;
-        for (0..total_spaces) |_| {
-            try segments.append(allocator, Segment.plain(" "));
-        }
+        if (total_spaces == 0) return;
+
+        const spaces = try allocator.alloc(u8, total_spaces);
+        @memset(spaces, ' ');
+        try segments.append(allocator, Segment.plain(spaces));
     }
 };
 

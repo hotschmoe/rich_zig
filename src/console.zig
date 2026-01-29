@@ -353,29 +353,14 @@ pub const Console = struct {
     pub fn statusFmt(self: *Console, comptime fmt: []const u8, args: anytype) !void {
         try self.clearStatus();
         var writer = self.getWriter();
-        var count: usize = 0;
-        const counting_writer = struct {
-            inner: @TypeOf(writer.interface),
-            count: *usize,
-            fn writeAll(ctx: @This(), bytes: []const u8) !void {
-                ctx.count.* += bytes.len;
-                return ctx.inner.writeAll(bytes);
-            }
-            fn writeByte(ctx: @This(), byte: u8) !void {
-                ctx.count.* += 1;
-                return ctx.inner.writeByte(byte);
-            }
-            fn print(ctx: @This(), comptime f: []const u8, a: anytype) !void {
-                const before = ctx.count.*;
-                _ = before;
-                return ctx.inner.print(f, a);
-            }
-        }{ .inner = writer.interface, .count = &count };
-        _ = counting_writer;
-        try writer.interface.print(fmt, args);
+
+        var buf: [256]u8 = undefined;
+        const formatted = std.fmt.bufPrint(&buf, fmt, args) catch fmt;
+
+        try writer.interface.writeAll(formatted);
         try writer.interface.flush();
         self.status_line_active = true;
-        self.status_line_length = count;
+        self.status_line_length = @import("cells.zig").cellLen(formatted);
     }
 
     pub fn clearStatus(self: *Console) !void {
