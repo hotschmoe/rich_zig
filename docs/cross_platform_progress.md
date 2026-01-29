@@ -2,7 +2,7 @@
 
 Living document tracking cross-platform compatibility status and fixes.
 
-**Last Updated**: 2026-01-28
+**Last Updated**: 2026-01-29
 **Zig Version**: 0.15.2
 
 ---
@@ -13,11 +13,11 @@ Living document tracking cross-platform compatibility status and fixes.
 |--------|-------|-------|--------|
 | Native (Windows) | PASS | PASS | OK |
 | x86_64-windows | PASS | - | OK |
-| x86_64-linux | FAIL | - | Blocked |
-| aarch64-linux | FAIL | - | Blocked |
-| x86_64-macos | FAIL | - | Blocked |
-| aarch64-macos | FAIL | - | Blocked |
-| wasm32-wasi | FAIL | - | Blocked |
+| x86_64-linux | PASS | - | OK |
+| aarch64-linux | PASS | - | OK |
+| x86_64-macos | PASS | - | OK |
+| aarch64-macos | PASS | - | OK |
+| wasm32-wasi | PASS | - | OK |
 
 ### Optimization Level Results (Native)
 
@@ -32,7 +32,7 @@ Living document tracking cross-platform compatibility status and fixes.
 
 ## Issue 1: POSIX `winsize` Field Name Mismatch
 
-**Status**: Open
+**Status**: Fixed (v0.7.1)
 **Severity**: Critical (blocks Linux/macOS builds)
 **Location**: `src/terminal.zig:98`
 
@@ -159,7 +159,7 @@ Check the Zig 0.15.2 standard library source to see:
 
 ## Issue 2: WASM Target Missing `ioctl`
 
-**Status**: Open
+**Status**: Fixed (v0.7.1)
 **Severity**: Medium (WASM is a secondary target)
 **Location**: `src/terminal.zig:93-102`
 
@@ -227,6 +227,7 @@ fn getTerminalSizePosix() TerminalSize {
 
 | Date | Change | By |
 |------|--------|----|
+| 2026-01-29 | Fixed both issues: winsize field names and WASM guard (v0.7.1) | - |
 | 2026-01-28 | Initial document created from build-verifier output | - |
 
 ---

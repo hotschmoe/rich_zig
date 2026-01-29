@@ -71,6 +71,8 @@ fn getEnv(name: []const u8) ?[]const u8 {
 fn getTerminalSize() TerminalSize {
     if (builtin.os.tag == .windows) {
         return getTerminalSizeWindows();
+    } else if (builtin.os.tag == .wasi or builtin.cpu.arch == .wasm32) {
+        return .{ .width = 80, .height = 24 };
     } else {
         return getTerminalSizePosix();
     }
@@ -95,7 +97,7 @@ fn getTerminalSizePosix() TerminalSize {
         var ws: std.posix.winsize = undefined;
         const result = std.posix.system.ioctl(std.posix.STDOUT_FILENO, std.posix.T.IOCGWINSZ, @intFromPtr(&ws));
         if (result == 0) {
-            return .{ .width = ws.ws_col, .height = ws.ws_row };
+            return .{ .width = ws.col, .height = ws.row };
         }
     }
     return .{ .width = 80, .height = 24 };
