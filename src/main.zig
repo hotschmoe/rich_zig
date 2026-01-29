@@ -317,7 +317,7 @@ pub fn main() !void {
     try stdout.writeAll("\nv0.9.0 New Features\n");
     try stdout.writeAll("-------------------\n");
 
-    // Custom Box
+    // Custom Box - demonstrate custom box characters
     try stdout.writeAll("\nCustom box style:\n");
     const custom_box = rich.BoxStyle.custom(.{
         .top_left = "*",
@@ -327,12 +327,30 @@ pub fn main() !void {
         .horizontal = "=",
         .vertical = "!",
     });
-    try stdout.print("  {s}{s}{s}{s}{s}\n", .{
+    try stdout.print("  {s}{s}{s}{s}{s}{s}{s}{s}{s}{s}\n", .{
         custom_box.top_left,
         custom_box.horizontal,
         custom_box.horizontal,
         custom_box.horizontal,
+        custom_box.horizontal,
+        custom_box.horizontal,
+        custom_box.horizontal,
+        custom_box.horizontal,
+        custom_box.horizontal,
         custom_box.top_right,
+    });
+    try stdout.print("  {s} Custom {s}\n", .{ custom_box.vertical, custom_box.vertical });
+    try stdout.print("  {s}{s}{s}{s}{s}{s}{s}{s}{s}{s}\n", .{
+        custom_box.bottom_left,
+        custom_box.horizontal,
+        custom_box.horizontal,
+        custom_box.horizontal,
+        custom_box.horizontal,
+        custom_box.horizontal,
+        custom_box.horizontal,
+        custom_box.horizontal,
+        custom_box.horizontal,
+        custom_box.bottom_right,
     });
 
     // Table with footer
@@ -414,13 +432,17 @@ pub fn main() !void {
         try seg.render(stdout, .truecolor);
     }
 
-    // Layout Split
+    // Layout Split - show vertical split stacking two regions
     try stdout.writeAll("\nLayout split (vertical):\n");
-    const left_content = [_]rich.Segment{rich.Segment.plain("Top")};
-    const right_content = [_]rich.Segment{rich.Segment.plain("Bottom")};
+    const top_content = [_]rich.Segment{
+        rich.Segment.styled("[ Top Region ]", rich.Style.empty.bold()),
+    };
+    const bottom_content = [_]rich.Segment{
+        rich.Segment.styled("[ Bottom Region ]", rich.Style.empty.dim()),
+    };
     var split = rich.Split.vertical(allocator);
     defer split.deinit();
-    _ = split.add(&left_content).add(&right_content);
+    _ = split.add(&top_content).add(&bottom_content);
 
     const split_segs = try split.render(40, allocator);
     defer allocator.free(split_segs);
@@ -430,7 +452,7 @@ pub fn main() !void {
 
     // JSON pretty-print
     try stdout.writeAll("\nJSON pretty-printing:\n");
-    var json = try rich.Json.fromString(allocator, "{\"name\": \"rich_zig\", \"version\": \"0.9.0\", \"awesome\": true}");
+    var json = try rich.Json.fromString(allocator, "{\"name\": \"rich_zig\", \"version\": \"0.9.1\", \"awesome\": true}");
     defer json.deinit();
 
     const json_segs = try json.render(80, allocator);
