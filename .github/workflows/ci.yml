@@ -105,9 +105,9 @@ jobs:
 
       - name: Validate Package
         run: |
-          # Create a test project that depends on rich_zig
-          mkdir -p /tmp/test-consumer
-          cd /tmp/test-consumer
+          # Create a test project that depends on rich_zig (inside workspace for relative path)
+          mkdir -p test-consumer
+          cd test-consumer
 
           cat > build.zig.zon << 'EOF'
           .{
@@ -116,7 +116,7 @@ jobs:
               .fingerprint = 0xe5383c7136a60b55,
               .dependencies = .{
                   .rich_zig = .{
-                      .path = "${{ github.workspace }}",
+                      .path = "..",
                   },
               },
               .paths = .{
