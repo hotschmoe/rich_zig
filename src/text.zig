@@ -392,14 +392,12 @@ pub const Text = struct {
 
         const total_padding = width - current_len;
         const left_padding = total_padding / 2;
-        const right_padding = total_padding - left_padding;
 
         const new_plain = try self.allocator.alloc(u8, self.plain.len + total_padding);
         errdefer self.allocator.free(new_plain);
         @memset(new_plain[0..left_padding], ' ');
         @memcpy(new_plain[left_padding .. left_padding + self.plain.len], self.plain);
         @memset(new_plain[left_padding + self.plain.len ..], ' ');
-        _ = right_padding;
 
         // Shift all span positions by left padding
         const new_spans = try self.allocator.alloc(Span, self.spans.len);
@@ -483,7 +481,7 @@ pub const Text = struct {
                 }
 
                 // Create line from line_start to break_byte
-                const line = try self.createLineSlice(line_start, break_byte, line_start_cell);
+                const line = try self.createLineSlice(line_start, break_byte);
                 try lines.append(self.allocator, line);
 
                 // Skip the space if we broke at one
@@ -502,7 +500,7 @@ pub const Text = struct {
 
         // Add remaining text
         if (line_start < self.plain.len) {
-            const line = try self.createLineSlice(line_start, self.plain.len, line_start_cell);
+            const line = try self.createLineSlice(line_start, self.plain.len);
             try lines.append(self.allocator, line);
         }
 
@@ -515,8 +513,7 @@ pub const Text = struct {
         return lines.toOwnedSlice(self.allocator);
     }
 
-    fn createLineSlice(self: Text, start_byte: usize, end_byte: usize, start_cell: usize) !Text {
-        _ = start_cell;
+    fn createLineSlice(self: Text, start_byte: usize, end_byte: usize) !Text {
         const line_text = self.plain[start_byte..end_byte];
         const new_plain = try self.allocator.dupe(u8, line_text);
         errdefer self.allocator.free(new_plain);

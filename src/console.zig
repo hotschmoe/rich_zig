@@ -233,39 +233,30 @@ pub const Console = struct {
         try writer.interface.flush();
     }
 
-    /// Show the cursor
+    fn writeEscapeSequence(self: *Console, sequence: []const u8) !void {
+        var writer = self.getWriter();
+        try writer.interface.writeAll(sequence);
+        try writer.interface.flush();
+    }
+
     pub fn showCursor(self: *Console) !void {
-        var writer = self.getWriter();
-        try writer.interface.writeAll("\x1b[?25h");
-        try writer.interface.flush();
+        try self.writeEscapeSequence("\x1b[?25h");
     }
 
-    /// Hide the cursor
     pub fn hideCursor(self: *Console) !void {
-        var writer = self.getWriter();
-        try writer.interface.writeAll("\x1b[?25l");
-        try writer.interface.flush();
+        try self.writeEscapeSequence("\x1b[?25l");
     }
 
-    /// Clear from cursor to end of line
     pub fn clearLine(self: *Console) !void {
-        var writer = self.getWriter();
-        try writer.interface.writeAll("\x1b[K");
-        try writer.interface.flush();
+        try self.writeEscapeSequence("\x1b[K");
     }
 
-    /// Enter alternate screen buffer
     pub fn enterAltScreen(self: *Console) !void {
-        var writer = self.getWriter();
-        try writer.interface.writeAll("\x1b[?1049h");
-        try writer.interface.flush();
+        try self.writeEscapeSequence("\x1b[?1049h");
     }
 
-    /// Exit alternate screen buffer
     pub fn exitAltScreen(self: *Console) !void {
-        var writer = self.getWriter();
-        try writer.interface.writeAll("\x1b[?1049l");
-        try writer.interface.flush();
+        try self.writeEscapeSequence("\x1b[?1049l");
     }
 };
 
