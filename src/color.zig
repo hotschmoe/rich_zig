@@ -196,6 +196,10 @@ pub const Color = struct {
         if (self.triplet == null or other.triplet == null) return false;
         return self.triplet.?.eql(other.triplet.?);
     }
+
+    pub fn paletteToRgb(n: u8) ColorTriplet {
+        return tripletFrom256(n);
+    }
 };
 
 pub fn rgbTo256(r: u8, g: u8, b: u8) u8 {

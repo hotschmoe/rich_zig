@@ -1,5 +1,21 @@
 const std = @import("std");
 
+pub const CustomChars = struct {
+    top_left: []const u8 = "+",
+    top_right: []const u8 = "+",
+    bottom_left: []const u8 = "+",
+    bottom_right: []const u8 = "+",
+    horizontal: []const u8 = "-",
+    vertical: []const u8 = "|",
+    left: []const u8 = "|",
+    right: []const u8 = "|",
+    cross: []const u8 = "+",
+    top_tee: []const u8 = "+",
+    bottom_tee: []const u8 = "+",
+    left_tee: []const u8 = "+",
+    right_tee: []const u8 = "+",
+};
+
 pub const BoxStyle = struct {
     top_left: []const u8,
     top_right: []const u8,
@@ -14,6 +30,24 @@ pub const BoxStyle = struct {
     bottom_tee: []const u8,
     left_tee: []const u8,
     right_tee: []const u8,
+
+    pub fn custom(chars: CustomChars) BoxStyle {
+        return .{
+            .top_left = chars.top_left,
+            .top_right = chars.top_right,
+            .bottom_left = chars.bottom_left,
+            .bottom_right = chars.bottom_right,
+            .horizontal = chars.horizontal,
+            .vertical = chars.vertical,
+            .left = chars.left,
+            .right = chars.right,
+            .cross = chars.cross,
+            .top_tee = chars.top_tee,
+            .bottom_tee = chars.bottom_tee,
+            .left_tee = chars.left_tee,
+            .right_tee = chars.right_tee,
+        };
+    }
 
     pub const rounded: BoxStyle = .{
         .top_left = "\u{256D}", // rounded corners
@@ -239,4 +273,26 @@ test "BoxStyle.markdown" {
     try std.testing.expectEqualStrings("-", m.horizontal);
     try std.testing.expectEqualStrings("|", m.vertical);
     try std.testing.expectEqualStrings("|", m.top_left);
+}
+
+test "BoxStyle.custom" {
+    const custom_box = BoxStyle.custom(.{
+        .top_left = "*",
+        .top_right = "*",
+        .bottom_left = "*",
+        .bottom_right = "*",
+        .horizontal = "=",
+        .vertical = "!",
+    });
+    try std.testing.expectEqualStrings("*", custom_box.top_left);
+    try std.testing.expectEqualStrings("=", custom_box.horizontal);
+    try std.testing.expectEqualStrings("!", custom_box.vertical);
+    try std.testing.expectEqualStrings("+", custom_box.cross);
+}
+
+test "BoxStyle.custom defaults" {
+    const default_custom = BoxStyle.custom(.{});
+    try std.testing.expectEqualStrings("+", default_custom.top_left);
+    try std.testing.expectEqualStrings("-", default_custom.horizontal);
+    try std.testing.expectEqualStrings("|", default_custom.vertical);
 }

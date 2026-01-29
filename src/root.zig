@@ -82,6 +82,15 @@ pub const Align = renderables.Align;
 pub const HAlign = renderables.HAlign;
 pub const VAlign = renderables.VAlign;
 pub const Columns = renderables.Columns;
+pub const Live = renderables.Live;
+pub const Split = renderables.Split;
+pub const SplitDirection = renderables.SplitDirection;
+pub const SizeConstraint = renderables.SizeConstraint;
+pub const Json = renderables.Json;
+pub const JsonTheme = renderables.JsonTheme;
+pub const ProgressGroup = renderables.ProgressGroup;
+pub const LabelContent = renderables.LabelContent;
+pub const CustomChars = box.CustomChars;
 
 // Re-export tests from all modules
 test {

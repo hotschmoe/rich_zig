@@ -51,6 +51,8 @@ pub const Console = struct {
     capture_buffer: ?std.ArrayList(u8),
     write_buffer: []u8,
     write_buffer_owned: bool,
+    status_line_active: bool = false,
+    status_line_length: usize = 0,
 
     const DEFAULT_BUFFER_SIZE = 4096;
 
@@ -338,6 +340,164 @@ pub const Console = struct {
     pub fn logErr(self: *Console, comptime fmt: []const u8, args: anytype) !void {
         try self.log(.err, fmt, args);
     }
+
+    pub fn status(self: *Console, message: []const u8) !void {
+        try self.clearStatus();
+        var writer = self.getWriter();
+        try writer.interface.writeAll(message);
+        try writer.interface.flush();
+        self.status_line_active = true;
+        self.status_line_length = @import("cells.zig").cellLen(message);
+    }
+
+    pub fn statusFmt(self: *Console, comptime fmt: []const u8, args: anytype) !void {
+        try self.clearStatus();
+        var writer = self.getWriter();
+        var count: usize = 0;
+        const counting_writer = struct {
+            inner: @TypeOf(writer.interface),
+            count: *usize,
+            fn writeAll(ctx: @This(), bytes: []const u8) !void {
+                ctx.count.* += bytes.len;
+                return ctx.inner.writeAll(bytes);
+            }
+            fn writeByte(ctx: @This(), byte: u8) !void {
+                ctx.count.* += 1;
+                return ctx.inner.writeByte(byte);
+            }
+            fn print(ctx: @This(), comptime f: []const u8, a: anytype) !void {
+                const before = ctx.count.*;
+                _ = before;
+                return ctx.inner.print(f, a);
+            }
+        }{ .inner = writer.interface, .count = &count };
+        _ = counting_writer;
+        try writer.interface.print(fmt, args);
+        try writer.interface.flush();
+        self.status_line_active = true;
+        self.status_line_length = count;
+    }
+
+    pub fn clearStatus(self: *Console) !void {
+        if (!self.status_line_active) return;
+        var writer = self.getWriter();
+        try writer.interface.writeByte('\r');
+        for (0..self.status_line_length) |_| {
+            try writer.interface.writeByte(' ');
+        }
+        try writer.interface.writeByte('\r');
+        try writer.interface.flush();
+        self.status_line_active = false;
+        self.status_line_length = 0;
+    }
+
+    pub fn exportHtml(segments: []const Segment, allocator: std.mem.Allocator) ![]u8 {
+        var result: std.ArrayList(u8) = .empty;
+        var writer = result.writer(allocator);
+
+        try writer.writeAll("<pre style=\"font-family: monospace;\">");
+
+        for (segments) |seg| {
+            if (seg.control != null) continue;
+
+            if (std.mem.eql(u8, seg.text, "\n")) {
+                try writer.writeAll("<br>");
+                continue;
+            }
+
+            const has_style = if (seg.style) |s| !s.isEmpty() else false;
+
+            if (has_style) {
+                try writer.writeAll("<span style=\"");
+                try writeHtmlStyle(seg.style.?, writer);
+                try writer.writeAll("\">");
+            }
+
+            try writeHtmlEscaped(seg.text, writer);
+
+            if (has_style) {
+                try writer.writeAll("</span>");
+            }
+        }
+
+        try writer.writeAll("</pre>");
+
+        return result.toOwnedSlice(allocator);
+    }
+
+    fn writeHtmlStyle(style: Style, writer: anytype) !void {
+        var needs_sep = false;
+
+        if (style.color) |c| {
+            if (c.triplet) |t| {
+                try writer.print("color: rgb({d},{d},{d})", .{ t.r, t.g, t.b });
+                needs_sep = true;
+            } else if (c.number) |n| {
+                const rgb = Color.paletteToRgb(n);
+                try writer.print("color: rgb({d},{d},{d})", .{ rgb.r, rgb.g, rgb.b });
+                needs_sep = true;
+            }
+        }
+
+        if (style.bgcolor) |c| {
+            if (needs_sep) try writer.writeAll("; ");
+            if (c.triplet) |t| {
+                try writer.print("background-color: rgb({d},{d},{d})", .{ t.r, t.g, t.b });
+                needs_sep = true;
+            } else if (c.number) |n| {
+                const rgb = Color.paletteToRgb(n);
+                try writer.print("background-color: rgb({d},{d},{d})", .{ rgb.r, rgb.g, rgb.b });
+                needs_sep = true;
+            }
+        }
+
+        if (style.hasAttribute(.bold)) {
+            if (needs_sep) try writer.writeAll("; ");
+            try writer.writeAll("font-weight: bold");
+            needs_sep = true;
+        }
+
+        if (style.hasAttribute(.dim)) {
+            if (needs_sep) try writer.writeAll("; ");
+            try writer.writeAll("opacity: 0.5");
+            needs_sep = true;
+        }
+
+        if (style.hasAttribute(.italic)) {
+            if (needs_sep) try writer.writeAll("; ");
+            try writer.writeAll("font-style: italic");
+            needs_sep = true;
+        }
+
+        if (style.hasAttribute(.underline)) {
+            if (needs_sep) try writer.writeAll("; ");
+            try writer.writeAll("text-decoration: underline");
+            needs_sep = true;
+        }
+
+        if (style.hasAttribute(.strike)) {
+            if (needs_sep) try writer.writeAll("; ");
+            try writer.writeAll("text-decoration: line-through");
+            needs_sep = true;
+        }
+
+        if (style.hasAttribute(.overline)) {
+            if (needs_sep) try writer.writeAll("; ");
+            try writer.writeAll("text-decoration: overline");
+        }
+    }
+
+    fn writeHtmlEscaped(text: []const u8, writer: anytype) !void {
+        for (text) |c| {
+            switch (c) {
+                '<' => try writer.writeAll("&lt;"),
+                '>' => try writer.writeAll("&gt;"),
+                '&' => try writer.writeAll("&amp;"),
+                '"' => try writer.writeAll("&quot;"),
+                else => try writer.writeByte(c),
+            }
+        }
+    }
 };
 
 // Tests
@@ -402,4 +562,69 @@ test "LogLevel.style" {
 
     const err_style = LogLevel.err.style();
     try std.testing.expect(err_style.color != null);
+}
+
+test "Console.status" {
+    const allocator = std.testing.allocator;
+    var console = Console.init(allocator);
+    defer console.deinit();
+
+    try std.testing.expect(!console.status_line_active);
+}
+
+test "Console.clearStatus when inactive" {
+    const allocator = std.testing.allocator;
+    var console = Console.init(allocator);
+    defer console.deinit();
+
+    try console.clearStatus();
+    try std.testing.expect(!console.status_line_active);
+}
+
+test "Console.exportHtml plain" {
+    const allocator = std.testing.allocator;
+    const segments = [_]Segment{Segment.plain("Hello")};
+
+    const html = try Console.exportHtml(&segments, allocator);
+    defer allocator.free(html);
+
+    try std.testing.expect(std.mem.indexOf(u8, html, "Hello") != null);
+    try std.testing.expect(std.mem.indexOf(u8, html, "<pre") != null);
+    try std.testing.expect(std.mem.indexOf(u8, html, "</pre>") != null);
+}
+
+test "Console.exportHtml styled" {
+    const allocator = std.testing.allocator;
+    const segments = [_]Segment{Segment.styled("Bold", Style.empty.bold())};
+
+    const html = try Console.exportHtml(&segments, allocator);
+    defer allocator.free(html);
+
+    try std.testing.expect(std.mem.indexOf(u8, html, "font-weight: bold") != null);
+    try std.testing.expect(std.mem.indexOf(u8, html, "Bold") != null);
+}
+
+test "Console.exportHtml escapes HTML" {
+    const allocator = std.testing.allocator;
+    const segments = [_]Segment{Segment.plain("<script>")};
+
+    const html = try Console.exportHtml(&segments, allocator);
+    defer allocator.free(html);
+
+    try std.testing.expect(std.mem.indexOf(u8, html, "&lt;script&gt;") != null);
+    try std.testing.expect(std.mem.indexOf(u8, html, "<script>") == null);
+}
+
+test "Console.exportHtml newlines" {
+    const allocator = std.testing.allocator;
+    const segments = [_]Segment{
+        Segment.plain("Line1"),
+        Segment.line(),
+        Segment.plain("Line2"),
+    };
+
+    const html = try Console.exportHtml(&segments, allocator);
+    defer allocator.free(html);
+
+    try std.testing.expect(std.mem.indexOf(u8, html, "<br>") != null);
 }

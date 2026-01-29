@@ -33,6 +33,22 @@ pub const VAlign = align_mod.VAlign;
 pub const columns = @import("columns.zig");
 pub const Columns = columns.Columns;
 
+pub const live = @import("live.zig");
+pub const Live = live.Live;
+
+pub const layout = @import("layout.zig");
+pub const Split = layout.Split;
+pub const SplitDirection = layout.SplitDirection;
+pub const SizeConstraint = layout.SizeConstraint;
+pub const SplitChild = layout.SplitChild;
+
+pub const json = @import("json.zig");
+pub const Json = json.Json;
+pub const JsonTheme = json.JsonTheme;
+
+pub const ProgressGroup = progress.ProgressGroup;
+pub const LabelContent = tree.LabelContent;
+
 test {
     _ = @import("panel.zig");
     _ = @import("table.zig");
@@ -42,4 +58,7 @@ test {
     _ = @import("padding.zig");
     _ = @import("align.zig");
     _ = @import("columns.zig");
+    _ = @import("live.zig");
+    _ = @import("layout.zig");
+    _ = @import("json.zig");
 }

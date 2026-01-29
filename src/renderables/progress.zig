@@ -34,6 +34,7 @@ pub const ProgressBar = struct {
     pulse_position: usize = 0,
     pulse_width: usize = 4,
     pulse_style: Style = Style.empty.foreground(Color.cyan),
+    transient: bool = false,
 
     pub fn init() ProgressBar {
         return .{};
@@ -143,6 +144,16 @@ pub const ProgressBar = struct {
         var p = self;
         p.pulse_style = s;
         return p;
+    }
+
+    pub fn withTransient(self: ProgressBar, t: bool) ProgressBar {
+        var p = self;
+        p.transient = t;
+        return p;
+    }
+
+    pub fn shouldHide(self: ProgressBar) bool {
+        return self.transient and self.isFinished();
     }
 
     pub fn calculateElapsed(self: ProgressBar) u64 {
@@ -531,4 +542,155 @@ test "Spinner.render" {
     defer allocator.free(segments);
 
     try std.testing.expectEqual(@as(usize, 1), segments.len);
+}
+
+test "ProgressBar.withTransient" {
+    const bar = ProgressBar.init().withTransient(true);
+    try std.testing.expect(bar.transient);
+}
+
+test "ProgressBar.shouldHide" {
+    const incomplete = ProgressBar.init().withTransient(true).withCompleted(50).withTotal(100);
+    try std.testing.expect(!incomplete.shouldHide());
+
+    const complete = ProgressBar.init().withTransient(true).withCompleted(100).withTotal(100);
+    try std.testing.expect(complete.shouldHide());
+
+    const non_transient = ProgressBar.init().withCompleted(100).withTotal(100);
+    try std.testing.expect(!non_transient.shouldHide());
+}
+
+pub const ProgressGroup = struct {
+    bars: std.ArrayList(ProgressBar),
+    allocator: std.mem.Allocator,
+
+    pub fn init(allocator: std.mem.Allocator) ProgressGroup {
+        return .{
+            .bars = std.ArrayList(ProgressBar).empty,
+            .allocator = allocator,
+        };
+    }
+
+    pub fn deinit(self: *ProgressGroup) void {
+        self.bars.deinit(self.allocator);
+    }
+
+    pub fn addTask(self: *ProgressGroup, description: []const u8, total: usize) !*ProgressBar {
+        try self.bars.append(self.allocator, ProgressBar.init()
+            .withDescription(description)
+            .withTotal(total));
+        return &self.bars.items[self.bars.items.len - 1];
+    }
+
+    pub fn addTaskWithTiming(self: *ProgressGroup, description: []const u8, total: usize) !*ProgressBar {
+        try self.bars.append(self.allocator, ProgressBar.init()
+            .withDescription(description)
+            .withTotal(total)
+            .withTiming());
+        return &self.bars.items[self.bars.items.len - 1];
+    }
+
+    pub fn addBar(self: *ProgressGroup, bar: ProgressBar) !*ProgressBar {
+        try self.bars.append(self.allocator, bar);
+        return &self.bars.items[self.bars.items.len - 1];
+    }
+
+    pub fn render(self: ProgressGroup, max_width: usize, allocator: std.mem.Allocator) ![]Segment {
+        var segments: std.ArrayList(Segment) = .empty;
+
+        for (self.bars.items, 0..) |bar, i| {
+            if (bar.shouldHide()) continue;
+
+            const bar_segments = try bar.render(max_width, allocator);
+            defer allocator.free(bar_segments);
+
+            for (bar_segments) |seg| {
+                try segments.append(allocator, seg);
+            }
+
+            if (i < self.bars.items.len - 1) {
+                try segments.append(allocator, Segment.line());
+            }
+        }
+
+        return segments.toOwnedSlice(allocator);
+    }
+
+    pub fn allFinished(self: ProgressGroup) bool {
+        for (self.bars.items) |bar| {
+            if (!bar.isFinished()) return false;
+        }
+        return true;
+    }
+
+    pub fn visibleCount(self: ProgressGroup) usize {
+        var count: usize = 0;
+        for (self.bars.items) |bar| {
+            if (!bar.shouldHide()) count += 1;
+        }
+        return count;
+    }
+};
+
+test "ProgressGroup.init" {
+    const allocator = std.testing.allocator;
+    var group = ProgressGroup.init(allocator);
+    defer group.deinit();
+
+    try std.testing.expectEqual(@as(usize, 0), group.bars.items.len);
+}
+
+test "ProgressGroup.addTask" {
+    const allocator = std.testing.allocator;
+    var group = ProgressGroup.init(allocator);
+    defer group.deinit();
+
+    const bar = try group.addTask("Downloading", 100);
+    try std.testing.expectEqualStrings("Downloading", bar.description.?);
+    try std.testing.expectEqual(@as(usize, 100), bar.total);
+}
+
+test "ProgressGroup.allFinished" {
+    const allocator = std.testing.allocator;
+    var group = ProgressGroup.init(allocator);
+    defer group.deinit();
+
+    _ = try group.addTask("Task 1", 100);
+    _ = try group.addTask("Task 2", 100);
+
+    try std.testing.expect(!group.allFinished());
+
+    group.bars.items[0].completed = 100;
+    try std.testing.expect(!group.allFinished());
+
+    group.bars.items[1].completed = 100;
+    try std.testing.expect(group.allFinished());
+}
+
+test "ProgressGroup.render" {
+    const allocator = std.testing.allocator;
+    var group = ProgressGroup.init(allocator);
+    defer group.deinit();
+
+    _ = try group.addTask("Task 1", 100);
+    _ = try group.addTask("Task 2", 100);
+
+    const segments = try group.render(80, allocator);
+    defer allocator.free(segments);
+
+    try std.testing.expect(segments.len > 0);
+}
+
+test "ProgressGroup.visibleCount with transient" {
+    const allocator = std.testing.allocator;
+    var group = ProgressGroup.init(allocator);
+    defer group.deinit();
+
+    _ = try group.addBar(ProgressBar.init().withDescription("Task 1").withTotal(100).withTransient(true));
+    _ = try group.addBar(ProgressBar.init().withDescription("Task 2").withTotal(100));
+
+    try std.testing.expectEqual(@as(usize, 2), group.visibleCount());
+
+    group.bars.items[0].completed = 100;
+    try std.testing.expectEqual(@as(usize, 1), group.visibleCount());
 }

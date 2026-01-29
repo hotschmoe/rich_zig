@@ -114,8 +114,11 @@ pub const Table = struct {
     show_edge: bool = true,
     show_lines: bool = false,
     padding: struct { left: u8, right: u8 } = .{ .left = 1, .right = 1 },
+    collapse_padding: bool = false,
     row_styles: std.ArrayList(?Style),
     alternating_styles: ?AlternatingStyles = null,
+    footer: ?[]const []const u8 = null,
+    footer_style: Style = Style.empty,
     allocator: std.mem.Allocator,
 
     pub fn init(allocator: std.mem.Allocator) Table {
@@ -206,6 +209,21 @@ pub const Table = struct {
         return self;
     }
 
+    pub fn withCollapsePadding(self: *Table, collapse: bool) *Table {
+        self.collapse_padding = collapse;
+        return self;
+    }
+
+    pub fn withFooter(self: *Table, footer_row: []const []const u8) *Table {
+        self.footer = footer_row;
+        return self;
+    }
+
+    pub fn withFooterStyle(self: *Table, style: Style) *Table {
+        self.footer_style = style;
+        return self;
+    }
+
     pub fn render(self: Table, max_width: usize, allocator: std.mem.Allocator) ![]Segment {
         var segments: std.ArrayList(Segment) = .empty;
 
@@ -232,6 +250,11 @@ pub const Table = struct {
             if (self.show_lines and idx < self.rows.items.len - 1) {
                 try self.renderHorizontalBorder(&segments, allocator, col_widths, b.left_tee, b.horizontal, b.right_tee, b.cross);
             }
+        }
+
+        if (self.footer) |footer_row| {
+            try self.renderHorizontalBorder(&segments, allocator, col_widths, b.left_tee, b.horizontal, b.right_tee, b.cross);
+            try self.renderFooterRow(&segments, allocator, footer_row, col_widths, b);
         }
 
         if (self.show_edge) {
@@ -311,8 +334,10 @@ pub const Table = struct {
             }
         }
 
-        for (widths) |*w| {
-            w.* += self.padding.left + self.padding.right;
+        if (!self.collapse_padding) {
+            for (widths) |*w| {
+                w.* += self.padding.left + self.padding.right;
+            }
         }
 
         return widths;
@@ -396,10 +421,12 @@ pub const Table = struct {
     }
 
     fn renderCell(self: Table, segments: *std.ArrayList(Segment), allocator: std.mem.Allocator, text: []const u8, width: usize, justify: JustifyMethod, style: Style, col: Column) !void {
-        const content_width = if (width > self.padding.left + self.padding.right)
-            width - self.padding.left - self.padding.right
+        const pad_left: usize = if (self.collapse_padding) 0 else self.padding.left;
+        const pad_right: usize = if (self.collapse_padding) 0 else self.padding.right;
+        const content_width = if (width > pad_left + pad_right)
+            width - pad_left - pad_right
         else
-            0;
+            width;
 
         var display_text = text;
         const text_width = cells.cellLen(text);
@@ -436,9 +463,9 @@ pub const Table = struct {
         }
 
         const left_pad: usize = switch (justify) {
-            .left => self.padding.left,
-            .right => self.padding.left + adjusted_padding,
-            .center => self.padding.left + adjusted_padding / 2,
+            .left => pad_left,
+            .right => pad_left + adjusted_padding,
+            .center => pad_left + adjusted_padding / 2,
         };
         const right_pad = if (width > left_pad + display_width + (if (needs_ellipsis) ellipsis_width else 0))
             width - left_pad - display_width - (if (needs_ellipsis) ellipsis_width else 0)
@@ -459,6 +486,23 @@ pub const Table = struct {
         for (0..count) |_| {
             try segments.append(allocator, Segment.plain(" "));
         }
+    }
+
+    fn renderFooterRow(self: Table, segments: *std.ArrayList(Segment), allocator: std.mem.Allocator, footer_row: []const []const u8, widths: []usize, b: BoxStyle) !void {
+        try segments.append(allocator, Segment.styled(b.left, self.border_style));
+
+        for (self.columns.items, 0..) |col, i| {
+            const cell = if (i < footer_row.len) footer_row[i] else "";
+            const effective_style = self.footer_style.combine(col.style);
+
+            try self.renderCell(segments, allocator, cell, widths[i], col.justify, effective_style, col);
+            if (i < self.columns.items.len - 1) {
+                try segments.append(allocator, Segment.styled(b.vertical, self.border_style));
+            }
+        }
+
+        try segments.append(allocator, Segment.styled(b.right, self.border_style));
+        try segments.append(allocator, Segment.line());
     }
 
     fn renderCaption(self: Table, segments: *std.ArrayList(Segment), allocator: std.mem.Allocator, widths: []usize, caption_text: []const u8) !void {
@@ -699,4 +743,70 @@ test "Table.render with overflow ellipsis" {
         }
     }
     try std.testing.expect(found_ellipsis);
+}
+
+test "Table.withCollapsePadding" {
+    const allocator = std.testing.allocator;
+    var table = Table.init(allocator);
+    defer table.deinit();
+
+    _ = table.withCollapsePadding(true);
+    try std.testing.expect(table.collapse_padding);
+}
+
+test "Table.render with collapse padding" {
+    const allocator = std.testing.allocator;
+    var table = Table.init(allocator);
+    defer table.deinit();
+
+    _ = table.addColumn("A").addColumn("B").withCollapsePadding(true);
+    try table.addRow(&.{ "1", "2" });
+
+    const segments = try table.render(80, allocator);
+    defer allocator.free(segments);
+
+    try std.testing.expect(segments.len > 0);
+}
+
+test "Table.withFooter" {
+    const allocator = std.testing.allocator;
+    var table = Table.init(allocator);
+    defer table.deinit();
+
+    _ = table.withFooter(&.{ "Total", "100" });
+    try std.testing.expect(table.footer != null);
+}
+
+test "Table.withFooterStyle" {
+    const allocator = std.testing.allocator;
+    var table = Table.init(allocator);
+    defer table.deinit();
+
+    _ = table.withFooterStyle(Style.empty.bold());
+    try std.testing.expect(table.footer_style.hasAttribute(.bold));
+}
+
+test "Table.render with footer" {
+    const allocator = std.testing.allocator;
+    var table = Table.init(allocator);
+    defer table.deinit();
+
+    _ = table.addColumn("Item").addColumn("Price");
+    try table.addRow(&.{ "Apple", "1.00" });
+    try table.addRow(&.{ "Banana", "0.50" });
+    _ = table.withFooter(&.{ "Total", "1.50" });
+
+    const segments = try table.render(80, allocator);
+    defer allocator.free(segments);
+
+    try std.testing.expect(segments.len > 0);
+
+    var found_total = false;
+    for (segments) |seg| {
+        if (std.mem.indexOf(u8, seg.text, "Total") != null) {
+            found_total = true;
+            break;
+        }
+    }
+    try std.testing.expect(found_total);
 }

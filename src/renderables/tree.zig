@@ -2,6 +2,18 @@ const std = @import("std");
 const Segment = @import("../segment.zig").Segment;
 const Style = @import("../style.zig").Style;
 
+pub const LabelContent = union(enum) {
+    text: []const u8,
+    segments: []const Segment,
+
+    pub fn getText(self: LabelContent) []const u8 {
+        return switch (self) {
+            .text => |t| t,
+            .segments => |segs| if (segs.len > 0) segs[0].text else "",
+        };
+    }
+};
+
 pub const TreeGuide = struct {
     vertical: []const u8 = "\u{2502}",
     horizontal: []const u8 = "\u{2500}\u{2500}",
@@ -12,6 +24,7 @@ pub const TreeGuide = struct {
 
 pub const TreeNode = struct {
     label: []const u8,
+    label_content: ?LabelContent = null,
     children: std.ArrayList(TreeNode),
     style: Style = Style.empty,
     guide_style: Style = Style.empty,
@@ -24,6 +37,22 @@ pub const TreeNode = struct {
             .children = std.ArrayList(TreeNode).empty,
             .allocator = allocator,
         };
+    }
+
+    pub fn initWithSegments(allocator: std.mem.Allocator, segments: []const Segment) TreeNode {
+        return .{
+            .label = if (segments.len > 0) segments[0].text else "",
+            .label_content = .{ .segments = segments },
+            .children = std.ArrayList(TreeNode).empty,
+            .allocator = allocator,
+        };
+    }
+
+    pub fn getLabelContent(self: TreeNode) LabelContent {
+        if (self.label_content) |content| {
+            return content;
+        }
+        return .{ .text = self.label };
     }
 
     pub fn deinit(self: *TreeNode) void {
@@ -86,7 +115,7 @@ pub const Tree = struct {
         var segments: std.ArrayList(Segment) = .empty;
 
         if (!self.hide_root) {
-            try segments.append(allocator, Segment.styled(self.root.label, self.root.style));
+            try self.renderLabel(&segments, allocator, &self.root);
             try segments.append(allocator, Segment.line());
         }
 
@@ -97,6 +126,21 @@ pub const Tree = struct {
         try self.renderChildren(&segments, allocator, &self.root, &levels);
 
         return segments.toOwnedSlice(allocator);
+    }
+
+    fn renderLabel(_: Tree, segments: *std.ArrayList(Segment), allocator: std.mem.Allocator, node: *const TreeNode) !void {
+        const content = node.getLabelContent();
+        switch (content) {
+            .text => |t| {
+                try segments.append(allocator, Segment.styled(t, node.style));
+            },
+            .segments => |segs| {
+                for (segs) |seg| {
+                    const combined_style = if (seg.style) |s| node.style.combine(s) else node.style;
+                    try segments.append(allocator, Segment.styledOptional(seg.text, if (combined_style.isEmpty()) null else combined_style));
+                }
+            },
+        }
     }
 
     fn renderChildren(self: Tree, segments: *std.ArrayList(Segment), allocator: std.mem.Allocator, node: *const TreeNode, levels: *std.ArrayList(bool)) !void {
@@ -121,7 +165,7 @@ pub const Tree = struct {
             try segments.append(allocator, Segment.plain(" "));
 
             // Label
-            try segments.append(allocator, Segment.styled(child.label, child.style));
+            try self.renderLabel(segments, allocator, child);
             try segments.append(allocator, Segment.line());
 
             // Recurse
@@ -205,4 +249,55 @@ test "Tree.hideRoot" {
     for (segments) |seg| {
         try std.testing.expect(!std.mem.eql(u8, seg.text, "root"));
     }
+}
+
+test "LabelContent.text" {
+    const content = LabelContent{ .text = "hello" };
+    try std.testing.expectEqualStrings("hello", content.getText());
+}
+
+test "LabelContent.segments" {
+    const segs = [_]Segment{Segment.plain("world")};
+    const content = LabelContent{ .segments = &segs };
+    try std.testing.expectEqualStrings("world", content.getText());
+}
+
+test "TreeNode.initWithSegments" {
+    const allocator = std.testing.allocator;
+    const segs = [_]Segment{
+        Segment.styled("styled", Style.empty.bold()),
+        Segment.plain(" text"),
+    };
+    var node = TreeNode.initWithSegments(allocator, &segs);
+    defer node.deinit();
+
+    try std.testing.expect(node.label_content != null);
+    try std.testing.expectEqualStrings("styled", node.label);
+}
+
+test "TreeNode.getLabelContent" {
+    const allocator = std.testing.allocator;
+    var node = TreeNode.init(allocator, "simple");
+    defer node.deinit();
+
+    const content = node.getLabelContent();
+    try std.testing.expectEqualStrings("simple", content.text);
+}
+
+test "Tree.render with segments" {
+    const allocator = std.testing.allocator;
+    const segs = [_]Segment{
+        Segment.styled("bold", Style.empty.bold()),
+        Segment.plain(" root"),
+    };
+    var root = TreeNode.initWithSegments(allocator, &segs);
+    defer root.deinit();
+
+    _ = try root.addChildLabel("child");
+
+    const tree = Tree.init(root);
+    const segments = try tree.render(80, allocator);
+    defer allocator.free(segments);
+
+    try std.testing.expect(segments.len > 0);
 }
