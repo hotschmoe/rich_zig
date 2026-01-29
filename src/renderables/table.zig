@@ -429,12 +429,11 @@ pub const Table = struct {
 
         const needs_ellipsis = col.no_wrap and col.overflow == .ellipsis and text_width > content_width;
         const ellipsis_width = if (needs_ellipsis) cells.cellLen(col.ellipsis) else 0;
-        const adjusted_padding = if (needs_ellipsis and padding_total >= ellipsis_width)
-            padding_total - ellipsis_width
-        else if (needs_ellipsis)
-            0
-        else
-            padding_total;
+
+        var adjusted_padding: usize = padding_total;
+        if (needs_ellipsis) {
+            adjusted_padding = if (padding_total >= ellipsis_width) padding_total - ellipsis_width else 0;
+        }
 
         const left_pad: usize = switch (justify) {
             .left => self.padding.left,

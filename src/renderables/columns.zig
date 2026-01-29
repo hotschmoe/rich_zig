@@ -96,35 +96,35 @@ pub const Columns = struct {
         return segment_mod.maxLineWidth(lines);
     }
 
-    fn calculateColumnCount(self: Columns, max_width: usize) usize {
-        if (self.column_count) |count| {
-            return count;
+    fn applyWidthConstraints(self: Columns, width: usize) usize {
+        var w = width;
+        if (self.min_column_width) |min| {
+            w = @max(w, min);
         }
+        if (self.max_column_width) |max| {
+            w = @min(w, max);
+        }
+        return w;
+    }
 
+    fn calculateColumnCount(self: Columns, max_width: usize) usize {
+        if (self.column_count) |count| return count;
         if (self.items.len == 0) return 1;
 
         var max_item_width: usize = 0;
         for (self.items) |item| {
-            const w = self.calculateItemWidth(item);
-            if (w > max_item_width) max_item_width = w;
+            max_item_width = @max(max_item_width, self.calculateItemWidth(item));
         }
 
-        if (self.min_column_width) |min| {
-            if (max_item_width < min) max_item_width = min;
-        }
-        if (self.max_column_width) |max| {
-            if (max_item_width > max) max_item_width = max;
-        }
-
+        max_item_width = self.applyWidthConstraints(max_item_width);
         if (max_item_width == 0) return 1;
 
         var cols: usize = 1;
-        while (true) {
+        while (cols < self.items.len) {
             const next_cols = cols + 1;
             const total_width = next_cols * max_item_width + (next_cols - 1) * self.padding;
             if (total_width > max_width) break;
             cols = next_cols;
-            if (cols >= self.items.len) break;
         }
 
         return cols;
@@ -138,10 +138,7 @@ pub const Columns = struct {
             const padding_total = if (col_count > 1) (col_count - 1) * self.padding else 0;
             const available = if (max_width > padding_total) max_width - padding_total else 0;
             const col_width = available / col_count;
-
-            for (widths) |*w| {
-                w.* = col_width;
-            }
+            @memset(widths, col_width);
         } else {
             const row_count = (self.items.len + col_count - 1) / col_count;
 
@@ -150,21 +147,14 @@ pub const Columns = struct {
                     const item_idx = row_idx * col_count + col_idx;
                     if (item_idx < self.items.len) {
                         const item_width = self.calculateItemWidth(self.items[item_idx]);
-                        if (item_width > widths[col_idx]) {
-                            widths[col_idx] = item_width;
-                        }
+                        widths[col_idx] = @max(widths[col_idx], item_width);
                     }
                 }
             }
         }
 
         for (widths) |*w| {
-            if (self.min_column_width) |min| {
-                if (w.* < min) w.* = min;
-            }
-            if (self.max_column_width) |max| {
-                if (w.* > max) w.* = max;
-            }
+            w.* = self.applyWidthConstraints(w.*);
         }
 
         return widths;

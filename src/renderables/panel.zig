@@ -226,62 +226,39 @@ pub const Panel = struct {
 
     fn getContentLines(self: Panel, allocator: std.mem.Allocator, _: usize) ![][]const Segment {
         switch (self.content) {
-            .text => |t| {
-                var lines: std.ArrayList([]const Segment) = .empty;
-                var line_start: usize = 0;
-
-                for (t, 0..) |c, idx| {
-                    if (c == '\n') {
-                        const line_text = t[line_start..idx];
-                        const seg_arr = try allocator.alloc(Segment, 1);
-                        seg_arr[0] = Segment.styledOptional(line_text, if (self.style.isEmpty()) null else self.style);
-                        try lines.append(allocator, seg_arr);
-                        line_start = idx + 1;
-                    }
-                }
-                if (line_start < t.len) {
-                    const line_text = t[line_start..];
-                    const seg_arr = try allocator.alloc(Segment, 1);
-                    seg_arr[0] = Segment.styledOptional(line_text, if (self.style.isEmpty()) null else self.style);
-                    try lines.append(allocator, seg_arr);
-                }
-                if (lines.items.len == 0) {
-                    const seg_arr = try allocator.alloc(Segment, 1);
-                    seg_arr[0] = Segment.plain("");
-                    try lines.append(allocator, seg_arr);
-                }
-
-                return lines.toOwnedSlice(allocator);
-            },
-            .styled_text => |txt| {
-                var lines: std.ArrayList([]const Segment) = .empty;
-                var line_start: usize = 0;
-
-                for (txt.plain, 0..) |c, idx| {
-                    if (c == '\n') {
-                        const seg_arr = try allocator.alloc(Segment, 1);
-                        seg_arr[0] = Segment.styledOptional(txt.plain[line_start..idx], if (self.style.isEmpty()) null else self.style);
-                        try lines.append(allocator, seg_arr);
-                        line_start = idx + 1;
-                    }
-                }
-                if (line_start < txt.plain.len) {
-                    const seg_arr = try allocator.alloc(Segment, 1);
-                    seg_arr[0] = Segment.styledOptional(txt.plain[line_start..], if (self.style.isEmpty()) null else self.style);
-                    try lines.append(allocator, seg_arr);
-                }
-                if (lines.items.len == 0) {
-                    const seg_arr = try allocator.alloc(Segment, 1);
-                    seg_arr[0] = Segment.plain("");
-                    try lines.append(allocator, seg_arr);
-                }
-
-                return lines.toOwnedSlice(allocator);
-            },
-            .segments => |segs| {
-                return segment_mod.splitIntoLines(segs, allocator);
-            },
+            .text => |t| return self.splitTextIntoSegmentLines(allocator, t),
+            .styled_text => |txt| return self.splitTextIntoSegmentLines(allocator, txt.plain),
+            .segments => |segs| return segment_mod.splitIntoLines(segs, allocator),
         }
+    }
+
+    fn splitTextIntoSegmentLines(self: Panel, allocator: std.mem.Allocator, text: []const u8) ![][]const Segment {
+        var lines: std.ArrayList([]const Segment) = .empty;
+        const style_to_use: ?Style = if (self.style.isEmpty()) null else self.style;
+        var line_start: usize = 0;
+
+        for (text, 0..) |c, idx| {
+            if (c == '\n') {
+                try lines.append(allocator, try self.makeSegmentLine(allocator, text[line_start..idx], style_to_use));
+                line_start = idx + 1;
+            }
+        }
+
+        if (line_start < text.len) {
+            try lines.append(allocator, try self.makeSegmentLine(allocator, text[line_start..], style_to_use));
+        }
+
+        if (lines.items.len == 0) {
+            try lines.append(allocator, try self.makeSegmentLine(allocator, "", null));
+        }
+
+        return lines.toOwnedSlice(allocator);
+    }
+
+    fn makeSegmentLine(_: Panel, allocator: std.mem.Allocator, text: []const u8, style: ?Style) ![]const Segment {
+        const seg_arr = try allocator.alloc(Segment, 1);
+        seg_arr[0] = Segment.styledOptional(text, style);
+        return seg_arr;
     }
 
     fn renderTopBorder(self: Panel, segments: *std.ArrayList(Segment), allocator: std.mem.Allocator, width: usize, b: BoxStyle) !void {
