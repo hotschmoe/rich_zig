@@ -1,5 +1,6 @@
 const std = @import("std");
 const Segment = @import("../segment.zig").Segment;
+const segment_mod = @import("../segment.zig");
 const Style = @import("../style.zig").Style;
 const Text = @import("../text.zig").Text;
 const BoxStyle = @import("../box.zig").BoxStyle;
@@ -9,6 +10,12 @@ pub const Alignment = enum {
     left,
     center,
     right,
+};
+
+pub const VOverflow = enum {
+    clip,
+    visible,
+    ellipsis,
 };
 
 pub const Panel = struct {
@@ -23,6 +30,8 @@ pub const Panel = struct {
     title_align: Alignment = .center,
     subtitle_align: Alignment = .center,
     width: ?usize = null,
+    height: ?usize = null,
+    vertical_overflow: VOverflow = .clip,
     padding: Padding = .{ .top = 0, .right = 1, .bottom = 0, .left = 1 },
     expand: bool = true,
     allocator: std.mem.Allocator,
@@ -54,6 +63,13 @@ pub const Panel = struct {
         };
     }
 
+    pub fn fromSegments(allocator: std.mem.Allocator, segs: []const Segment) Panel {
+        return .{
+            .content = .{ .segments = segs },
+            .allocator = allocator,
+        };
+    }
+
     pub fn withTitle(self: Panel, title: []const u8) Panel {
         var p = self;
         p.title = title;
@@ -72,21 +88,33 @@ pub const Panel = struct {
         return p;
     }
 
+    pub fn withHeight(self: Panel, h: usize) Panel {
+        var p = self;
+        p.height = h;
+        return p;
+    }
+
+    pub fn withVerticalOverflow(self: Panel, v: VOverflow) Panel {
+        var p = self;
+        p.vertical_overflow = v;
+        return p;
+    }
+
     pub fn withPadding(self: Panel, top: u8, right: u8, bottom: u8, left: u8) Panel {
         var p = self;
         p.padding = .{ .top = top, .right = right, .bottom = bottom, .left = left };
         return p;
     }
 
-    pub fn withBorderStyle(self: Panel, style: Style) Panel {
+    pub fn withBorderStyle(self: Panel, s: Style) Panel {
         var p = self;
-        p.border_style = style;
+        p.border_style = s;
         return p;
     }
 
-    pub fn withTitleStyle(self: Panel, style: Style) Panel {
+    pub fn withTitleStyle(self: Panel, s: Style) Panel {
         var p = self;
-        p.title_style = style;
+        p.title_style = s;
         return p;
     }
 
@@ -143,55 +171,117 @@ pub const Panel = struct {
         else
             0;
 
-        // Get content lines
-        const content_text = switch (self.content) {
-            .text => |t| t,
-            .styled_text => |t| t.plain,
-            .segments => "",
-        };
-
-        // Split content into lines
-        var content_lines: std.ArrayList([]const u8) = .empty;
-        defer content_lines.deinit(allocator);
-
-        var line_start: usize = 0;
-        for (content_text, 0..) |c, i| {
-            if (c == '\n') {
-                try content_lines.append(allocator, content_text[line_start..i]);
-                line_start = i + 1;
+        const content_lines = try self.getContentLines(allocator, content_width);
+        defer {
+            for (content_lines) |line| {
+                if (self.content != .segments) {
+                    allocator.free(line);
+                }
             }
-        }
-        if (line_start < content_text.len) {
-            try content_lines.append(allocator, content_text[line_start..]);
-        }
-        if (content_lines.items.len == 0) {
-            try content_lines.append(allocator, "");
+            allocator.free(content_lines);
         }
 
-        // Top border with optional title
+        const available_content_height: ?usize = if (self.height) |h| blk: {
+            const borders: usize = 2;
+            const vert_padding: usize = self.padding.top + self.padding.bottom;
+            break :blk if (h > borders + vert_padding) h - borders - vert_padding else 0;
+        } else null;
+
         try self.renderTopBorder(&segments, allocator, inner_width, b);
 
-        // Padding top
         var i: u8 = 0;
         while (i < self.padding.top) : (i += 1) {
             try self.renderEmptyLine(&segments, allocator, inner_width, b);
         }
 
-        // Content lines
-        for (content_lines.items) |line| {
-            try self.renderContentLine(&segments, allocator, line, inner_width, content_width, b);
+        var lines_rendered: usize = 0;
+        for (content_lines) |line| {
+            if (available_content_height) |max_lines| {
+                if (lines_rendered >= max_lines) {
+                    if (self.vertical_overflow == .ellipsis and lines_rendered == max_lines) {
+                        try self.renderEllipsisLine(&segments, allocator, inner_width, content_width, b);
+                    }
+                    break;
+                }
+            }
+            try self.renderContentLineSegments(&segments, allocator, line, inner_width, content_width, b);
+            lines_rendered += 1;
         }
 
-        // Padding bottom
+        if (available_content_height) |max_lines| {
+            while (lines_rendered < max_lines) : (lines_rendered += 1) {
+                try self.renderEmptyLine(&segments, allocator, inner_width, b);
+            }
+        }
+
         i = 0;
         while (i < self.padding.bottom) : (i += 1) {
             try self.renderEmptyLine(&segments, allocator, inner_width, b);
         }
 
-        // Bottom border with optional subtitle
         try self.renderBottomBorder(&segments, allocator, inner_width, b);
 
         return segments.toOwnedSlice(allocator);
+    }
+
+    fn getContentLines(self: Panel, allocator: std.mem.Allocator, _: usize) ![][]const Segment {
+        switch (self.content) {
+            .text => |t| {
+                var lines: std.ArrayList([]const Segment) = .empty;
+                var line_start: usize = 0;
+
+                for (t, 0..) |c, idx| {
+                    if (c == '\n') {
+                        const line_text = t[line_start..idx];
+                        const seg_arr = try allocator.alloc(Segment, 1);
+                        seg_arr[0] = Segment.styledOptional(line_text, if (self.style.isEmpty()) null else self.style);
+                        try lines.append(allocator, seg_arr);
+                        line_start = idx + 1;
+                    }
+                }
+                if (line_start < t.len) {
+                    const line_text = t[line_start..];
+                    const seg_arr = try allocator.alloc(Segment, 1);
+                    seg_arr[0] = Segment.styledOptional(line_text, if (self.style.isEmpty()) null else self.style);
+                    try lines.append(allocator, seg_arr);
+                }
+                if (lines.items.len == 0) {
+                    const seg_arr = try allocator.alloc(Segment, 1);
+                    seg_arr[0] = Segment.plain("");
+                    try lines.append(allocator, seg_arr);
+                }
+
+                return lines.toOwnedSlice(allocator);
+            },
+            .styled_text => |txt| {
+                var lines: std.ArrayList([]const Segment) = .empty;
+                var line_start: usize = 0;
+
+                for (txt.plain, 0..) |c, idx| {
+                    if (c == '\n') {
+                        const seg_arr = try allocator.alloc(Segment, 1);
+                        seg_arr[0] = Segment.styledOptional(txt.plain[line_start..idx], if (self.style.isEmpty()) null else self.style);
+                        try lines.append(allocator, seg_arr);
+                        line_start = idx + 1;
+                    }
+                }
+                if (line_start < txt.plain.len) {
+                    const seg_arr = try allocator.alloc(Segment, 1);
+                    seg_arr[0] = Segment.styledOptional(txt.plain[line_start..], if (self.style.isEmpty()) null else self.style);
+                    try lines.append(allocator, seg_arr);
+                }
+                if (lines.items.len == 0) {
+                    const seg_arr = try allocator.alloc(Segment, 1);
+                    seg_arr[0] = Segment.plain("");
+                    try lines.append(allocator, seg_arr);
+                }
+
+                return lines.toOwnedSlice(allocator);
+            },
+            .segments => |segs| {
+                return segment_mod.splitIntoLines(segs, allocator);
+            },
+        }
     }
 
     fn renderTopBorder(self: Panel, segments: *std.ArrayList(Segment), allocator: std.mem.Allocator, width: usize, b: BoxStyle) !void {
@@ -261,16 +351,36 @@ pub const Panel = struct {
         try segments.append(allocator, Segment.line());
     }
 
-    fn renderContentLine(self: Panel, segments: *std.ArrayList(Segment), allocator: std.mem.Allocator, line: []const u8, _: usize, content_width: usize, b: BoxStyle) !void {
+    fn renderContentLineSegments(self: Panel, segments: *std.ArrayList(Segment), allocator: std.mem.Allocator, line: []const Segment, _: usize, content_width: usize, b: BoxStyle) !void {
         try segments.append(allocator, Segment.styled(b.left, self.border_style));
         try self.renderSpaces(segments, allocator, self.padding.left);
 
-        const line_len = cells.cellLen(line);
-        try segments.append(allocator, Segment.styledOptional(line, if (self.style.isEmpty()) null else self.style));
+        const line_len = segment_mod.totalCellLength(line);
 
-        // Pad to content width
+        for (line) |seg| {
+            try segments.append(allocator, seg);
+        }
+
         if (line_len < content_width) {
             try self.renderSpaces(segments, allocator, content_width - line_len);
+        }
+
+        try self.renderSpaces(segments, allocator, self.padding.right);
+        try segments.append(allocator, Segment.styled(b.right, self.border_style));
+        try segments.append(allocator, Segment.line());
+    }
+
+    fn renderEllipsisLine(self: Panel, segments: *std.ArrayList(Segment), allocator: std.mem.Allocator, _: usize, content_width: usize, b: BoxStyle) !void {
+        try segments.append(allocator, Segment.styled(b.left, self.border_style));
+        try self.renderSpaces(segments, allocator, self.padding.left);
+
+        const ellipsis = "...";
+        const ellipsis_len = 3;
+
+        try segments.append(allocator, Segment.styledOptional(ellipsis, if (self.style.isEmpty()) null else self.style));
+
+        if (ellipsis_len < content_width) {
+            try self.renderSpaces(segments, allocator, content_width - ellipsis_len);
         }
 
         try self.renderSpaces(segments, allocator, self.padding.right);
@@ -285,12 +395,19 @@ pub const Panel = struct {
     }
 };
 
-// Tests
 test "Panel.fromText" {
     const allocator = std.testing.allocator;
     const panel = Panel.fromText(allocator, "Hello");
 
     try std.testing.expectEqualStrings("Hello", panel.content.text);
+}
+
+test "Panel.fromSegments" {
+    const allocator = std.testing.allocator;
+    const segs = [_]Segment{Segment.plain("Hello")};
+    const panel = Panel.fromSegments(allocator, &segs);
+
+    try std.testing.expectEqual(@as(usize, 1), panel.content.segments.len);
 }
 
 test "Panel.withTitle" {
@@ -300,12 +417,33 @@ test "Panel.withTitle" {
     try std.testing.expectEqualStrings("Title", panel.title.?);
 }
 
+test "Panel.withHeight" {
+    const allocator = std.testing.allocator;
+    const panel = Panel.fromText(allocator, "Content").withHeight(10);
+
+    try std.testing.expectEqual(@as(?usize, 10), panel.height);
+}
+
+test "Panel.withVerticalOverflow" {
+    const allocator = std.testing.allocator;
+    const panel = Panel.fromText(allocator, "Content").withVerticalOverflow(.ellipsis);
+
+    try std.testing.expectEqual(VOverflow.ellipsis, panel.vertical_overflow);
+}
+
 test "Panel.render basic" {
     const allocator = std.testing.allocator;
     const panel = Panel.fromText(allocator, "Hello").withWidth(20);
 
     const segments = try panel.render(80, allocator);
-    defer allocator.free(segments);
+    defer {
+        for (segments) |seg| {
+            if (seg.text.len == 1 and seg.style == null) {
+                continue;
+            }
+        }
+        allocator.free(segments);
+    }
 
     try std.testing.expect(segments.len > 0);
 }
@@ -317,7 +455,6 @@ test "Panel.render with title" {
     const segments = try panel.render(80, allocator);
     defer allocator.free(segments);
 
-    // Should find title somewhere in segments
     var found_title = false;
     for (segments) |seg| {
         if (std.mem.indexOf(u8, seg.text, "Title") != null) {
@@ -331,8 +468,8 @@ test "Panel.render with title" {
 test "Panel box styles" {
     const allocator = std.testing.allocator;
 
-    const rounded = Panel.fromText(allocator, "Test").rounded();
-    try std.testing.expectEqualStrings("\u{256D}", rounded.box_style.top_left);
+    const rounded_panel = Panel.fromText(allocator, "Test").rounded();
+    try std.testing.expectEqualStrings("\u{256D}", rounded_panel.box_style.top_left);
 
     const heavy_panel = Panel.fromText(allocator, "Test").heavy();
     try std.testing.expectEqualStrings("\u{250F}", heavy_panel.box_style.top_left);
@@ -380,4 +517,64 @@ test "Panel.render with right-aligned title" {
     defer allocator.free(segments);
 
     try std.testing.expect(segments.len > 0);
+}
+
+test "Panel.render with height constraint" {
+    const allocator = std.testing.allocator;
+    const panel = Panel.fromText(allocator, "Line1\nLine2\nLine3\nLine4\nLine5")
+        .withWidth(20)
+        .withHeight(5);
+
+    const segments = try panel.render(80, allocator);
+    defer allocator.free(segments);
+
+    var line_count: usize = 0;
+    for (segments) |seg| {
+        if (std.mem.eql(u8, seg.text, "\n")) {
+            line_count += 1;
+        }
+    }
+    try std.testing.expectEqual(@as(usize, 5), line_count);
+}
+
+test "Panel.render with height and ellipsis overflow" {
+    const allocator = std.testing.allocator;
+    const panel = Panel.fromText(allocator, "Line1\nLine2\nLine3\nLine4\nLine5")
+        .withWidth(20)
+        .withHeight(4)
+        .withVerticalOverflow(.ellipsis);
+
+    const segments = try panel.render(80, allocator);
+    defer allocator.free(segments);
+
+    var found_ellipsis = false;
+    for (segments) |seg| {
+        if (std.mem.indexOf(u8, seg.text, "...") != null) {
+            found_ellipsis = true;
+            break;
+        }
+    }
+    try std.testing.expect(found_ellipsis);
+}
+
+test "Panel.render with segments content" {
+    const allocator = std.testing.allocator;
+    const segs = [_]Segment{
+        Segment.plain("Hello"),
+        Segment.line(),
+        Segment.plain("World"),
+    };
+    const panel = Panel.fromSegments(allocator, &segs).withWidth(20);
+
+    const segments = try panel.render(80, allocator);
+    defer allocator.free(segments);
+
+    var found_hello = false;
+    var found_world = false;
+    for (segments) |seg| {
+        if (std.mem.indexOf(u8, seg.text, "Hello") != null) found_hello = true;
+        if (std.mem.indexOf(u8, seg.text, "World") != null) found_world = true;
+    }
+    try std.testing.expect(found_hello);
+    try std.testing.expect(found_world);
 }

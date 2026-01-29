@@ -1,11 +1,14 @@
 pub const panel = @import("panel.zig");
 pub const Panel = panel.Panel;
 pub const Alignment = panel.Alignment;
+pub const VOverflow = panel.VOverflow;
 
 pub const table = @import("table.zig");
 pub const Table = table.Table;
 pub const Column = table.Column;
 pub const JustifyMethod = table.JustifyMethod;
+pub const Overflow = table.Overflow;
+pub const AlternatingStyles = table.AlternatingStyles;
 
 pub const rule = @import("rule.zig");
 pub const Rule = rule.Rule;
@@ -13,6 +16,7 @@ pub const Rule = rule.Rule;
 pub const progress = @import("progress.zig");
 pub const ProgressBar = progress.ProgressBar;
 pub const Spinner = progress.Spinner;
+pub const SpeedUnit = progress.SpeedUnit;
 
 pub const tree = @import("tree.zig");
 pub const Tree = tree.Tree;
@@ -26,6 +30,9 @@ pub const Align = align_mod.Align;
 pub const HAlign = align_mod.HAlign;
 pub const VAlign = align_mod.VAlign;
 
+pub const columns = @import("columns.zig");
+pub const Columns = columns.Columns;
+
 test {
     _ = @import("panel.zig");
     _ = @import("table.zig");
@@ -34,4 +41,5 @@ test {
     _ = @import("tree.zig");
     _ = @import("padding.zig");
     _ = @import("align.zig");
+    _ = @import("columns.zig");
 }

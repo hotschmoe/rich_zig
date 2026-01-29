@@ -65,18 +65,23 @@ pub const LogLevel = console.LogLevel;
 pub const renderables = @import("renderables/mod.zig");
 pub const Panel = renderables.Panel;
 pub const Alignment = renderables.Alignment;
+pub const VOverflow = renderables.VOverflow;
 pub const Table = renderables.Table;
 pub const Column = renderables.Column;
 pub const JustifyMethod = renderables.JustifyMethod;
+pub const Overflow = renderables.Overflow;
+pub const AlternatingStyles = renderables.AlternatingStyles;
 pub const Rule = renderables.Rule;
 pub const ProgressBar = renderables.ProgressBar;
 pub const Spinner = renderables.Spinner;
+pub const SpeedUnit = renderables.SpeedUnit;
 pub const Tree = renderables.Tree;
 pub const TreeNode = renderables.TreeNode;
 pub const Padding = renderables.Padding;
 pub const Align = renderables.Align;
 pub const HAlign = renderables.HAlign;
 pub const VAlign = renderables.VAlign;
+pub const Columns = renderables.Columns;
 
 // Re-export tests from all modules
 test {
