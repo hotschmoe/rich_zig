@@ -29,35 +29,40 @@ rich_zig brings rich text and beautiful formatting to Zig terminal applications.
 
 ## Features
 
-### Core (Phase 1-3)
+### Core (Phase 1-3) - Complete
 
 | Component | Description | Status |
 |-----------|-------------|--------|
-| Color | 4-bit, 8-bit, 24-bit with auto-downgrade | Planned |
-| Style | Bold, italic, underline, dim, reverse, strike | Planned |
-| Segment | Atomic rendering unit with text + style | Planned |
-| Cells | Unicode width calculation (CJK, emoji) | Planned |
-| Markup | BBCode-like syntax `[bold red]text[/]` | Planned |
-| Text | Styled text with spans | Planned |
-| Terminal | Capability detection (colors, size, unicode) | Planned |
-| Console | Central output manager | Planned |
+| Color | 4-bit, 8-bit, 24-bit with auto-downgrade | Complete |
+| Style | Bold, italic, underline, dim, reverse, strike, hyperlinks | Complete |
+| Segment | Atomic rendering unit with text + style + control codes | Complete |
+| Cells | Unicode width calculation (CJK, emoji, zero-width) | Complete |
+| Markup | BBCode-like syntax `[bold red]text[/]` | Complete |
+| Text | Styled text with spans, wrapping, alignment | Complete |
+| Terminal | TTY, color, size, unicode detection | Complete |
+| Console | Print, log, capture, export, status | Complete |
 
-### Renderables (Phase 4)
-
-| Component | Description | Status |
-|-----------|-------------|--------|
-| Panel | Bordered boxes with title/subtitle | Planned |
-| Table | Unicode tables with alignment | Planned |
-| Rule | Horizontal rules with optional title | Planned |
-| Progress | Progress bars and spinners | Planned |
-| Tree | Tree structures with guides | Planned |
-
-### Optional (Phase 5)
+### Renderables (Phase 4) - Complete
 
 | Component | Description | Status |
 |-----------|-------------|--------|
-| JSON | Pretty-printed JSON with themes | Planned |
-| Syntax | Syntax highlighting (requires external) | Planned |
+| Panel | Bordered boxes with title/subtitle, all box styles | Complete |
+| Table | Unicode tables with alignment, headers, footer, caption | Complete |
+| Rule | Horizontal rules with title alignment | Complete |
+| Progress | Progress bars, spinners, timing, speed, groups | Complete |
+| Tree | Tree structures with guides, styling, collapse | Complete |
+| Padding | Uniform and per-side padding with styling | Complete |
+| Align | Horizontal and vertical alignment | Complete |
+| Columns | Multi-column layout | Complete |
+| Layout | Split views (horizontal/vertical) | Complete |
+| Live | Real-time updating display | Complete |
+
+### Optional (Phase 5) - Partial
+
+| Component | Description | Status |
+|-----------|-------------|--------|
+| JSON | Pretty-printed JSON with themes | Complete |
+| Syntax | Syntax highlighting | Planned |
 | Markdown | Terminal markdown rendering | Planned |
 
 ## Installation
@@ -118,7 +123,7 @@ pub fn build(b: *std.Build) void {
 ```zig
 .dependencies = .{
     .rich_zig = .{
-        .url = "git+https://github.com/hotschmoe-zig/rich_zig.git#v0.1.0",
+        .url = "git+https://github.com/hotschmoe-zig/rich_zig.git#v0.9.1",
         .hash = "...",
     },
 },
@@ -192,7 +197,7 @@ Output:
 ```zig
 const panel = rich.Panel.fromText(allocator, "Welcome to the system!")
     .withTitle("Message")
-    .withSubtitle("v0.1.0")
+    .withSubtitle("v0.9.1")
     .withWidth(50)
     .rounded();
 
@@ -203,7 +208,7 @@ Output:
 ```
 +-- Message --------------------------+
 | Welcome to the system!             |
-+------------------------- v0.1.0 ---+
++------------------------- v0.9.1 ---+
 ```
 
 ### Progress Bars
@@ -358,10 +363,10 @@ We track 100% feature parity with Rich/rich_rust. See [docs/FEATURE_PARITY.md](d
 
 | Phase | Components | Status |
 |-------|------------|--------|
-| Core | Color, Style, Segment, Cells, Markup, Text | In Progress |
-| Console | Terminal detection, Console I/O | Planned |
-| Renderables | Panel, Table, Rule, Progress, Tree | Planned |
-| Optional | JSON, Syntax, Markdown | Planned |
+| Core (P0) | Color, Style, Segment, Cells, Markup, Text | 100% Complete |
+| Console (P0) | Terminal detection, Console I/O | 100% Complete |
+| Renderables (P1) | Panel, Table, Rule, Progress, Tree, Layout | ~95% Complete |
+| Optional (P2) | JSON, Syntax, Markdown | ~35% Complete |
 
 ## CI/CD
 
