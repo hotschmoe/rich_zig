@@ -1,8 +1,28 @@
 const std = @import("std");
 const Segment = @import("../segment.zig").Segment;
+const segment_mod = @import("../segment.zig");
 const Style = @import("../style.zig").Style;
 const cells = @import("../cells.zig");
 const BoxStyle = @import("../box.zig").BoxStyle;
+
+pub const CellContent = union(enum) {
+    text: []const u8,
+    segments: []const Segment,
+
+    pub fn getText(self: CellContent) []const u8 {
+        return switch (self) {
+            .text => |t| t,
+            .segments => |segs| if (segs.len > 0) segs[0].text else "",
+        };
+    }
+
+    pub fn getCellWidth(self: CellContent) usize {
+        return switch (self) {
+            .text => |t| cells.cellLen(t),
+            .segments => |segs| segment_mod.totalCellLength(segs),
+        };
+    }
+};
 
 pub const JustifyMethod = enum {
     left,
@@ -102,6 +122,7 @@ pub const Column = struct {
 pub const Table = struct {
     columns: std.ArrayList(Column),
     rows: std.ArrayList([]const []const u8),
+    rich_rows: std.ArrayList([]const CellContent),
     title: ?[]const u8 = null,
     title_style: Style = Style.empty,
     caption: ?[]const u8 = null,
@@ -125,6 +146,7 @@ pub const Table = struct {
         return .{
             .columns = std.ArrayList(Column).empty,
             .rows = std.ArrayList([]const []const u8).empty,
+            .rich_rows = std.ArrayList([]const CellContent).empty,
             .row_styles = std.ArrayList(?Style).empty,
             .allocator = allocator,
         };
@@ -136,6 +158,10 @@ pub const Table = struct {
             self.allocator.free(row);
         }
         self.rows.deinit(self.allocator);
+        for (self.rich_rows.items) |row| {
+            self.allocator.free(row);
+        }
+        self.rich_rows.deinit(self.allocator);
         self.row_styles.deinit(self.allocator);
     }
 
@@ -164,6 +190,20 @@ pub const Table = struct {
         const row_copy = try self.allocator.alloc([]const u8, row.len);
         @memcpy(row_copy, row);
         try self.rows.append(self.allocator, row_copy);
+        try self.row_styles.append(self.allocator, style);
+    }
+
+    pub fn addRowRich(self: *Table, row: []const CellContent) !void {
+        const row_copy = try self.allocator.alloc(CellContent, row.len);
+        @memcpy(row_copy, row);
+        try self.rich_rows.append(self.allocator, row_copy);
+        try self.row_styles.append(self.allocator, null);
+    }
+
+    pub fn addRowRichStyled(self: *Table, row: []const CellContent, style: Style) !void {
+        const row_copy = try self.allocator.alloc(CellContent, row.len);
+        @memcpy(row_copy, row);
+        try self.rich_rows.append(self.allocator, row_copy);
         try self.row_styles.append(self.allocator, style);
     }
 
@@ -245,9 +285,21 @@ pub const Table = struct {
             try self.renderHorizontalBorder(&segments, allocator, col_widths, b.left_tee, b.horizontal, b.right_tee, b.cross);
         }
 
+        const total_text_rows = self.rows.items.len;
+        const total_rich_rows = self.rich_rows.items.len;
+        const total_rows = total_text_rows + total_rich_rows;
+
         for (self.rows.items, 0..) |row, idx| {
             try self.renderDataRow(&segments, allocator, row, col_widths, b, idx);
-            if (self.show_lines and idx < self.rows.items.len - 1) {
+            if (self.show_lines and idx < total_rows - 1) {
+                try self.renderHorizontalBorder(&segments, allocator, col_widths, b.left_tee, b.horizontal, b.right_tee, b.cross);
+            }
+        }
+
+        for (self.rich_rows.items, 0..) |row, idx| {
+            const row_idx = total_text_rows + idx;
+            try self.renderRichDataRow(&segments, allocator, row, col_widths, b, row_idx);
+            if (self.show_lines and row_idx < total_rows - 1) {
                 try self.renderHorizontalBorder(&segments, allocator, col_widths, b.left_tee, b.horizontal, b.right_tee, b.cross);
             }
         }
@@ -279,6 +331,17 @@ pub const Table = struct {
             for (row, 0..) |cell, i| {
                 if (i < widths.len) {
                     const cell_width = cells.cellLen(cell);
+                    if (cell_width > widths[i]) {
+                        widths[i] = cell_width;
+                    }
+                }
+            }
+        }
+
+        for (self.rich_rows.items) |row| {
+            for (row, 0..) |cell, i| {
+                if (i < widths.len) {
+                    const cell_width = cell.getCellWidth();
                     if (cell_width > widths[i]) {
                         widths[i] = cell_width;
                     }
@@ -406,6 +469,29 @@ pub const Table = struct {
         try segments.append(allocator, Segment.line());
     }
 
+    fn renderRichDataRow(self: Table, segments: *std.ArrayList(Segment), allocator: std.mem.Allocator, row: []const CellContent, widths: []usize, b: BoxStyle, row_idx: usize) !void {
+        try segments.append(allocator, Segment.styled(b.left, self.border_style));
+
+        const row_style = self.getRowStyle(row_idx);
+
+        for (self.columns.items, 0..) |col, i| {
+            const cell = if (i < row.len) row[i] else CellContent{ .text = "" };
+
+            var effective_style = col.style;
+            if (row_style) |rs| {
+                effective_style = rs.combine(col.style);
+            }
+
+            try self.renderRichCell(segments, allocator, cell, widths[i], col.justify, effective_style, col);
+            if (i < self.columns.items.len - 1) {
+                try segments.append(allocator, Segment.styled(b.vertical, self.border_style));
+            }
+        }
+
+        try segments.append(allocator, Segment.styled(b.right, self.border_style));
+        try segments.append(allocator, Segment.line());
+    }
+
     fn getRowStyle(self: Table, row_idx: usize) ?Style {
         if (row_idx < self.row_styles.items.len) {
             if (self.row_styles.items[row_idx]) |explicit_style| {
@@ -478,6 +564,45 @@ pub const Table = struct {
         if (needs_ellipsis) {
             try segments.append(allocator, Segment.styledOptional(col.ellipsis, if (style.isEmpty()) null else style));
         }
+
+        try self.renderSpaces(segments, allocator, right_pad);
+    }
+
+    fn renderRichCell(self: Table, segments: *std.ArrayList(Segment), allocator: std.mem.Allocator, content: CellContent, width: usize, justify: JustifyMethod, style: Style, col: Column) !void {
+        const pad_left: usize = if (self.collapse_padding) 0 else self.padding.left;
+        const pad_right: usize = if (self.collapse_padding) 0 else self.padding.right;
+        const content_width = if (width > pad_left + pad_right)
+            width - pad_left - pad_right
+        else
+            width;
+
+        const cell_width = content.getCellWidth();
+        const padding_total = if (content_width > cell_width) content_width - cell_width else 0;
+
+        const left_pad: usize = switch (justify) {
+            .left => pad_left,
+            .right => pad_left + padding_total,
+            .center => pad_left + padding_total / 2,
+        };
+        const right_pad = if (width > left_pad + cell_width)
+            width - left_pad - cell_width
+        else
+            0;
+
+        try self.renderSpaces(segments, allocator, left_pad);
+
+        switch (content) {
+            .text => |text| {
+                try segments.append(allocator, Segment.styledOptional(text, if (style.isEmpty()) null else style));
+            },
+            .segments => |segs| {
+                for (segs) |seg| {
+                    const combined_style = if (seg.style) |s| style.combine(s) else style;
+                    try segments.append(allocator, Segment.styledOptional(seg.text, if (combined_style.isEmpty()) null else combined_style));
+                }
+            },
+        }
+        _ = col;
 
         try self.renderSpaces(segments, allocator, right_pad);
     }
@@ -809,4 +934,87 @@ test "Table.render with footer" {
         }
     }
     try std.testing.expect(found_total);
+}
+
+test "CellContent.text" {
+    const content = CellContent{ .text = "hello" };
+    try std.testing.expectEqualStrings("hello", content.getText());
+    try std.testing.expectEqual(@as(usize, 5), content.getCellWidth());
+}
+
+test "CellContent.segments" {
+    const segs = [_]Segment{
+        Segment.plain("hello"),
+        Segment.plain(" "),
+        Segment.plain("world"),
+    };
+    const content = CellContent{ .segments = &segs };
+    try std.testing.expectEqualStrings("hello", content.getText());
+    try std.testing.expectEqual(@as(usize, 11), content.getCellWidth());
+}
+
+test "Table.addRowRich" {
+    const allocator = std.testing.allocator;
+    var table = Table.init(allocator);
+    defer table.deinit();
+
+    _ = table.addColumn("A").addColumn("B");
+    const segs = [_]Segment{Segment.styled("styled", Style.empty.bold())};
+    try table.addRowRich(&.{
+        CellContent{ .text = "plain" },
+        CellContent{ .segments = &segs },
+    });
+
+    try std.testing.expectEqual(@as(usize, 1), table.rich_rows.items.len);
+}
+
+test "Table.render with rich rows" {
+    const allocator = std.testing.allocator;
+    var table = Table.init(allocator);
+    defer table.deinit();
+
+    _ = table.addColumn("Name").addColumn("Status");
+    const status_segs = [_]Segment{Segment.styled("OK", Style.empty.bold())};
+    try table.addRowRich(&.{
+        CellContent{ .text = "Server" },
+        CellContent{ .segments = &status_segs },
+    });
+
+    const segments = try table.render(80, allocator);
+    defer allocator.free(segments);
+
+    try std.testing.expect(segments.len > 0);
+
+    var found_server = false;
+    var found_ok = false;
+    for (segments) |seg| {
+        if (std.mem.indexOf(u8, seg.text, "Server") != null) found_server = true;
+        if (std.mem.indexOf(u8, seg.text, "OK") != null) found_ok = true;
+    }
+    try std.testing.expect(found_server);
+    try std.testing.expect(found_ok);
+}
+
+test "Table.render mixed text and rich rows" {
+    const allocator = std.testing.allocator;
+    var table = Table.init(allocator);
+    defer table.deinit();
+
+    _ = table.addColumn("Col");
+    try table.addRow(&.{"text row"});
+
+    const rich_segs = [_]Segment{Segment.plain("rich row")};
+    try table.addRowRich(&.{CellContent{ .segments = &rich_segs }});
+
+    const segments = try table.render(80, allocator);
+    defer allocator.free(segments);
+
+    var found_text = false;
+    var found_rich = false;
+    for (segments) |seg| {
+        if (std.mem.indexOf(u8, seg.text, "text row") != null) found_text = true;
+        if (std.mem.indexOf(u8, seg.text, "rich row") != null) found_rich = true;
+    }
+    try std.testing.expect(found_text);
+    try std.testing.expect(found_rich);
 }

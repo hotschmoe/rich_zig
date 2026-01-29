@@ -187,7 +187,7 @@ We aim to implement all features from the Rich library that are feasible in Zig 
 | Padding | Y | Y | [x] | Top/right/bottom/left |
 | Width constraint | Y | Y | [x] | Fixed or expand |
 | Height constraint | Y | Y | [x] | Fixed height |
-| Nested renderables | Y | Y | [ ] | Panel in panel |
+| Nested renderables | Y | Y | [x] | Panel in panel |
 | Fit content | Y | Y | [x] | Shrink to content |
 
 ### Table (`renderables/table.zig`)
@@ -215,7 +215,7 @@ We aim to implement all features from the Rich library that are feasible in Zig 
 | Overflow handling | Y | Y | [x] | Ellipsis, fold |
 | Footer row | Y | Y | [x] | Summary row |
 | Row/column spanning | Y | Y | [ ] | Merged cells |
-| Nested tables | Y | Y | [ ] | Table in table |
+| Nested tables | Y | Y | [x] | Table in table |
 | Add row from iterable | Y | Y | [x] | Convenience method |
 
 ### Rule (`renderables/rule.zig`)
@@ -248,7 +248,7 @@ We aim to implement all features from the Rich library that are feasible in Zig 
 | Pulse animation | Y | Y | [x] | Moving highlight |
 | Refresh rate control | Y | Y | [x] | FPS limiting |
 | Transient display | Y | Y | [x] | Auto-clear |
-| Auto-refresh | Y | Y | [ ] | Background update |
+| Auto-refresh | Y | Y | [x] | Background update |
 
 ### Tree (`renderables/tree.zig`)
 
@@ -262,7 +262,7 @@ We aim to implement all features from the Rich library that are feasible in Zig 
 | Node styling | Y | Y | [x] | Per-node style |
 | Guide styling | Y | Y | [x] | Guide colors |
 | Expanded/collapsed | Y | Y | [x] | Toggle visibility |
-| Add from dict | Y | Y | [ ] | Convenience |
+| Add from dict | Y | Y | [x] | Convenience |
 | Renderables as nodes | Y | Y | [x] | Segments as labels |
 
 ### Columns (`renderables/columns.zig`)
@@ -301,10 +301,10 @@ We aim to implement all features from the Rich library that are feasible in Zig 
 | Ratio-based sizing | Y | Y | [x] | Proportional |
 | Minimum size | Y | Y | [x] | Constraints |
 | Fixed size | Y | Y | [x] | Exact width |
-| Nested layouts | Y | Y | [ ] | Complex layouts |
-| Named regions | Y | Y | [ ] | Region addressing |
-| Update region | Y | Y | [ ] | Dynamic content |
-| Splitter visibility | Y | Y | [ ] | Show dividers |
+| Nested layouts | Y | Y | [x] | Complex layouts |
+| Named regions | Y | Y | [x] | Region addressing |
+| Update region | Y | Y | [x] | Dynamic content |
+| Splitter visibility | Y | Y | [x] | Show dividers |
 
 ### Live Display (`renderables/live.zig`)
 
@@ -313,8 +313,8 @@ We aim to implement all features from the Rich library that are feasible in Zig 
 | Live updating | Y | Y | [x] | Real-time updates |
 | Refresh rate | Y | Y | [x] | Configurable FPS |
 | Transient mode | Y | Y | [x] | Clear on exit |
-| Vertical overflow | Y | Y | [ ] | Crop/scroll |
-| Auto-refresh | Y | Y | [ ] | Timer-based |
+| Vertical overflow | Y | Y | [x] | Crop/scroll |
+| Auto-refresh | Y | Y | [x] | Timer-based |
 | Manual refresh | Y | Y | [x] | On-demand |
 | Context manager | N/A | N/A | [x] | Zig defer pattern |
 
@@ -327,19 +327,19 @@ We aim to implement all features from the Rich library that are feasible in Zig 
 | Feature | Rich | rich_rust | rich_zig | Notes |
 |---------|------|-----------|----------|-------|
 | Language detection | Y | Y | [ ] | Auto-detect |
-| Explicit language | Y | Y | [ ] | User-specified |
-| Line numbers | Y | Y | [ ] | Left margin |
-| Line range | Y | Y | [ ] | Partial display |
+| Explicit language | Y | Y | [x] | User-specified |
+| Line numbers | Y | Y | [x] | Left margin |
+| Line range | Y | Y | [x] | Partial display |
 | Word wrap | Y | Y | [ ] | Long lines |
-| Theme selection | Y | Y | [ ] | Color schemes |
-| Custom themes | Y | Y | [ ] | User-defined |
+| Theme selection | Y | Y | [x] | Color schemes |
+| Custom themes | Y | Y | [x] | User-defined |
 | Background color | Y | Y | [ ] | Code block bg |
 | Tab size | Y | Y | [ ] | Tab expansion |
 | Indent guides | Y | Y | [ ] | Visual guides |
 | Highlight lines | Y | Y | [ ] | Specific lines |
 | Code from file | Y | Y | [ ] | Load and display |
 
-**Note**: May require tree-sitter C bindings or regex-based highlighting.
+**Note**: Uses keyword-based tokenization for Zig, JSON, Markdown. No external dependencies.
 
 ### Markdown (`renderables/markdown.zig`)
 
@@ -370,17 +370,17 @@ We aim to implement all features from the Rich library that are feasible in Zig 
 | Indent control | Y | Y | [x] | Indent size |
 | Theme selection | Y | Y | [x] | Color schemes |
 | Highlight keys | Y | Y | [x] | Key coloring |
-| Sort keys | Y | Y | [ ] | Alphabetical |
+| Sort keys | Y | Y | [x] | Alphabetical |
 | Expand all | Y | Y | [x] | No collapsing |
-| Max depth | Y | Y | [ ] | Limit nesting |
-| Max string length | Y | Y | [ ] | Truncate strings |
+| Max depth | Y | Y | [x] | Limit nesting |
+| Max string length | Y | Y | [x] | Truncate strings |
 
 ### Emoji (`emoji.zig`)
 
 | Feature | Rich | rich_rust | rich_zig | Notes |
 |---------|------|-----------|----------|-------|
-| Emoji shortcodes | Y | Y | [ ] | :smile: -> emoji |
-| Emoji database | Y | Y | [ ] | Full mapping |
+| Emoji shortcodes | Y | Y | [x] | :smile: -> emoji |
+| Emoji database | Y | Y | [x] | ~200 common emoji |
 
 ### Logging Integration (`logging.zig`)
 
@@ -436,8 +436,8 @@ Track weekly:
 | Metric | Target | Current |
 |--------|--------|---------|
 | P0 Features Implemented | 100% | 100% |
-| P1 Features Implemented | 100% | ~85% |
-| P2 Features Implemented | 80%+ | ~35% |
+| P1 Features Implemented | 100% | 100% |
+| P2 Features Implemented | 80%+ | ~65% |
 | Test Coverage | >85% | ~90% |
 | Documentation Coverage | 100% | 25% |
 

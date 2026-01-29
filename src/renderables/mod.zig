@@ -35,6 +35,7 @@ pub const Columns = columns.Columns;
 
 pub const live = @import("live.zig");
 pub const Live = live.Live;
+pub const OverflowMode = live.OverflowMode;
 
 pub const layout = @import("layout.zig");
 pub const Split = layout.Split;
@@ -46,8 +47,18 @@ pub const json = @import("json.zig");
 pub const Json = json.Json;
 pub const JsonTheme = json.JsonTheme;
 
+pub const syntax = @import("syntax.zig");
+pub const Syntax = syntax.Syntax;
+pub const SyntaxTheme = syntax.SyntaxTheme;
+pub const SyntaxLanguage = syntax.Language;
+
 pub const ProgressGroup = progress.ProgressGroup;
+pub const ProgressDisplay = progress.ProgressDisplay;
 pub const LabelContent = tree.LabelContent;
+pub const KV = tree.KV;
+pub const CellContent = table.CellContent;
+pub const SplitContent = layout.SplitContent;
+pub const SplitterConfig = layout.SplitterConfig;
 
 test {
     _ = @import("panel.zig");
@@ -61,4 +72,5 @@ test {
     _ = @import("live.zig");
     _ = @import("layout.zig");
     _ = @import("json.zig");
+    _ = @import("syntax.zig");
 }

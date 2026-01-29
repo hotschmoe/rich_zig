@@ -14,6 +14,24 @@ pub const LabelContent = union(enum) {
     }
 };
 
+pub const KV = struct {
+    key: []const u8,
+    value: KVValue,
+
+    pub const KVValue = union(enum) {
+        string: []const u8,
+        nested: []const KV,
+    };
+
+    pub fn string(key: []const u8, val: []const u8) KV {
+        return .{ .key = key, .value = .{ .string = val } };
+    }
+
+    pub fn nested(key: []const u8, children: []const KV) KV {
+        return .{ .key = key, .value = .{ .nested = children } };
+    }
+};
+
 pub const TreeGuide = struct {
     vertical: []const u8 = "\u{2502}",
     horizontal: []const u8 = "\u{2500}\u{2500}",
@@ -87,6 +105,23 @@ pub const TreeNode = struct {
         var n = self;
         n.expanded = false;
         return n;
+    }
+
+    pub fn addFromKV(self: *TreeNode, items: []const KV) !void {
+        for (items) |item| {
+            switch (item.value) {
+                .string => |val| {
+                    var child = TreeNode.init(self.allocator, item.key);
+                    _ = try child.addChildLabel(val);
+                    try self.children.append(self.allocator, child);
+                },
+                .nested => |nested_items| {
+                    var child = TreeNode.init(self.allocator, item.key);
+                    try child.addFromKV(nested_items);
+                    try self.children.append(self.allocator, child);
+                },
+            }
+        }
     }
 };
 
@@ -299,4 +334,82 @@ test "Tree.render with segments" {
     defer allocator.free(segments);
 
     try std.testing.expect(segments.len > 0);
+}
+
+test "KV.string" {
+    const kv = KV.string("name", "Alice");
+    try std.testing.expectEqualStrings("name", kv.key);
+    try std.testing.expectEqualStrings("Alice", kv.value.string);
+}
+
+test "KV.nested" {
+    const children = [_]KV{
+        KV.string("a", "1"),
+        KV.string("b", "2"),
+    };
+    const kv = KV.nested("parent", &children);
+    try std.testing.expectEqualStrings("parent", kv.key);
+    try std.testing.expectEqual(@as(usize, 2), kv.value.nested.len);
+}
+
+test "TreeNode.addFromKV simple" {
+    const allocator = std.testing.allocator;
+    var root = TreeNode.init(allocator, "config");
+    defer root.deinit();
+
+    const kvs = [_]KV{
+        KV.string("host", "localhost"),
+        KV.string("port", "8080"),
+    };
+    try root.addFromKV(&kvs);
+
+    try std.testing.expectEqual(@as(usize, 2), root.children.items.len);
+    try std.testing.expectEqualStrings("host", root.children.items[0].label);
+    try std.testing.expectEqual(@as(usize, 1), root.children.items[0].children.items.len);
+    try std.testing.expectEqualStrings("localhost", root.children.items[0].children.items[0].label);
+}
+
+test "TreeNode.addFromKV nested" {
+    const allocator = std.testing.allocator;
+    var root = TreeNode.init(allocator, "app");
+    defer root.deinit();
+
+    const db_config = [_]KV{
+        KV.string("host", "db.example.com"),
+        KV.string("port", "5432"),
+    };
+    const kvs = [_]KV{
+        KV.string("name", "myapp"),
+        KV.nested("database", &db_config),
+    };
+    try root.addFromKV(&kvs);
+
+    try std.testing.expectEqual(@as(usize, 2), root.children.items.len);
+    try std.testing.expectEqualStrings("database", root.children.items[1].label);
+    try std.testing.expectEqual(@as(usize, 2), root.children.items[1].children.items.len);
+}
+
+test "Tree.render with KV" {
+    const allocator = std.testing.allocator;
+    var root = TreeNode.init(allocator, "settings");
+    defer root.deinit();
+
+    const kvs = [_]KV{
+        KV.string("theme", "dark"),
+        KV.string("lang", "en"),
+    };
+    try root.addFromKV(&kvs);
+
+    const tree = Tree.init(root);
+    const segments = try tree.render(80, allocator);
+    defer allocator.free(segments);
+
+    var found_theme = false;
+    var found_dark = false;
+    for (segments) |seg| {
+        if (std.mem.eql(u8, seg.text, "theme")) found_theme = true;
+        if (std.mem.eql(u8, seg.text, "dark")) found_dark = true;
+    }
+    try std.testing.expect(found_theme);
+    try std.testing.expect(found_dark);
 }

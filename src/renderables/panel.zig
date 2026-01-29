@@ -70,6 +70,12 @@ pub const Panel = struct {
         };
     }
 
+    /// Convenience alias for fromSegments - creates a Panel from pre-rendered content.
+    /// Use this when you have segments from another renderable (e.g., Table.render(), Json.render()).
+    pub fn fromRendered(allocator: std.mem.Allocator, segs: []const Segment) Panel {
+        return fromSegments(allocator, segs);
+    }
+
     pub fn withTitle(self: Panel, title: []const u8) Panel {
         var p = self;
         p.title = title;
@@ -385,6 +391,18 @@ test "Panel.fromSegments" {
     const panel = Panel.fromSegments(allocator, &segs);
 
     try std.testing.expectEqual(@as(usize, 1), panel.content.segments.len);
+}
+
+test "Panel.fromRendered" {
+    const allocator = std.testing.allocator;
+    const segs = [_]Segment{
+        Segment.plain("Pre-rendered"),
+        Segment.line(),
+        Segment.plain("Content"),
+    };
+    const panel = Panel.fromRendered(allocator, &segs);
+
+    try std.testing.expectEqual(@as(usize, 3), panel.content.segments.len);
 }
 
 test "Panel.withTitle" {

@@ -89,8 +89,20 @@ pub const SizeConstraint = renderables.SizeConstraint;
 pub const Json = renderables.Json;
 pub const JsonTheme = renderables.JsonTheme;
 pub const ProgressGroup = renderables.ProgressGroup;
+pub const ProgressDisplay = renderables.ProgressDisplay;
+pub const OverflowMode = renderables.OverflowMode;
 pub const LabelContent = renderables.LabelContent;
 pub const CustomChars = box.CustomChars;
+pub const Syntax = renderables.Syntax;
+pub const SyntaxTheme = renderables.SyntaxTheme;
+pub const SyntaxLanguage = renderables.SyntaxLanguage;
+pub const KV = renderables.KV;
+pub const CellContent = renderables.CellContent;
+pub const SplitContent = renderables.SplitContent;
+pub const SplitterConfig = renderables.SplitterConfig;
+
+// Emoji support
+pub const emoji = @import("emoji.zig");
 
 // Re-export tests from all modules
 test {
@@ -111,6 +123,9 @@ test {
 
     // Phase 4
     _ = @import("renderables/mod.zig");
+
+    // Emoji support
+    _ = @import("emoji.zig");
 }
 
 // Basic library functionality tests

@@ -775,3 +775,102 @@ test "ProgressGroup.visibleCount with transient" {
     group.bars.items[0].completed = 100;
     try std.testing.expectEqual(@as(usize, 1), group.visibleCount());
 }
+
+pub const ProgressDisplay = struct {
+    group: *ProgressGroup,
+    live: ?*@import("live.zig").Live = null,
+    refresh_thread: ?std.Thread = null,
+    should_stop: std.atomic.Value(bool) = std.atomic.Value(bool).init(false),
+    refresh_ms: u64 = 100,
+    allocator: std.mem.Allocator,
+    mutex: std.Thread.Mutex = .{},
+
+    pub fn init(allocator: std.mem.Allocator, group: *ProgressGroup) ProgressDisplay {
+        return .{
+            .group = group,
+            .allocator = allocator,
+        };
+    }
+
+    pub fn withRefreshRate(self: ProgressDisplay, ms: u64) ProgressDisplay {
+        var pd = self;
+        pd.refresh_ms = ms;
+        return pd;
+    }
+
+    pub fn withLive(self: ProgressDisplay, live: *@import("live.zig").Live) ProgressDisplay {
+        var pd = self;
+        pd.live = live;
+        return pd;
+    }
+
+    pub fn start(self: *ProgressDisplay) !void {
+        if (self.refresh_thread != null) return;
+
+        if (self.live) |live| {
+            try live.start();
+        }
+
+        self.should_stop.store(false, .release);
+        self.refresh_thread = try std.Thread.spawn(.{}, autoRefreshThread, .{self});
+    }
+
+    pub fn stop(self: *ProgressDisplay) void {
+        if (self.refresh_thread) |thread| {
+            self.should_stop.store(true, .release);
+            thread.join();
+            self.refresh_thread = null;
+
+            if (self.live) |live| {
+                live.stop() catch {};
+            }
+        }
+    }
+
+    fn autoRefreshThread(self: *ProgressDisplay) void {
+        while (!self.should_stop.load(.acquire)) {
+            std.time.sleep(self.refresh_ms * std.time.ns_per_ms);
+
+            if (self.should_stop.load(.acquire)) break;
+
+            self.mutex.lock();
+            const live = self.live;
+            self.mutex.unlock();
+
+            if (live) |l| {
+                const segments = self.group.render(80, self.allocator) catch continue;
+                defer self.allocator.free(segments);
+                l.forceUpdate(segments) catch {};
+            }
+        }
+    }
+
+    pub fn advanceSpinners(self: *ProgressDisplay) void {
+        self.mutex.lock();
+        defer self.mutex.unlock();
+
+        for (self.group.bars.items) |*bar| {
+            if (bar.indeterminate) {
+                bar.advancePulse();
+            }
+        }
+    }
+};
+
+test "ProgressDisplay.init" {
+    const allocator = std.testing.allocator;
+    var group = ProgressGroup.init(allocator);
+    defer group.deinit();
+
+    const display = ProgressDisplay.init(allocator, &group);
+    try std.testing.expectEqual(@as(u64, 100), display.refresh_ms);
+}
+
+test "ProgressDisplay.withRefreshRate" {
+    const allocator = std.testing.allocator;
+    var group = ProgressGroup.init(allocator);
+    defer group.deinit();
+
+    const display = ProgressDisplay.init(allocator, &group).withRefreshRate(50);
+    try std.testing.expectEqual(@as(u64, 50), display.refresh_ms);
+}

@@ -12,6 +12,7 @@ pub const JsonTheme = struct {
     bracket_style: Style = Style.empty,
     colon_style: Style = Style.empty,
     comma_style: Style = Style.empty.dim(),
+    ellipsis_style: Style = Style.empty.dim(),
 
     pub const default: JsonTheme = .{};
 
@@ -24,6 +25,7 @@ pub const JsonTheme = struct {
         .bracket_style = Style.empty,
         .colon_style = Style.empty,
         .comma_style = Style.empty.dim(),
+        .ellipsis_style = Style.empty.foreground(Color.fromRgb(117, 113, 94)),
     };
 };
 
@@ -31,6 +33,9 @@ pub const Json = struct {
     value: std.json.Value,
     theme: JsonTheme = JsonTheme.default,
     indent: u8 = 2,
+    sort_keys: bool = false,
+    max_depth: ?usize = null,
+    max_string_length: ?usize = null,
     allocator: std.mem.Allocator,
     parsed: ?std.json.Parsed(std.json.Value) = null,
 
@@ -68,6 +73,24 @@ pub const Json = struct {
         return j;
     }
 
+    pub fn withSortKeys(self: Json, sort: bool) Json {
+        var j = self;
+        j.sort_keys = sort;
+        return j;
+    }
+
+    pub fn withMaxDepth(self: Json, depth: ?usize) Json {
+        var j = self;
+        j.max_depth = depth;
+        return j;
+    }
+
+    pub fn withMaxStringLength(self: Json, length: ?usize) Json {
+        var j = self;
+        j.max_string_length = length;
+        return j;
+    }
+
     pub fn render(self: Json, _: usize, allocator: std.mem.Allocator) ![]Segment {
         var segments: std.ArrayList(Segment) = .empty;
         try self.renderValue(&segments, allocator, self.value, 0);
@@ -95,10 +118,26 @@ pub const Json = struct {
             },
             .string => |s| {
                 try segments.append(allocator, Segment.styled("\"", self.theme.string_style));
-                try segments.append(allocator, Segment.styled(s, self.theme.string_style));
+                if (self.max_string_length) |max_len| {
+                    if (s.len > max_len) {
+                        const truncated = try truncateUtf8(s, max_len, allocator);
+                        try segments.append(allocator, Segment.styled(truncated, self.theme.string_style));
+                        try segments.append(allocator, Segment.styled("...", self.theme.ellipsis_style));
+                    } else {
+                        try segments.append(allocator, Segment.styled(s, self.theme.string_style));
+                    }
+                } else {
+                    try segments.append(allocator, Segment.styled(s, self.theme.string_style));
+                }
                 try segments.append(allocator, Segment.styled("\"", self.theme.string_style));
             },
             .array => |arr| {
+                if (self.max_depth) |max_d| {
+                    if (depth >= max_d) {
+                        try segments.append(allocator, Segment.styled("[...]", self.theme.ellipsis_style));
+                        return;
+                    }
+                }
                 try segments.append(allocator, Segment.styled("[", self.theme.bracket_style));
                 if (arr.items.len > 0) {
                     try segments.append(allocator, Segment.line());
@@ -115,24 +154,59 @@ pub const Json = struct {
                 try segments.append(allocator, Segment.styled("]", self.theme.bracket_style));
             },
             .object => |obj| {
+                if (self.max_depth) |max_d| {
+                    if (depth >= max_d) {
+                        try segments.append(allocator, Segment.styled("{...}", self.theme.ellipsis_style));
+                        return;
+                    }
+                }
                 try segments.append(allocator, Segment.styled("{", self.theme.bracket_style));
                 if (obj.count() > 0) {
                     try segments.append(allocator, Segment.line());
-                    var iter = obj.iterator();
-                    var i: usize = 0;
                     const count = obj.count();
-                    while (iter.next()) |entry| {
-                        try self.renderIndent(segments, allocator, depth + 1);
-                        try segments.append(allocator, Segment.styled("\"", self.theme.key_style));
-                        try segments.append(allocator, Segment.styled(entry.key_ptr.*, self.theme.key_style));
-                        try segments.append(allocator, Segment.styled("\"", self.theme.key_style));
-                        try segments.append(allocator, Segment.styled(": ", self.theme.colon_style));
-                        try self.renderValue(segments, allocator, entry.value_ptr.*, depth + 1);
-                        if (i < count - 1) {
-                            try segments.append(allocator, Segment.styled(",", self.theme.comma_style));
+
+                    if (self.sort_keys) {
+                        const keys = try allocator.alloc([]const u8, count);
+                        defer allocator.free(keys);
+                        var iter = obj.iterator();
+                        var k: usize = 0;
+                        while (iter.next()) |entry| {
+                            keys[k] = entry.key_ptr.*;
+                            k += 1;
                         }
-                        try segments.append(allocator, Segment.line());
-                        i += 1;
+                        std.mem.sort([]const u8, keys, {}, struct {
+                            fn lessThan(_: void, a: []const u8, b: []const u8) bool {
+                                return std.mem.order(u8, a, b) == .lt;
+                            }
+                        }.lessThan);
+                        for (keys, 0..) |key, i| {
+                            try self.renderIndent(segments, allocator, depth + 1);
+                            try segments.append(allocator, Segment.styled("\"", self.theme.key_style));
+                            try segments.append(allocator, Segment.styled(key, self.theme.key_style));
+                            try segments.append(allocator, Segment.styled("\"", self.theme.key_style));
+                            try segments.append(allocator, Segment.styled(": ", self.theme.colon_style));
+                            try self.renderValue(segments, allocator, obj.get(key).?, depth + 1);
+                            if (i < count - 1) {
+                                try segments.append(allocator, Segment.styled(",", self.theme.comma_style));
+                            }
+                            try segments.append(allocator, Segment.line());
+                        }
+                    } else {
+                        var iter = obj.iterator();
+                        var i: usize = 0;
+                        while (iter.next()) |entry| {
+                            try self.renderIndent(segments, allocator, depth + 1);
+                            try segments.append(allocator, Segment.styled("\"", self.theme.key_style));
+                            try segments.append(allocator, Segment.styled(entry.key_ptr.*, self.theme.key_style));
+                            try segments.append(allocator, Segment.styled("\"", self.theme.key_style));
+                            try segments.append(allocator, Segment.styled(": ", self.theme.colon_style));
+                            try self.renderValue(segments, allocator, entry.value_ptr.*, depth + 1);
+                            if (i < count - 1) {
+                                try segments.append(allocator, Segment.styled(",", self.theme.comma_style));
+                            }
+                            try segments.append(allocator, Segment.line());
+                            i += 1;
+                        }
                     }
                     try self.renderIndent(segments, allocator, depth);
                 }
@@ -142,6 +216,26 @@ pub const Json = struct {
                 try segments.append(allocator, Segment.styled(s, self.theme.number_style));
             },
         }
+    }
+
+    fn truncateUtf8(s: []const u8, max_chars: usize, allocator: std.mem.Allocator) ![]const u8 {
+        var char_count: usize = 0;
+        var byte_index: usize = 0;
+        while (byte_index < s.len and char_count < max_chars) {
+            const byte = s[byte_index];
+            const char_len: usize = if (byte < 0x80)
+                1
+            else if (byte < 0xE0)
+                2
+            else if (byte < 0xF0)
+                3
+            else
+                4;
+            if (byte_index + char_len > s.len) break;
+            byte_index += char_len;
+            char_count += 1;
+        }
+        return allocator.dupe(u8, s[0..byte_index]);
     }
 
     const max_indent_spaces = 128;
@@ -327,4 +421,91 @@ test "Json.render mixed nested structure" {
 
     try std.testing.expect(std.mem.indexOf(u8, text, "items") != null);
     try std.testing.expect(std.mem.indexOf(u8, text, "id") != null);
+}
+
+test "Json.withSortKeys" {
+    const allocator = std.testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+
+    var json = try Json.fromString(allocator,
+        \\{"zebra": 1, "apple": 2, "mango": 3}
+    );
+    defer json.deinit();
+
+    const sorted_json = json.withSortKeys(true);
+    const segments = try sorted_json.render(80, arena.allocator());
+    const text = try @import("../segment.zig").joinText(segments, arena.allocator());
+
+    const apple_pos = std.mem.indexOf(u8, text, "apple").?;
+    const mango_pos = std.mem.indexOf(u8, text, "mango").?;
+    const zebra_pos = std.mem.indexOf(u8, text, "zebra").?;
+
+    try std.testing.expect(apple_pos < mango_pos);
+    try std.testing.expect(mango_pos < zebra_pos);
+}
+
+test "Json.withMaxDepth" {
+    const allocator = std.testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+
+    var json = try Json.fromString(allocator,
+        \\{"outer": {"inner": {"deep": true}}}
+    );
+    defer json.deinit();
+
+    const limited_json = json.withMaxDepth(1);
+    const segments = try limited_json.render(80, arena.allocator());
+    const text = try @import("../segment.zig").joinText(segments, arena.allocator());
+
+    try std.testing.expect(std.mem.indexOf(u8, text, "outer") != null);
+    try std.testing.expect(std.mem.indexOf(u8, text, "{...}") != null);
+    try std.testing.expect(std.mem.indexOf(u8, text, "inner") == null);
+}
+
+test "Json.withMaxDepth array" {
+    const allocator = std.testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+
+    var json = try Json.fromString(allocator, "[[[[1]]]]");
+    defer json.deinit();
+
+    const limited_json = json.withMaxDepth(2);
+    const segments = try limited_json.render(80, arena.allocator());
+    const text = try @import("../segment.zig").joinText(segments, arena.allocator());
+
+    try std.testing.expect(std.mem.indexOf(u8, text, "[...]") != null);
+}
+
+test "Json.withMaxStringLength" {
+    const allocator = std.testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+
+    var json = try Json.fromString(allocator,
+        \\{"message": "This is a very long string that should be truncated"}
+    );
+    defer json.deinit();
+
+    const limited_json = json.withMaxStringLength(10);
+    const segments = try limited_json.render(80, arena.allocator());
+    const text = try @import("../segment.zig").joinText(segments, arena.allocator());
+
+    try std.testing.expect(std.mem.indexOf(u8, text, "This is a ") != null);
+    try std.testing.expect(std.mem.indexOf(u8, text, "...") != null);
+    try std.testing.expect(std.mem.indexOf(u8, text, "truncated") == null);
+}
+
+test "Json.withMaxStringLength unicode" {
+    const allocator = std.testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+
+    const truncated = try Json.truncateUtf8("hello", 3, arena.allocator());
+    try std.testing.expectEqualStrings("hel", truncated);
+
+    const truncated_utf8 = try Json.truncateUtf8("\xC3\xA9\xC3\xA8\xC3\xA0", 2, arena.allocator());
+    try std.testing.expectEqual(@as(usize, 4), truncated_utf8.len);
 }

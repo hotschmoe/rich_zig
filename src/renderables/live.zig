@@ -1,6 +1,13 @@
 const std = @import("std");
 const Segment = @import("../segment.zig").Segment;
+const segment_mod = @import("../segment.zig");
 const Console = @import("../console.zig").Console;
+
+pub const OverflowMode = enum {
+    visible,
+    clip,
+    scroll,
+};
 
 pub const Live = struct {
     console: *Console,
@@ -8,6 +15,14 @@ pub const Live = struct {
     last_refresh_time: i64 = 0,
     lines_rendered: usize = 0,
     is_started: bool = false,
+    overflow_mode: OverflowMode = .visible,
+    max_lines: ?usize = null,
+    scroll_offset: usize = 0,
+    content: ?[]const Segment = null,
+    content_mutex: std.Thread.Mutex = .{},
+    refresh_thread: ?std.Thread = null,
+    should_stop: std.atomic.Value(bool) = std.atomic.Value(bool).init(false),
+    allocator: ?std.mem.Allocator = null,
 
     pub fn init(console: *Console) Live {
         return .{
@@ -21,6 +36,42 @@ pub const Live = struct {
         return l;
     }
 
+    pub fn withOverflow(self: Live, mode: OverflowMode) Live {
+        var l = self;
+        l.overflow_mode = mode;
+        return l;
+    }
+
+    pub fn withMaxLines(self: Live, lines: ?usize) Live {
+        var l = self;
+        l.max_lines = lines;
+        return l;
+    }
+
+    pub fn scrollUp(self: *Live, lines: usize) void {
+        if (self.scroll_offset >= lines) {
+            self.scroll_offset -= lines;
+        } else {
+            self.scroll_offset = 0;
+        }
+    }
+
+    pub fn scrollDown(self: *Live, lines: usize) void {
+        self.scroll_offset += lines;
+    }
+
+    pub fn scrollToTop(self: *Live) void {
+        self.scroll_offset = 0;
+    }
+
+    pub fn scrollToBottom(self: *Live, total_lines: usize) void {
+        if (self.max_lines) |max| {
+            if (total_lines > max) {
+                self.scroll_offset = total_lines - max;
+            }
+        }
+    }
+
     pub fn start(self: *Live) !void {
         if (self.is_started) return;
         try self.console.hideCursor();
@@ -30,8 +81,48 @@ pub const Live = struct {
 
     pub fn stop(self: *Live) !void {
         if (!self.is_started) return;
+        self.stopAutoRefresh();
         try self.console.showCursor();
         self.is_started = false;
+    }
+
+    pub fn setContent(self: *Live, segments: []const Segment) void {
+        self.content_mutex.lock();
+        defer self.content_mutex.unlock();
+        self.content = segments;
+    }
+
+    pub fn startAutoRefresh(self: *Live, allocator: std.mem.Allocator) !void {
+        if (self.refresh_thread != null) return;
+
+        self.allocator = allocator;
+        self.should_stop.store(false, .release);
+        self.refresh_thread = try std.Thread.spawn(.{}, autoRefreshThread, .{self});
+    }
+
+    pub fn stopAutoRefresh(self: *Live) void {
+        if (self.refresh_thread) |thread| {
+            self.should_stop.store(true, .release);
+            thread.join();
+            self.refresh_thread = null;
+        }
+    }
+
+    fn autoRefreshThread(self: *Live) void {
+        while (!self.should_stop.load(.acquire)) {
+            std.time.sleep(self.min_refresh_ms * std.time.ns_per_ms);
+
+            if (self.should_stop.load(.acquire)) break;
+
+            self.content_mutex.lock();
+            const segments = self.content;
+            self.content_mutex.unlock();
+
+            if (segments) |segs| {
+                self.renderSegments(segs) catch {};
+                self.last_refresh_time = std.time.milliTimestamp();
+            }
+        }
     }
 
     pub fn update(self: *Live, segments: []const Segment) !void {
@@ -56,15 +147,63 @@ pub const Live = struct {
     fn renderSegments(self: *Live, segments: []const Segment) !void {
         try self.clearPrevious();
 
-        var line_count: usize = 1;
+        var total_lines: usize = 1;
         for (segments) |seg| {
             if (std.mem.eql(u8, seg.text, "\n")) {
-                line_count += 1;
+                total_lines += 1;
             }
         }
 
-        try self.console.printSegments(segments);
-        self.lines_rendered = line_count;
+        const max = self.max_lines orelse total_lines;
+
+        if (self.overflow_mode == .visible or total_lines <= max) {
+            try self.console.printSegments(segments);
+            self.lines_rendered = total_lines;
+            return;
+        }
+
+        switch (self.overflow_mode) {
+            .clip => {
+                var line_count: usize = 0;
+                for (segments) |seg| {
+                    if (line_count >= max) break;
+                    if (std.mem.eql(u8, seg.text, "\n")) {
+                        line_count += 1;
+                        if (line_count < max) {
+                            try self.console.printSegments(&[_]Segment{seg});
+                        }
+                    } else {
+                        try self.console.printSegments(&[_]Segment{seg});
+                    }
+                }
+                try self.console.printSegments(&[_]Segment{Segment.line()});
+                self.lines_rendered = @min(max, total_lines);
+            },
+            .scroll => {
+                const scroll = @min(self.scroll_offset, if (total_lines > max) total_lines - max else 0);
+                var line_count: usize = 0;
+                var visible_lines: usize = 0;
+
+                for (segments) |seg| {
+                    if (line_count >= scroll and visible_lines < max) {
+                        if (std.mem.eql(u8, seg.text, "\n")) {
+                            visible_lines += 1;
+                            if (visible_lines < max) {
+                                try self.console.printSegments(&[_]Segment{seg});
+                            }
+                        } else {
+                            try self.console.printSegments(&[_]Segment{seg});
+                        }
+                    }
+                    if (std.mem.eql(u8, seg.text, "\n")) {
+                        line_count += 1;
+                    }
+                }
+                try self.console.printSegments(&[_]Segment{Segment.line()});
+                self.lines_rendered = visible_lines;
+            },
+            .visible => unreachable,
+        }
     }
 
     fn clearPrevious(self: *Live) !void {
@@ -128,4 +267,59 @@ test "Live.update without start" {
 
     try live.update(&segments);
     try std.testing.expectEqual(@as(usize, 0), live.lines_rendered);
+}
+
+test "Live.withOverflow" {
+    const allocator = std.testing.allocator;
+    var console = Console.init(allocator);
+    defer console.deinit();
+
+    const live = Live.init(&console).withOverflow(.clip);
+    try std.testing.expectEqual(OverflowMode.clip, live.overflow_mode);
+}
+
+test "Live.withMaxLines" {
+    const allocator = std.testing.allocator;
+    var console = Console.init(allocator);
+    defer console.deinit();
+
+    const live = Live.init(&console).withMaxLines(10);
+    try std.testing.expectEqual(@as(?usize, 10), live.max_lines);
+}
+
+test "Live.scroll operations" {
+    const allocator = std.testing.allocator;
+    var console = Console.init(allocator);
+    defer console.deinit();
+
+    var live = Live.init(&console).withOverflow(.scroll).withMaxLines(5);
+
+    try std.testing.expectEqual(@as(usize, 0), live.scroll_offset);
+
+    live.scrollDown(3);
+    try std.testing.expectEqual(@as(usize, 3), live.scroll_offset);
+
+    live.scrollUp(1);
+    try std.testing.expectEqual(@as(usize, 2), live.scroll_offset);
+
+    live.scrollToTop();
+    try std.testing.expectEqual(@as(usize, 0), live.scroll_offset);
+
+    live.scrollToBottom(10);
+    try std.testing.expectEqual(@as(usize, 5), live.scroll_offset);
+}
+
+test "Live.setContent" {
+    const allocator = std.testing.allocator;
+    var console = Console.init(allocator);
+    defer console.deinit();
+
+    var live = Live.init(&console);
+    const segments = [_]Segment{Segment.plain("content")};
+
+    live.setContent(&segments);
+
+    live.content_mutex.lock();
+    defer live.content_mutex.unlock();
+    try std.testing.expect(live.content != null);
 }
