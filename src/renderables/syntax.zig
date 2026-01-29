@@ -372,15 +372,18 @@ pub const Syntax = struct {
                 continue;
             }
 
-            if (std.mem.startsWith(u8, line[i..], "true") or std.mem.startsWith(u8, line[i..], "false") or std.mem.startsWith(u8, line[i..], "null")) {
-                const keyword = if (std.mem.startsWith(u8, line[i..], "true"))
-                    "true"
-                else if (std.mem.startsWith(u8, line[i..], "false"))
-                    "false"
-                else
-                    "null";
-                try segments.append(allocator, Segment.styled(keyword, self.theme.keyword_style));
-                i += keyword.len;
+            const keyword: ?[]const u8 = if (std.mem.startsWith(u8, line[i..], "true"))
+                "true"
+            else if (std.mem.startsWith(u8, line[i..], "false"))
+                "false"
+            else if (std.mem.startsWith(u8, line[i..], "null"))
+                "null"
+            else
+                null;
+
+            if (keyword) |kw| {
+                try segments.append(allocator, Segment.styled(kw, self.theme.keyword_style));
+                i += kw.len;
                 continue;
             }
 

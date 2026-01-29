@@ -176,14 +176,11 @@ pub const ProgressBar = struct {
     }
 
     pub fn calculateElapsed(self: ProgressBar) u64 {
-        if (self.start_time) |start| {
-            const now = std.time.nanoTimestamp();
-            const diff = now - start;
-            if (diff <= 0) return 0;
-            const elapsed_ns: u64 = @intCast(diff);
-            return elapsed_ns / 1_000_000_000;
-        }
-        return 0;
+        const start = self.start_time orelse return 0;
+        const now = std.time.nanoTimestamp();
+        const diff = now - start;
+        if (diff <= 0) return 0;
+        return @as(u64, @intCast(diff)) / std.time.ns_per_s;
     }
 
     pub fn estimateRemaining(self: ProgressBar) ?u64 {
@@ -201,7 +198,6 @@ pub const ProgressBar = struct {
     }
 
     pub fn calculateSpeed(self: ProgressBar) f64 {
-        if (self.start_time == null) return 0;
         const elapsed = self.calculateElapsed();
         if (elapsed == 0) return 0;
         return @as(f64, @floatFromInt(self.completed)) / @as(f64, @floatFromInt(elapsed));
@@ -311,13 +307,11 @@ pub const ProgressBar = struct {
 
         const style = if (self.completed >= self.total) self.finished_style else self.complete_style;
 
-        var i: usize = 0;
-        while (i < complete_width) : (i += 1) {
+        for (0..complete_width) |_| {
             try segments.append(allocator, Segment.styled(self.complete_char, style));
         }
 
-        i = 0;
-        while (i < incomplete_width) : (i += 1) {
+        for (0..incomplete_width) |_| {
             try segments.append(allocator, Segment.styled(self.incomplete_char, self.incomplete_style));
         }
     }

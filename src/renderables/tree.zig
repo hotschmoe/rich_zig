@@ -109,18 +109,12 @@ pub const TreeNode = struct {
 
     pub fn addFromKV(self: *TreeNode, items: []const KV) !void {
         for (items) |item| {
+            var child = TreeNode.init(self.allocator, item.key);
             switch (item.value) {
-                .string => |val| {
-                    var child = TreeNode.init(self.allocator, item.key);
-                    _ = try child.addChildLabel(val);
-                    try self.children.append(self.allocator, child);
-                },
-                .nested => |nested_items| {
-                    var child = TreeNode.init(self.allocator, item.key);
-                    try child.addFromKV(nested_items);
-                    try self.children.append(self.allocator, child);
-                },
+                .string => |val| _ = try child.addChildLabel(val),
+                .nested => |nested_items| try child.addFromKV(nested_items),
             }
+            try self.children.append(self.allocator, child);
         }
     }
 };

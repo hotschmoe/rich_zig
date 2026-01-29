@@ -38,8 +38,7 @@ pub const Split = struct {
     children: std.ArrayList(SplitChild),
     allocator: std.mem.Allocator,
     splitter: SplitterConfig = .{},
-    name_index: std.StringHashMap(usize) = undefined,
-    name_index_initialized: bool = false,
+    name_index: std.StringHashMap(usize),
 
     pub fn horizontal(allocator: std.mem.Allocator) Split {
         return .{
@@ -47,7 +46,6 @@ pub const Split = struct {
             .children = std.ArrayList(SplitChild).empty,
             .allocator = allocator,
             .name_index = std.StringHashMap(usize).init(allocator),
-            .name_index_initialized = true,
         };
     }
 
@@ -57,15 +55,12 @@ pub const Split = struct {
             .children = std.ArrayList(SplitChild).empty,
             .allocator = allocator,
             .name_index = std.StringHashMap(usize).init(allocator),
-            .name_index_initialized = true,
         };
     }
 
     pub fn deinit(self: *Split) void {
         self.children.deinit(self.allocator);
-        if (self.name_index_initialized) {
-            self.name_index.deinit();
-        }
+        self.name_index.deinit();
     }
 
     pub fn withSplitter(self: Split) Split {

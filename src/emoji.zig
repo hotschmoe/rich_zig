@@ -285,11 +285,7 @@ pub fn replaceShortcodes(text: []const u8, allocator: std.mem.Allocator) ![]u8 {
 
     while (i < text.len) {
         if (text[i] == ':') {
-            var end = i + 1;
-            while (end < text.len and text[end] != ':' and text[end] != ' ' and text[end] != '\n') {
-                end += 1;
-            }
-            if (end < text.len and text[end] == ':' and end > i + 1) {
+            if (findShortcodeEnd(text, i)) |end| {
                 const shortcode = text[i + 1 .. end];
                 if (get(shortcode)) |emoji| {
                     try result.appendSlice(allocator, emoji);
@@ -303,6 +299,20 @@ pub fn replaceShortcodes(text: []const u8, allocator: std.mem.Allocator) ![]u8 {
     }
 
     return result.toOwnedSlice(allocator);
+}
+
+fn findShortcodeEnd(text: []const u8, start: usize) ?usize {
+    var end = start + 1;
+    while (end < text.len) : (end += 1) {
+        switch (text[end]) {
+            ':', ' ', '\n' => break,
+            else => {},
+        }
+    }
+    if (end < text.len and text[end] == ':' and end > start + 1) {
+        return end;
+    }
+    return null;
 }
 
 test "emoji.get known emoji" {

@@ -493,10 +493,8 @@ pub const Table = struct {
     }
 
     fn getRowStyle(self: Table, row_idx: usize) ?Style {
-        if (row_idx < self.row_styles.items.len) {
-            if (self.row_styles.items[row_idx]) |explicit_style| {
-                return explicit_style;
-            }
+        if (row_idx < self.row_styles.items.len and self.row_styles.items[row_idx] != null) {
+            return self.row_styles.items[row_idx];
         }
 
         if (self.alternating_styles) |alt| {
@@ -568,7 +566,7 @@ pub const Table = struct {
         try self.renderSpaces(segments, allocator, right_pad);
     }
 
-    fn renderRichCell(self: Table, segments: *std.ArrayList(Segment), allocator: std.mem.Allocator, content: CellContent, width: usize, justify: JustifyMethod, style: Style, col: Column) !void {
+    fn renderRichCell(self: Table, segments: *std.ArrayList(Segment), allocator: std.mem.Allocator, content: CellContent, width: usize, justify: JustifyMethod, style: Style, _: Column) !void {
         const pad_left: usize = if (self.collapse_padding) 0 else self.padding.left;
         const pad_right: usize = if (self.collapse_padding) 0 else self.padding.right;
         const content_width = if (width > pad_left + pad_right)
@@ -602,7 +600,6 @@ pub const Table = struct {
                 }
             },
         }
-        _ = col;
 
         try self.renderSpaces(segments, allocator, right_pad);
     }

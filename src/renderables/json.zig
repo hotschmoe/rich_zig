@@ -180,31 +180,13 @@ pub const Json = struct {
                             }
                         }.lessThan);
                         for (keys, 0..) |key, i| {
-                            try self.renderIndent(segments, allocator, depth + 1);
-                            try segments.append(allocator, Segment.styled("\"", self.theme.key_style));
-                            try segments.append(allocator, Segment.styled(key, self.theme.key_style));
-                            try segments.append(allocator, Segment.styled("\"", self.theme.key_style));
-                            try segments.append(allocator, Segment.styled(": ", self.theme.colon_style));
-                            try self.renderValue(segments, allocator, obj.get(key).?, depth + 1);
-                            if (i < count - 1) {
-                                try segments.append(allocator, Segment.styled(",", self.theme.comma_style));
-                            }
-                            try segments.append(allocator, Segment.line());
+                            try self.renderKeyValue(segments, allocator, key, obj.get(key).?, depth, i, count);
                         }
                     } else {
                         var iter = obj.iterator();
                         var i: usize = 0;
                         while (iter.next()) |entry| {
-                            try self.renderIndent(segments, allocator, depth + 1);
-                            try segments.append(allocator, Segment.styled("\"", self.theme.key_style));
-                            try segments.append(allocator, Segment.styled(entry.key_ptr.*, self.theme.key_style));
-                            try segments.append(allocator, Segment.styled("\"", self.theme.key_style));
-                            try segments.append(allocator, Segment.styled(": ", self.theme.colon_style));
-                            try self.renderValue(segments, allocator, entry.value_ptr.*, depth + 1);
-                            if (i < count - 1) {
-                                try segments.append(allocator, Segment.styled(",", self.theme.comma_style));
-                            }
-                            try segments.append(allocator, Segment.line());
+                            try self.renderKeyValue(segments, allocator, entry.key_ptr.*, entry.value_ptr.*, depth, i, count);
                             i += 1;
                         }
                     }
@@ -218,19 +200,25 @@ pub const Json = struct {
         }
     }
 
+    fn renderKeyValue(self: Json, segments: *std.ArrayList(Segment), allocator: std.mem.Allocator, key: []const u8, value: std.json.Value, depth: usize, index: usize, count: usize) std.mem.Allocator.Error!void {
+        try self.renderIndent(segments, allocator, depth + 1);
+        try segments.append(allocator, Segment.styled("\"", self.theme.key_style));
+        try segments.append(allocator, Segment.styled(key, self.theme.key_style));
+        try segments.append(allocator, Segment.styled("\"", self.theme.key_style));
+        try segments.append(allocator, Segment.styled(": ", self.theme.colon_style));
+        try self.renderValue(segments, allocator, value, depth + 1);
+        if (index < count - 1) {
+            try segments.append(allocator, Segment.styled(",", self.theme.comma_style));
+        }
+        try segments.append(allocator, Segment.line());
+    }
+
     fn truncateUtf8(s: []const u8, max_chars: usize, allocator: std.mem.Allocator) ![]const u8 {
         var char_count: usize = 0;
         var byte_index: usize = 0;
         while (byte_index < s.len and char_count < max_chars) {
             const byte = s[byte_index];
-            const char_len: usize = if (byte < 0x80)
-                1
-            else if (byte < 0xE0)
-                2
-            else if (byte < 0xF0)
-                3
-            else
-                4;
+            const char_len = std.unicode.utf8ByteSequenceLength(byte) catch 1;
             if (byte_index + char_len > s.len) break;
             byte_index += char_len;
             char_count += 1;

@@ -49,11 +49,7 @@ pub const Live = struct {
     }
 
     pub fn scrollUp(self: *Live, lines: usize) void {
-        if (self.scroll_offset >= lines) {
-            self.scroll_offset -= lines;
-        } else {
-            self.scroll_offset = 0;
-        }
+        self.scroll_offset -|= lines;
     }
 
     pub fn scrollDown(self: *Live, lines: usize) void {
