@@ -267,6 +267,52 @@ pub fn main() !void {
     try console.logWarn("This is a warning message", .{});
     try console.logErr("This is an error message", .{});
 
+    // v0.8.0 Features
+    try stdout.writeAll("\nv0.8.0 New Features\n");
+    try stdout.writeAll("-------------------\n");
+
+    // Columns layout
+    try stdout.writeAll("\nColumns layout (3 items, equal width):\n");
+    {
+        var arena = std.heap.ArenaAllocator.init(allocator);
+        defer arena.deinit();
+        const col_texts = [_][]const u8{ "Column 1", "Column 2", "Column 3" };
+        const columns = (try rich.Columns.fromText(arena.allocator(), &col_texts))
+            .withColumnCount(3)
+            .withEqualWidth(true);
+        const col_segs = try columns.render(60, arena.allocator());
+        for (col_segs) |seg| {
+            try seg.render(stdout, .truecolor);
+        }
+    }
+
+    // Table with alternating row styles
+    try stdout.writeAll("\nTable with alternating rows:\n");
+    var alt_table = rich.Table.init(allocator);
+    defer alt_table.deinit();
+    _ = alt_table.addColumn("ID").addColumn("Name").addColumn("Status");
+    _ = alt_table.withAlternatingStyles(rich.Style.empty, rich.Style.empty.dim());
+    try alt_table.addRow(&.{ "1", "Alice", "Active" });
+    try alt_table.addRow(&.{ "2", "Bob", "Pending" });
+    try alt_table.addRow(&.{ "3", "Carol", "Active" });
+    const alt_table_segs = try alt_table.render(40, allocator);
+    defer allocator.free(alt_table_segs);
+    for (alt_table_segs) |seg| {
+        try seg.render(stdout, .truecolor);
+    }
+
+    // Panel with height constraint
+    try stdout.writeAll("\nPanel with height constraint (4 lines max):\n");
+    const constrained_panel = rich.Panel.fromText(allocator, "Line 1\nLine 2\nLine 3\nLine 4")
+        .withTitle("Clipped")
+        .withHeight(4)
+        .withVerticalOverflow(.ellipsis);
+    const cp_segs = try constrained_panel.render(30, allocator);
+    defer allocator.free(cp_segs);
+    for (cp_segs) |seg| {
+        try seg.render(stdout, .truecolor);
+    }
+
     // v0.9.0 Features
     try stdout.writeAll("\nv0.9.0 New Features\n");
     try stdout.writeAll("-------------------\n");
