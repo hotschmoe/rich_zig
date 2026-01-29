@@ -324,3 +324,69 @@ When making commits, update `version` in `build.zig.zon`:
 - **MINOR** (0.X.0): New features, backward-compatible additions
 - **PATCH** (0.0.X): Bug fixes, small improvements, documentation
 
+---
+
+## Issue Tracking: beads_rust (br)
+
+Local-first, non-invasive issue tracker stored in `.beads/`. No external services required.
+
+### Core Commands
+
+```bash
+br init                    # Initialize in current repo
+br create "Title"          # Create issue (prompts for details)
+br q "Quick note"          # Quick capture with minimal ID
+br list                    # Show all open issues
+br ready                   # Show unblocked, actionable work
+br show <id>               # Display issue details
+br close <id>              # Mark complete
+```
+
+### Issue Properties
+
+```bash
+br create "Bug title" --type bug --priority 1
+br update <id> --status in_progress
+br update <id> --priority 2
+br label add <id> "refactor"
+br dep add <child-id> <parent-id>   # child blocked by parent
+```
+
+**Priority**: 0=critical, 1=high, 2=medium, 3=low, 4=backlog
+**Status**: open, in_progress, closed, deferred
+**Type**: bug, feature, task
+
+### Filtering
+
+```bash
+br list --status open --priority 1
+br list --type bug --assignee user@example.com
+br list --label "refactor"
+br blocked                  # Issues waiting on dependencies
+```
+
+### Sync for Git
+
+```bash
+br sync --flush-only        # Export DB to .beads/issues.jsonl
+br sync --import-only       # Import JSONL back to DB
+```
+
+**Workflow**: After modifying issues, run `br sync --flush-only` then commit `.beads/`.
+
+### Machine-Readable Output
+
+```bash
+br list --json              # JSON output for scripting
+br ready --json             # Actionable items as JSON
+br show <id> --json         # Single issue as JSON
+```
+
+### Storage
+
+```
+.beads/
+  beads.db      # SQLite database (local state)
+  issues.jsonl  # Git-friendly export (commit this)
+```
+
