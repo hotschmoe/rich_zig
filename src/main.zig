@@ -217,42 +217,51 @@ pub fn main() !void {
         try seg.render(stdout, .truecolor);
     }
 
-    // Padding
-    try stdout.writeAll("\nPadding (uniform=1):\n");
+    // Padding - wrap content in a styled background to show padding
+    try stdout.writeAll("\nPadding (uniform=1, with background):\n");
     const pad_content = [_]rich.Segment{rich.Segment.plain("Padded")};
-    const padding = rich.Padding.init(&pad_content).uniform(1);
+    const bg_style = rich.Style.empty.background(rich.Color.fromRgb(60, 60, 80));
+    const padding = rich.Padding.init(&pad_content).uniform(1).withStyle(bg_style);
     const pad_segs = try padding.render(20, allocator);
     defer allocator.free(pad_segs);
-    try stdout.writeAll("[");
     for (pad_segs) |seg| {
         try seg.render(stdout, .truecolor);
     }
-    try stdout.writeAll("]\n");
 
-    // Align
-    try stdout.writeAll("\nAlign (center, width=20):\n");
-    const align_content = [_]rich.Segment{rich.Segment.plain("Centered")};
+    // Align - horizontal alignment within a width
+    try stdout.writeAll("\nAlign (width=20, showing left/center/right):\n");
+    const align_content = [_]rich.Segment{rich.Segment.plain("Text")};
+
+    try stdout.writeAll("|");
+    const align_left = rich.Align.init(&align_content).left().withWidth(20);
+    const align_left_segs = try align_left.render(80, allocator);
+    defer allocator.free(align_left_segs);
+    for (align_left_segs) |seg| {
+        if (!std.mem.eql(u8, seg.text, "\n")) try seg.render(stdout, .truecolor);
+    }
+    try stdout.writeAll("| left\n");
+
+    try stdout.writeAll("|");
     const aligned = rich.Align.init(&align_content).center().withWidth(20);
     const align_segs = try aligned.render(80, allocator);
     defer allocator.free(align_segs);
-    try stdout.writeAll("[");
     for (align_segs) |seg| {
-        try seg.render(stdout, .truecolor);
+        if (!std.mem.eql(u8, seg.text, "\n")) try seg.render(stdout, .truecolor);
     }
-    try stdout.writeAll("]\n");
+    try stdout.writeAll("| center\n");
 
-    try stdout.writeAll("\nAlign (right, width=20):\n");
+    try stdout.writeAll("|");
     const align_right = rich.Align.init(&align_content).right().withWidth(20);
     const align_right_segs = try align_right.render(80, allocator);
     defer allocator.free(align_right_segs);
-    try stdout.writeAll("[");
     for (align_right_segs) |seg| {
-        try seg.render(stdout, .truecolor);
+        if (!std.mem.eql(u8, seg.text, "\n")) try seg.render(stdout, .truecolor);
     }
-    try stdout.writeAll("]\n");
+    try stdout.writeAll("| right\n");
 
-    // Console log methods
+    // Console log methods - flush our buffer first so log output appears in order
     try stdout.writeAll("\nConsole logging:\n");
+    try stdout.flush();
     try console.logDebug("This is a debug message", .{});
     try console.logInfo("This is an info message", .{});
     try console.logWarn("This is a warning message", .{});
