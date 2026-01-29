@@ -143,6 +143,38 @@ pub const BoxStyle = struct {
         .right_tee = " ",
     };
 
+    pub const horizontals: BoxStyle = .{
+        .top_left = " ",
+        .top_right = " ",
+        .bottom_left = " ",
+        .bottom_right = " ",
+        .horizontal = "\u{2500}",
+        .vertical = " ",
+        .left = " ",
+        .right = " ",
+        .cross = "\u{2500}",
+        .top_tee = "\u{2500}",
+        .bottom_tee = "\u{2500}",
+        .left_tee = " ",
+        .right_tee = " ",
+    };
+
+    pub const markdown: BoxStyle = .{
+        .top_left = "|",
+        .top_right = "|",
+        .bottom_left = "|",
+        .bottom_right = "|",
+        .horizontal = "-",
+        .vertical = "|",
+        .left = "|",
+        .right = "|",
+        .cross = "|",
+        .top_tee = "|",
+        .bottom_tee = "|",
+        .left_tee = "|",
+        .right_tee = "|",
+    };
+
     pub fn getHorizontal(self: BoxStyle, count: usize, allocator: std.mem.Allocator) ![]u8 {
         const char_len = self.horizontal.len;
         const result = try allocator.alloc(u8, count * char_len);
@@ -193,4 +225,18 @@ test "BoxStyle.getHorizontal unicode" {
     const line = try BoxStyle.heavy.getHorizontal(3, allocator);
     defer allocator.free(line);
     try std.testing.expectEqualStrings("\u{2501}\u{2501}\u{2501}", line);
+}
+
+test "BoxStyle.horizontals" {
+    const h = BoxStyle.horizontals;
+    try std.testing.expectEqualStrings("\u{2500}", h.horizontal);
+    try std.testing.expectEqualStrings(" ", h.vertical);
+    try std.testing.expectEqualStrings(" ", h.top_left);
+}
+
+test "BoxStyle.markdown" {
+    const m = BoxStyle.markdown;
+    try std.testing.expectEqualStrings("-", m.horizontal);
+    try std.testing.expectEqualStrings("|", m.vertical);
+    try std.testing.expectEqualStrings("|", m.top_left);
 }

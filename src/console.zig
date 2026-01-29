@@ -232,6 +232,41 @@ pub const Console = struct {
         try writer.interface.print("\x1b]0;{s}\x07", .{title});
         try writer.interface.flush();
     }
+
+    /// Show the cursor
+    pub fn showCursor(self: *Console) !void {
+        var writer = self.getWriter();
+        try writer.interface.writeAll("\x1b[?25h");
+        try writer.interface.flush();
+    }
+
+    /// Hide the cursor
+    pub fn hideCursor(self: *Console) !void {
+        var writer = self.getWriter();
+        try writer.interface.writeAll("\x1b[?25l");
+        try writer.interface.flush();
+    }
+
+    /// Clear from cursor to end of line
+    pub fn clearLine(self: *Console) !void {
+        var writer = self.getWriter();
+        try writer.interface.writeAll("\x1b[K");
+        try writer.interface.flush();
+    }
+
+    /// Enter alternate screen buffer
+    pub fn enterAltScreen(self: *Console) !void {
+        var writer = self.getWriter();
+        try writer.interface.writeAll("\x1b[?1049h");
+        try writer.interface.flush();
+    }
+
+    /// Exit alternate screen buffer
+    pub fn exitAltScreen(self: *Console) !void {
+        var writer = self.getWriter();
+        try writer.interface.writeAll("\x1b[?1049l");
+        try writer.interface.flush();
+    }
 };
 
 // Tests

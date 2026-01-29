@@ -103,11 +103,12 @@ We aim to implement all features from the Rich library that are feasible in Zig 
 | Text concatenation | Y | Y | [x] | Append text |
 | Text cell length | Y | Y | [x] | Display width |
 | Render to segments | Y | Y | [x] | For output |
-| Text truncation | Y | Y | [ ] | With ellipsis |
-| Text wrapping | Y | Y | [ ] | Word wrap |
-| Text alignment | Y | Y | [ ] | Left/center/right |
-| Text highlighting | Y | Y | [ ] | Regex-based |
-| Text justify | Y | Y | [ ] | Full justification |
+| Text truncation | Y | Y | [x] | With ellipsis |
+| Text wrapping | Y | Y | [x] | Word wrap |
+| Text alignment | Y | Y | [x] | Left/center/right |
+| Text highlighting | Y | Y | [x] | Pattern-based |
+| Text justify | Y | Y | [x] | Full justification |
+| Text clone | Y | Y | [x] | Deep copy |
 
 ---
 
@@ -139,7 +140,7 @@ We aim to implement all features from the Rich library that are feasible in Zig 
 | Print styled text | Y | Y | [x] | Pre-styled |
 | Print renderables | Y | Y | [x] | Any renderable |
 | Rule (horizontal line) | Y | Y | [x] | With optional title |
-| Capture mode | Y | Y | [ ] | Buffer output |
+| Capture mode | Y | Y | [x] | Buffer output |
 | Export to HTML | Y | Y | [ ] | ANSI -> HTML |
 | Export to SVG | Y | Y | [ ] | Terminal screenshot |
 | Export to text | Y | Y | [ ] | Strip ANSI |
@@ -147,12 +148,12 @@ We aim to implement all features from the Rich library that are feasible in Zig 
 | Input prompts | Y | Y | [ ] | User input |
 | Status/spinner | Y | Y | [ ] | Transient message |
 | Log method | Y | Y | [ ] | With timestamp |
-| Clear screen | Y | Y | [ ] | Full clear |
-| Clear line | Y | Y | [ ] | Current line |
-| Bell | Y | Y | [ ] | Terminal bell |
-| Set title | Y | Y | [ ] | Window title |
-| Show/hide cursor | Y | Y | [ ] | Cursor visibility |
-| Alternate screen | Y | Y | [ ] | Full-screen mode |
+| Clear screen | Y | Y | [x] | Full clear |
+| Clear line | Y | Y | [x] | Current line |
+| Bell | Y | Y | [x] | Terminal bell |
+| Set title | Y | Y | [x] | Window title |
+| Show/hide cursor | Y | Y | [x] | Cursor visibility |
+| Alternate screen | Y | Y | [x] | Full-screen mode |
 
 ---
 
@@ -167,10 +168,10 @@ We aim to implement all features from the Rich library that are feasible in Zig 
 | Rounded box | Y | Y | [x] | Rounded corners |
 | Heavy box | Y | Y | [x] | Bold lines |
 | Double box | Y | Y | [x] | Double lines |
-| Minimal box | Y | Y | [ ] | Minimal borders |
-| Simple box | Y | Y | [ ] | Simple style |
-| Horizontals box | Y | Y | [ ] | Horizontal only |
-| Markdown box | Y | Y | [ ] | Markdown-style |
+| Minimal box | Y | Y | [x] | Minimal borders |
+| Simple box | Y | Y | [x] | Simple style |
+| Horizontals box | Y | Y | [x] | Horizontal only |
+| Markdown box | Y | Y | [x] | Markdown-style |
 | Custom box | Y | Y | [ ] | User-defined chars |
 
 ### Panel (`renderables/panel.zig`)
@@ -433,8 +434,8 @@ Track weekly:
 
 | Metric | Target | Current |
 |--------|--------|---------|
-| P0 Features Implemented | 100% | ~85% |
-| P1 Features Implemented | 100% | ~40% |
+| P0 Features Implemented | 100% | ~95% |
+| P1 Features Implemented | 100% | ~45% |
 | P2 Features Implemented | 80%+ | 0% |
 | Test Coverage | >85% | ~90% |
 | Documentation Coverage | 100% | 20% |
