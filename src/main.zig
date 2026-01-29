@@ -14,7 +14,7 @@ pub fn main() !void {
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
-    try stdout.writeAll("rich_zig v0.5.0 - Full Demo\n");
+    try stdout.writeAll("rich_zig v0.7.0 - Full Demo\n");
     try stdout.writeAll("===========================\n\n");
 
     // Phase 1: Color, Style, Segment
@@ -181,6 +181,82 @@ pub fn main() !void {
     for (table_segs) |seg| {
         try seg.render(stdout, .truecolor);
     }
+
+    // v0.7.0 Features
+    try stdout.writeAll("\nv0.7.0 New Features\n");
+    try stdout.writeAll("-------------------\n");
+
+    // Panel with title alignment
+    try stdout.writeAll("\nPanel with left-aligned title:\n");
+    const panel_left = rich.Panel.fromText(allocator, "Left title").withTitle("Left").withTitleAlignment(.left).withWidth(30);
+    const panel_left_segs = try panel_left.render(80, allocator);
+    defer allocator.free(panel_left_segs);
+    for (panel_left_segs) |seg| {
+        try seg.render(stdout, .truecolor);
+    }
+
+    try stdout.writeAll("\nPanel with right-aligned title:\n");
+    const panel_right = rich.Panel.fromText(allocator, "Right title").withTitle("Right").withTitleAlignment(.right).withWidth(30);
+    const panel_right_segs = try panel_right.render(80, allocator);
+    defer allocator.free(panel_right_segs);
+    for (panel_right_segs) |seg| {
+        try seg.render(stdout, .truecolor);
+    }
+
+    // Table with caption
+    try stdout.writeAll("\nTable with caption:\n");
+    var table2 = rich.Table.init(allocator);
+    defer table2.deinit();
+    _ = table2.addColumn("Item").addColumn("Price").withCaption("Shopping List");
+    try table2.addRow(&.{ "Apple", "$1.50" });
+    try table2.addRow(&.{ "Bread", "$2.00" });
+
+    const table2_segs = try table2.render(40, allocator);
+    defer allocator.free(table2_segs);
+    for (table2_segs) |seg| {
+        try seg.render(stdout, .truecolor);
+    }
+
+    // Padding
+    try stdout.writeAll("\nPadding (uniform=1):\n");
+    const pad_content = [_]rich.Segment{rich.Segment.plain("Padded")};
+    const padding = rich.Padding.init(&pad_content).uniform(1);
+    const pad_segs = try padding.render(20, allocator);
+    defer allocator.free(pad_segs);
+    try stdout.writeAll("[");
+    for (pad_segs) |seg| {
+        try seg.render(stdout, .truecolor);
+    }
+    try stdout.writeAll("]\n");
+
+    // Align
+    try stdout.writeAll("\nAlign (center, width=20):\n");
+    const align_content = [_]rich.Segment{rich.Segment.plain("Centered")};
+    const aligned = rich.Align.init(&align_content).center().withWidth(20);
+    const align_segs = try aligned.render(80, allocator);
+    defer allocator.free(align_segs);
+    try stdout.writeAll("[");
+    for (align_segs) |seg| {
+        try seg.render(stdout, .truecolor);
+    }
+    try stdout.writeAll("]\n");
+
+    try stdout.writeAll("\nAlign (right, width=20):\n");
+    const align_right = rich.Align.init(&align_content).right().withWidth(20);
+    const align_right_segs = try align_right.render(80, allocator);
+    defer allocator.free(align_right_segs);
+    try stdout.writeAll("[");
+    for (align_right_segs) |seg| {
+        try seg.render(stdout, .truecolor);
+    }
+    try stdout.writeAll("]\n");
+
+    // Console log methods
+    try stdout.writeAll("\nConsole logging:\n");
+    try console.logDebug("This is a debug message", .{});
+    try console.logInfo("This is an info message", .{});
+    try console.logWarn("This is a warning message", .{});
+    try console.logErr("This is an error message", .{});
 
     try stdout.writeAll("\nAll phases complete!\n");
     try stdout.flush();
