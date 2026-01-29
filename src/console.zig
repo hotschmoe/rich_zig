@@ -1,0 +1,271 @@
+const std = @import("std");
+const Style = @import("style.zig").Style;
+const Segment = @import("segment.zig").Segment;
+const Text = @import("text.zig").Text;
+const ColorSystem = @import("color.zig").ColorSystem;
+const terminal = @import("terminal.zig");
+const markup = @import("markup.zig");
+
+pub const ConsoleOptions = struct {
+    width: ?u16 = null,
+    height: ?u16 = null,
+    color_system: ?ColorSystem = null,
+    force_terminal: bool = false,
+    no_color: bool = false,
+    tab_size: u8 = 8,
+    record: bool = false,
+};
+
+pub const Console = struct {
+    allocator: std.mem.Allocator,
+    options: ConsoleOptions,
+    terminal_info: terminal.TerminalInfo,
+    current_style: Style,
+    capture_buffer: ?std.ArrayList(u8),
+    write_buffer: []u8,
+    write_buffer_owned: bool,
+
+    const DEFAULT_BUFFER_SIZE = 4096;
+
+    pub fn init(allocator: std.mem.Allocator) Console {
+        return initWithOptions(allocator, .{});
+    }
+
+    pub fn initWithOptions(allocator: std.mem.Allocator, options: ConsoleOptions) Console {
+        const info = terminal.detect();
+        _ = terminal.enableVirtualTerminal();
+
+        const buffer = allocator.alloc(u8, DEFAULT_BUFFER_SIZE) catch unreachable;
+
+        return .{
+            .allocator = allocator,
+            .options = options,
+            .terminal_info = info,
+            .current_style = Style.empty,
+            .capture_buffer = if (options.record) std.ArrayList(u8).empty else null,
+            .write_buffer = buffer,
+            .write_buffer_owned = true,
+        };
+    }
+
+    pub fn deinit(self: *Console) void {
+        if (self.write_buffer_owned) {
+            self.allocator.free(self.write_buffer);
+        }
+        if (self.capture_buffer) |*buf| {
+            buf.deinit(self.allocator);
+        }
+    }
+
+    pub fn width(self: Console) u16 {
+        return self.options.width orelse self.terminal_info.width;
+    }
+
+    pub fn height(self: Console) u16 {
+        return self.options.height orelse self.terminal_info.height;
+    }
+
+    pub fn colorSystem(self: Console) ColorSystem {
+        if (self.options.no_color) return .standard;
+        return self.options.color_system orelse self.terminal_info.color_system;
+    }
+
+    pub fn isTty(self: Console) bool {
+        return self.options.force_terminal or self.terminal_info.is_tty;
+    }
+
+    fn getWriter(self: *Console) std.fs.File.Writer {
+        return std.fs.File.stdout().writer(self.write_buffer);
+    }
+
+    pub fn print(self: *Console, text_markup: []const u8) !void {
+        var txt = try Text.fromMarkup(self.allocator, text_markup);
+        defer txt.deinit();
+        try self.printText(txt);
+        try self.writeLine();
+    }
+
+    pub fn printPlain(self: *Console, text: []const u8) !void {
+        var writer = self.getWriter();
+        try writer.interface.writeAll(text);
+        try self.writeLine();
+        try writer.interface.flush();
+    }
+
+    pub fn printStyled(self: *Console, text: []const u8, style: Style) !void {
+        var writer = self.getWriter();
+        try self.setStyle(style, &writer.interface);
+        try writer.interface.writeAll(text);
+        try self.resetStyle(&writer.interface);
+        try self.writeLine();
+        try writer.interface.flush();
+    }
+
+    pub fn printText(self: *Console, txt: Text) !void {
+        const segments = try txt.render(self.allocator);
+        defer self.allocator.free(segments);
+
+        var writer = self.getWriter();
+        for (segments) |seg| {
+            try self.printSegment(seg, &writer.interface);
+        }
+        try writer.interface.flush();
+    }
+
+    pub fn printSegments(self: *Console, segments: []const Segment) !void {
+        var writer = self.getWriter();
+        for (segments) |seg| {
+            try self.printSegment(seg, &writer.interface);
+        }
+        try writer.interface.flush();
+    }
+
+    fn printSegment(self: *Console, seg: Segment, writer: anytype) !void {
+        if (seg.control) |ctrl| {
+            try ctrl.toEscapeSequence(writer);
+            return;
+        }
+
+        if (seg.style) |style| {
+            if (!style.isEmpty()) {
+                try self.setStyle(style, writer);
+            }
+        }
+
+        try writer.writeAll(seg.text);
+
+        if (self.capture_buffer) |*buf| {
+            try buf.appendSlice(self.allocator, seg.text);
+        }
+
+        if (seg.style) |style| {
+            if (!style.isEmpty()) {
+                try self.resetStyle(writer);
+            }
+            if (style.link != null) {
+                try Style.renderHyperlinkEnd(writer);
+            }
+        }
+    }
+
+    fn setStyle(self: *Console, style: Style, writer: anytype) !void {
+        if (self.options.no_color) return;
+        try style.renderAnsi(self.colorSystem(), writer);
+        self.current_style = style;
+    }
+
+    fn resetStyle(self: *Console, writer: anytype) !void {
+        if (self.options.no_color) return;
+        try Style.renderReset(writer);
+        self.current_style = Style.empty;
+    }
+
+    fn writeLine(self: *Console) !void {
+        var writer = self.getWriter();
+        try writer.interface.writeAll("\n");
+        if (self.capture_buffer) |*buf| {
+            try buf.append(self.allocator, '\n');
+        }
+    }
+
+    pub fn rule(self: *Console, title_opt: ?[]const u8) !void {
+        var writer = self.getWriter();
+        const w = self.width();
+        const char = "\u{2500}"; // horizontal line
+
+        if (title_opt) |title| {
+            const title_len = @import("cells.zig").cellLen(title);
+            const total_rule_len = w - title_len - 2; // 2 for spaces around title
+            const left_len = total_rule_len / 2;
+            const right_len = total_rule_len - left_len;
+
+            // Left side
+            var i: usize = 0;
+            while (i < left_len) : (i += 1) {
+                try writer.interface.writeAll(char);
+            }
+            try writer.interface.writeAll(" ");
+            try writer.interface.writeAll(title);
+            try writer.interface.writeAll(" ");
+            // Right side
+            i = 0;
+            while (i < right_len) : (i += 1) {
+                try writer.interface.writeAll(char);
+            }
+        } else {
+            var i: usize = 0;
+            while (i < w) : (i += 1) {
+                try writer.interface.writeAll(char);
+            }
+        }
+
+        try writer.interface.writeAll("\n");
+        try writer.interface.flush();
+    }
+
+    pub fn clear(self: *Console) !void {
+        var writer = self.getWriter();
+        try writer.interface.writeAll("\x1b[2J\x1b[H");
+        try writer.interface.flush();
+    }
+
+    pub fn bell(self: *Console) !void {
+        var writer = self.getWriter();
+        try writer.interface.writeByte(0x07);
+        try writer.interface.flush();
+    }
+
+    pub fn beginCapture(self: *Console) void {
+        self.capture_buffer = std.ArrayList(u8).empty;
+    }
+
+    pub fn endCapture(self: *Console) ?[]const u8 {
+        if (self.capture_buffer) |*buf| {
+            const result = buf.toOwnedSlice(self.allocator) catch null;
+            self.capture_buffer = null;
+            return result;
+        }
+        return null;
+    }
+
+    pub fn setTitle(self: *Console, title: []const u8) !void {
+        var writer = self.getWriter();
+        try writer.interface.print("\x1b]0;{s}\x07", .{title});
+        try writer.interface.flush();
+    }
+};
+
+// Tests
+test "Console.init" {
+    const allocator = std.testing.allocator;
+    var console = Console.init(allocator);
+    defer console.deinit();
+
+    try std.testing.expect(console.width() > 0);
+    try std.testing.expect(console.height() > 0);
+}
+
+test "Console.initWithOptions" {
+    const allocator = std.testing.allocator;
+    var console = Console.initWithOptions(allocator, .{
+        .width = 120,
+        .height = 40,
+        .color_system = .truecolor,
+    });
+    defer console.deinit();
+
+    try std.testing.expectEqual(@as(u16, 120), console.width());
+    try std.testing.expectEqual(@as(u16, 40), console.height());
+    try std.testing.expectEqual(ColorSystem.truecolor, console.colorSystem());
+}
+
+test "Console.no_color option" {
+    const allocator = std.testing.allocator;
+    var console = Console.initWithOptions(allocator, .{
+        .no_color = true,
+        .color_system = .truecolor,
+    });
+    defer console.deinit();
+
+    try std.testing.expectEqual(ColorSystem.standard, console.colorSystem());
+}
