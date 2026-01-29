@@ -95,10 +95,9 @@ pub const Rule = struct {
         const char_len = cells.cellLen(self.characters);
         if (char_len == 0) return;
 
-        var remaining = count;
-        while (remaining >= char_len) {
+        const repeat_count = count / char_len;
+        for (0..repeat_count) |_| {
             try segments.append(allocator, Segment.styled(self.characters, self.style));
-            remaining -= char_len;
         }
     }
 };

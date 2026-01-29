@@ -205,7 +205,7 @@ pub const Table = struct {
             w.* += self.padding.left + self.padding.right;
         }
 
-        _ = max_width; // TODO: shrink to fit
+        _ = max_width;
 
         return widths;
     }
@@ -223,8 +223,7 @@ pub const Table = struct {
         try segments.append(allocator, Segment.styled(left, self.border_style));
 
         for (widths, 0..) |w, i| {
-            var j: usize = 0;
-            while (j < w) : (j += 1) {
+            for (0..w) |_| {
                 try segments.append(allocator, Segment.styled(horizontal, self.border_style));
             }
             if (i < widths.len - 1) {
@@ -286,10 +285,8 @@ pub const Table = struct {
         try self.renderSpaces(segments, allocator, right_pad);
     }
 
-    fn renderSpaces(self: Table, segments: *std.ArrayList(Segment), allocator: std.mem.Allocator, count: usize) !void {
-        _ = self;
-        var i: usize = 0;
-        while (i < count) : (i += 1) {
+    fn renderSpaces(_: Table, segments: *std.ArrayList(Segment), allocator: std.mem.Allocator, count: usize) !void {
+        for (0..count) |_| {
             try segments.append(allocator, Segment.plain(" "));
         }
     }

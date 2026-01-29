@@ -219,8 +219,7 @@ pub const Panel = struct {
     }
 
     fn renderHorizontal(self: Panel, segments: *std.ArrayList(Segment), allocator: std.mem.Allocator, count: usize, b: BoxStyle) !void {
-        var i: usize = 0;
-        while (i < count) : (i += 1) {
+        for (0..count) |_| {
             try segments.append(allocator, Segment.styled(b.horizontal, self.border_style));
         }
     }
@@ -249,10 +248,8 @@ pub const Panel = struct {
         try segments.append(allocator, Segment.line());
     }
 
-    fn renderSpaces(self: Panel, segments: *std.ArrayList(Segment), allocator: std.mem.Allocator, count: usize) !void {
-        _ = self;
-        var i: usize = 0;
-        while (i < count) : (i += 1) {
+    fn renderSpaces(_: Panel, segments: *std.ArrayList(Segment), allocator: std.mem.Allocator, count: usize) !void {
+        for (0..count) |_| {
             try segments.append(allocator, Segment.plain(" "));
         }
     }

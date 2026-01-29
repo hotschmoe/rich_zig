@@ -126,10 +126,9 @@ pub const Console = struct {
             return;
         }
 
-        if (seg.style) |style| {
-            if (!style.isEmpty()) {
-                try self.setStyle(style, writer);
-            }
+        const has_style = if (seg.style) |s| !s.isEmpty() else false;
+        if (has_style) {
+            try self.setStyle(seg.style.?, writer);
         }
 
         try writer.writeAll(seg.text);
@@ -138,11 +137,11 @@ pub const Console = struct {
             try buf.appendSlice(self.allocator, seg.text);
         }
 
-        if (seg.style) |style| {
-            if (!style.isEmpty()) {
-                try self.resetStyle(writer);
-            }
-            if (style.link != null) {
+        if (has_style) {
+            try self.resetStyle(writer);
+        }
+        if (seg.style) |s| {
+            if (s.link != null) {
                 try Style.renderHyperlinkEnd(writer);
             }
         }

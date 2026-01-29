@@ -68,7 +68,7 @@ pub const Text = struct {
                     try plain_buf.appendSlice(allocator, txt);
                     const end = plain_buf.items.len;
 
-                    const current_style = style_stack.items[style_stack.items.len - 1];
+                    const current_style = style_stack.getLast();
                     if (!current_style.isEmpty()) {
                         try spans_buf.append(allocator, .{
                             .start = start,
@@ -78,11 +78,8 @@ pub const Text = struct {
                     }
                 },
                 .open_tag => |tag| {
-                    const current_style = style_stack.items[style_stack.items.len - 1];
-                    const new_style = Style.parse(tag.name) catch {
-                        // If parsing fails, ignore the tag
-                        continue;
-                    };
+                    const current_style = style_stack.getLast();
+                    const new_style = Style.parse(tag.name) catch continue;
                     try style_stack.append(allocator, current_style.combine(new_style));
                 },
                 .close_tag => {

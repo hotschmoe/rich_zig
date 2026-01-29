@@ -114,30 +114,10 @@ pub const Color = struct {
     fn toStandard(self: Color) Color {
         const triplet = self.getTriplet() orelse return Color.white;
 
-        // Convert to nearest standard color using simple distance calculation
-        const standard_colors = [_]ColorTriplet{
-            .{ .r = 0, .g = 0, .b = 0 }, // black
-            .{ .r = 128, .g = 0, .b = 0 }, // red
-            .{ .r = 0, .g = 128, .b = 0 }, // green
-            .{ .r = 128, .g = 128, .b = 0 }, // yellow
-            .{ .r = 0, .g = 0, .b = 128 }, // blue
-            .{ .r = 128, .g = 0, .b = 128 }, // magenta
-            .{ .r = 0, .g = 128, .b = 128 }, // cyan
-            .{ .r = 192, .g = 192, .b = 192 }, // white
-            .{ .r = 128, .g = 128, .b = 128 }, // bright_black
-            .{ .r = 255, .g = 0, .b = 0 }, // bright_red
-            .{ .r = 0, .g = 255, .b = 0 }, // bright_green
-            .{ .r = 255, .g = 255, .b = 0 }, // bright_yellow
-            .{ .r = 0, .g = 0, .b = 255 }, // bright_blue
-            .{ .r = 255, .g = 0, .b = 255 }, // bright_magenta
-            .{ .r = 0, .g = 255, .b = 255 }, // bright_cyan
-            .{ .r = 255, .g = 255, .b = 255 }, // bright_white
-        };
-
         var best_index: u8 = 0;
         var best_distance: i32 = std.math.maxInt(i32);
 
-        for (standard_colors, 0..) |std_color, i| {
+        for (standard_color_triplets, 0..) |std_color, i| {
             const dr: i32 = @as(i32, triplet.r) - @as(i32, std_color.r);
             const dg: i32 = @as(i32, triplet.g) - @as(i32, std_color.g);
             const db: i32 = @as(i32, triplet.b) - @as(i32, std_color.b);
@@ -171,26 +151,8 @@ pub const Color = struct {
         // For standard colors, return approximate RGB values
         if (self.color_type == .standard) {
             if (self.number) |n| {
-                const standard_triplets = [_]ColorTriplet{
-                    .{ .r = 0, .g = 0, .b = 0 }, // black
-                    .{ .r = 128, .g = 0, .b = 0 }, // red
-                    .{ .r = 0, .g = 128, .b = 0 }, // green
-                    .{ .r = 128, .g = 128, .b = 0 }, // yellow
-                    .{ .r = 0, .g = 0, .b = 128 }, // blue
-                    .{ .r = 128, .g = 0, .b = 128 }, // magenta
-                    .{ .r = 0, .g = 128, .b = 128 }, // cyan
-                    .{ .r = 192, .g = 192, .b = 192 }, // white
-                    .{ .r = 128, .g = 128, .b = 128 }, // bright_black
-                    .{ .r = 255, .g = 0, .b = 0 }, // bright_red
-                    .{ .r = 0, .g = 255, .b = 0 }, // bright_green
-                    .{ .r = 255, .g = 255, .b = 0 }, // bright_yellow
-                    .{ .r = 0, .g = 0, .b = 255 }, // bright_blue
-                    .{ .r = 255, .g = 0, .b = 255 }, // bright_magenta
-                    .{ .r = 0, .g = 255, .b = 255 }, // bright_cyan
-                    .{ .r = 255, .g = 255, .b = 255 }, // bright_white
-                };
-                if (n < standard_triplets.len) {
-                    return standard_triplets[n];
+                if (n < standard_color_triplets.len) {
+                    return standard_color_triplets[n];
                 }
             }
         }
@@ -251,28 +213,29 @@ pub fn rgbTo256(r: u8, g: u8, b: u8) u8 {
     return 16 + 36 * ri + 6 * gi + bi;
 }
 
+// RGB values for the 16 standard terminal colors
+const standard_color_triplets = [16]ColorTriplet{
+    .{ .r = 0, .g = 0, .b = 0 }, // black
+    .{ .r = 128, .g = 0, .b = 0 }, // red
+    .{ .r = 0, .g = 128, .b = 0 }, // green
+    .{ .r = 128, .g = 128, .b = 0 }, // yellow
+    .{ .r = 0, .g = 0, .b = 128 }, // blue
+    .{ .r = 128, .g = 0, .b = 128 }, // magenta
+    .{ .r = 0, .g = 128, .b = 128 }, // cyan
+    .{ .r = 192, .g = 192, .b = 192 }, // white
+    .{ .r = 128, .g = 128, .b = 128 }, // bright_black
+    .{ .r = 255, .g = 0, .b = 0 }, // bright_red
+    .{ .r = 0, .g = 255, .b = 0 }, // bright_green
+    .{ .r = 255, .g = 255, .b = 0 }, // bright_yellow
+    .{ .r = 0, .g = 0, .b = 255 }, // bright_blue
+    .{ .r = 255, .g = 0, .b = 255 }, // bright_magenta
+    .{ .r = 0, .g = 255, .b = 255 }, // bright_cyan
+    .{ .r = 255, .g = 255, .b = 255 }, // bright_white
+};
+
 pub fn tripletFrom256(n: u8) ColorTriplet {
     if (n < 16) {
-        // Standard colors
-        const standard_triplets = [_]ColorTriplet{
-            .{ .r = 0, .g = 0, .b = 0 },
-            .{ .r = 128, .g = 0, .b = 0 },
-            .{ .r = 0, .g = 128, .b = 0 },
-            .{ .r = 128, .g = 128, .b = 0 },
-            .{ .r = 0, .g = 0, .b = 128 },
-            .{ .r = 128, .g = 0, .b = 128 },
-            .{ .r = 0, .g = 128, .b = 128 },
-            .{ .r = 192, .g = 192, .b = 192 },
-            .{ .r = 128, .g = 128, .b = 128 },
-            .{ .r = 255, .g = 0, .b = 0 },
-            .{ .r = 0, .g = 255, .b = 0 },
-            .{ .r = 255, .g = 255, .b = 0 },
-            .{ .r = 0, .g = 0, .b = 255 },
-            .{ .r = 255, .g = 0, .b = 255 },
-            .{ .r = 0, .g = 255, .b = 255 },
-            .{ .r = 255, .g = 255, .b = 255 },
-        };
-        return standard_triplets[n];
+        return standard_color_triplets[n];
     } else if (n < 232) {
         // 6x6x6 color cube
         const cube_index = n - 16;

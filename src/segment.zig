@@ -105,12 +105,8 @@ pub const Segment = struct {
 
     pub fn isWhitespace(self: Segment) bool {
         if (self.control != null) return false;
-        for (self.text) |c| {
-            if (c != ' ' and c != '\t' and c != '\n' and c != '\r') {
-                return false;
-            }
-        }
-        return self.text.len > 0;
+        if (self.text.len == 0) return false;
+        return std.mem.indexOfNone(u8, self.text, " \t\n\r") == null;
     }
 
     pub fn splitCells(self: Segment, pos: usize) struct { Segment, Segment } {

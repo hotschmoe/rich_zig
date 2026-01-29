@@ -82,8 +82,7 @@ pub const Tree = struct {
         return t;
     }
 
-    pub fn render(self: Tree, width: usize, allocator: std.mem.Allocator) ![]Segment {
-        _ = width;
+    pub fn render(self: Tree, _: usize, allocator: std.mem.Allocator) ![]Segment {
         var segments: std.ArrayList(Segment) = .empty;
 
         if (!self.hide_root) {
@@ -102,15 +101,10 @@ pub const Tree = struct {
         for (node.children.items, 0..) |*child, i| {
             const is_last = (i == node.children.items.len - 1);
 
-            // Prefix
             try segments.append(allocator, Segment.plain(prefix));
 
-            // Guide character
-            if (is_last) {
-                try segments.append(allocator, Segment.styled(self.guide.corner, node.guide_style));
-            } else {
-                try segments.append(allocator, Segment.styled(self.guide.tee, node.guide_style));
-            }
+            const guide_char = if (is_last) self.guide.corner else self.guide.tee;
+            try segments.append(allocator, Segment.styled(guide_char, node.guide_style));
             try segments.append(allocator, Segment.styled(self.guide.horizontal, node.guide_style));
             try segments.append(allocator, Segment.plain(" "));
 

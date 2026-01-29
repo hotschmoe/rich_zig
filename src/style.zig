@@ -276,8 +276,10 @@ pub const Style = struct {
 
         try writer.writeAll("\x1b[");
 
-        // SGR codes for attributes: 1=bold, 2=dim, 3=italic, 4=underline, 5=blink, 6=blink2, 7=reverse, 8=conceal, 9=strike
-        const sgr_codes = [_]u8{ 1, 2, 3, 4, 5, 6, 7, 8, 9, 53 }; // 53 = overline
+        // SGR enable codes: 1=bold, 2=dim, 3=italic, 4=underline, 5=blink, 6=blink2, 7=reverse, 8=conceal, 9=strike, 53=overline
+        const sgr_enable = [_]u8{ 1, 2, 3, 4, 5, 6, 7, 8, 9, 53 };
+        // SGR disable codes: 22=not bold/dim, 23=not italic, 24=not underline, 25=not blink, 27=not reverse, 28=not conceal, 29=not strike, 55=not overline
+        const sgr_disable = [_]u8{ 22, 22, 23, 24, 25, 25, 27, 28, 29, 55 };
 
         inline for (0..10) |i| {
             const bit: u16 = @as(u16, 1) << @intCast(i);
@@ -285,30 +287,8 @@ pub const Style = struct {
                 if (!first) try writer.writeByte(';');
                 first = false;
 
-                if ((self.attributes & bit) != 0) {
-                    try writer.print("{d}", .{sgr_codes[i]});
-                } else {
-                    // Turn off attribute
-                    if (i == 0) {
-                        try writer.writeAll("22"); // not bold (also not dim)
-                    } else if (i == 1) {
-                        try writer.writeAll("22"); // not dim
-                    } else if (i == 2) {
-                        try writer.writeAll("23"); // not italic
-                    } else if (i == 3) {
-                        try writer.writeAll("24"); // not underline
-                    } else if (i == 4 or i == 5) {
-                        try writer.writeAll("25"); // not blink
-                    } else if (i == 6) {
-                        try writer.writeAll("27"); // not reverse
-                    } else if (i == 7) {
-                        try writer.writeAll("28"); // not conceal
-                    } else if (i == 8) {
-                        try writer.writeAll("29"); // not strike
-                    } else if (i == 9) {
-                        try writer.writeAll("55"); // not overline
-                    }
-                }
+                const code = if ((self.attributes & bit) != 0) sgr_enable[i] else sgr_disable[i];
+                try writer.print("{d}", .{code});
             }
         }
 
@@ -353,24 +333,23 @@ pub const Style = struct {
         if (self.attributes != other.attributes) return false;
         if (self.set_attributes != other.set_attributes) return false;
 
-        // Compare colors
-        const self_has_color = self.color != null;
-        const other_has_color = other.color != null;
-        if (self_has_color != other_has_color) return false;
-        if (self_has_color and !self.color.?.eql(other.color.?)) return false;
-
-        const self_has_bgcolor = self.bgcolor != null;
-        const other_has_bgcolor = other.bgcolor != null;
-        if (self_has_bgcolor != other_has_bgcolor) return false;
-        if (self_has_bgcolor and !self.bgcolor.?.eql(other.bgcolor.?)) return false;
-
-        // Compare links
-        const self_has_link = self.link != null;
-        const other_has_link = other.link != null;
-        if (self_has_link != other_has_link) return false;
-        if (self_has_link and !std.mem.eql(u8, self.link.?, other.link.?)) return false;
+        if (!colorsEqual(self.color, other.color)) return false;
+        if (!colorsEqual(self.bgcolor, other.bgcolor)) return false;
+        if (!optionalStringsEqual(self.link, other.link)) return false;
 
         return true;
+    }
+
+    fn colorsEqual(a: ?Color, b: ?Color) bool {
+        if (a == null and b == null) return true;
+        if (a == null or b == null) return false;
+        return a.?.eql(b.?);
+    }
+
+    fn optionalStringsEqual(a: ?[]const u8, b: ?[]const u8) bool {
+        if (a == null and b == null) return true;
+        if (a == null or b == null) return false;
+        return std.mem.eql(u8, a.?, b.?);
     }
 
     pub fn isEmpty(self: Style) bool {

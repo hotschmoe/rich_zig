@@ -106,14 +106,12 @@ pub fn render(text: []const u8, base_style: Style, allocator: std.mem.Allocator)
         switch (token) {
             .text => |txt| {
                 if (txt.len > 0) {
-                    const current_style = style_stack.items[style_stack.items.len - 1];
-                    try segments.append(allocator, Segment.styled(txt, current_style));
+                    try segments.append(allocator, Segment.styled(txt, style_stack.getLast()));
                 }
             },
             .open_tag => |tag| {
-                const current_style = style_stack.items[style_stack.items.len - 1];
+                const current_style = style_stack.getLast();
                 const new_style = Style.parse(tag.name) catch {
-                    // If style parsing fails, treat as literal text
                     var literal_buf: [128]u8 = undefined;
                     const literal = std.fmt.bufPrint(&literal_buf, "[{s}]", .{tag.name}) catch "[?]";
                     try segments.append(allocator, Segment.styled(literal, current_style));

@@ -136,8 +136,7 @@ pub const Spinner = struct {
         return result;
     }
 
-    pub fn renderWidth(self: Spinner, width: usize, allocator: std.mem.Allocator) ![]Segment {
-        _ = width;
+    pub fn renderWidth(self: Spinner, _: usize, allocator: std.mem.Allocator) ![]Segment {
         return self.render(allocator);
     }
 };
