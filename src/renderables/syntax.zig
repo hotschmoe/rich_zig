@@ -357,6 +357,8 @@ pub const SyntaxTheme = struct {
     function_style: Style = Style.empty.foreground(Color.cyan),
     line_number_style: Style = Style.empty.foreground(Color.default).dim(),
     indent_guide_style: Style = Style.empty.foreground(Color.default).dim(),
+    highlight_line_style: Style = Style.empty.background(Color.fromRgb(60, 60, 40)),
+    highlight_line_number_style: Style = Style.empty.foreground(Color.yellow).bold(),
     default_style: Style = Style.empty,
     background_color: ?Color = null,
 
@@ -373,6 +375,8 @@ pub const SyntaxTheme = struct {
         .type_style = Style.empty.foreground(Color.fromRgb(102, 217, 239)).italic(),
         .function_style = Style.empty.foreground(Color.fromRgb(166, 226, 46)),
         .line_number_style = Style.empty.foreground(Color.fromRgb(117, 113, 94)),
+        .highlight_line_style = Style.empty.background(Color.fromRgb(73, 72, 62)),
+        .highlight_line_number_style = Style.empty.foreground(Color.fromRgb(248, 248, 242)).bold(),
         .default_style = Style.empty.foreground(Color.fromRgb(248, 248, 242)),
         .background_color = Color.fromRgb(39, 40, 34),
     };
@@ -388,6 +392,8 @@ pub const SyntaxTheme = struct {
         .type_style = Style.empty.foreground(Color.fromRgb(139, 233, 253)).italic(),
         .function_style = Style.empty.foreground(Color.fromRgb(80, 250, 123)),
         .line_number_style = Style.empty.foreground(Color.fromRgb(98, 114, 164)),
+        .highlight_line_style = Style.empty.background(Color.fromRgb(68, 71, 90)),
+        .highlight_line_number_style = Style.empty.foreground(Color.fromRgb(241, 250, 140)).bold(),
         .default_style = Style.empty.foreground(Color.fromRgb(248, 248, 242)),
         .background_color = Color.fromRgb(40, 42, 54),
     };
@@ -575,6 +581,7 @@ pub const Syntax = struct {
     tab_size: u8 = 4,
     indent_guides: bool = false,
     indent_guide_char: []const u8 = "|",
+    highlight_lines: ?[]const usize = null,
     allocator: std.mem.Allocator,
     owns_code: bool = false,
 
@@ -683,6 +690,24 @@ pub const Syntax = struct {
         return s;
     }
 
+    /// Highlight specific line numbers (e.g., for showing error locations).
+    /// Line numbers are 1-based (matching start_line convention).
+    pub fn withHighlightLines(self: Syntax, lines: []const usize) Syntax {
+        var s = self;
+        s.highlight_lines = lines;
+        return s;
+    }
+
+    /// Check if a given line number should be highlighted.
+    fn isLineHighlighted(self: Syntax, line_num: usize) bool {
+        if (self.highlight_lines) |lines| {
+            for (lines) |hl| {
+                if (hl == line_num) return true;
+            }
+        }
+        return false;
+    }
+
     pub fn render(self: Syntax, max_width: usize, allocator: std.mem.Allocator) ![]Segment {
         var segments: std.ArrayList(Segment) = .empty;
 
@@ -694,16 +719,22 @@ pub const Syntax = struct {
         const code_width: usize = if (max_width > line_num_width) max_width - line_num_width else max_width;
 
         while (lines.next()) |line| {
+            const is_highlighted = self.isLineHighlighted(line_num);
+
             if (self.show_line_numbers) {
                 var buf: [16]u8 = undefined;
                 const line_str = std.fmt.bufPrint(&buf, "{d:>4} ", .{line_num}) catch "???? ";
                 const line_str_copy = try allocator.dupe(u8, line_str);
-                try segments.append(allocator, Segment.styled(line_str_copy, self.theme.applyBackground(self.theme.line_number_style)));
+                const line_num_style = if (is_highlighted)
+                    self.theme.highlight_line_number_style
+                else
+                    self.theme.line_number_style;
+                try segments.append(allocator, Segment.styled(line_str_copy, self.theme.applyBackground(line_num_style)));
             }
 
             if (self.word_wrap and code_width > 0) {
                 var line_segments: std.ArrayList(Segment) = .empty;
-                try self.highlightLine(&line_segments, allocator, line);
+                try self.highlightLine(&line_segments, allocator, line, is_highlighted);
                 const highlighted = try line_segments.toOwnedSlice(allocator);
                 defer allocator.free(highlighted);
 
@@ -715,13 +746,17 @@ pub const Syntax = struct {
                     const is_newline = std.mem.eql(u8, seg.text, "\n");
                     if (after_wrap_newline and self.show_line_numbers and !is_newline) {
                         const indent = try allocator.dupe(u8, "     ");
-                        try segments.append(allocator, Segment.styled(indent, self.theme.applyBackground(self.theme.line_number_style)));
+                        const indent_style = if (is_highlighted)
+                            self.theme.highlight_line_number_style
+                        else
+                            self.theme.line_number_style;
+                        try segments.append(allocator, Segment.styled(indent, self.theme.applyBackground(indent_style)));
                     }
                     try segments.append(allocator, Segment.styledOptional(seg.text, self.theme.applyBackgroundOpt(seg.style)));
                     after_wrap_newline = is_newline;
                 }
             } else {
-                try self.highlightLine(&segments, allocator, line);
+                try self.highlightLine(&segments, allocator, line, is_highlighted);
             }
 
             try segments.append(allocator, Segment.line());
@@ -731,22 +766,22 @@ pub const Syntax = struct {
         return segments.toOwnedSlice(allocator);
     }
 
-    fn highlightLine(self: Syntax, segments: *std.ArrayList(Segment), allocator: std.mem.Allocator, line: []const u8) !void {
+    fn highlightLine(self: Syntax, segments: *std.ArrayList(Segment), allocator: std.mem.Allocator, line: []const u8, is_highlighted: bool) !void {
         const expanded = try self.expandTabs(line, allocator);
 
         if (self.indent_guides) {
-            try self.renderWithIndentGuides(segments, allocator, expanded);
+            try self.renderWithIndentGuides(segments, allocator, expanded, is_highlighted);
         } else {
-            try self.highlightContent(segments, allocator, expanded);
+            try self.highlightContent(segments, allocator, expanded, is_highlighted);
         }
     }
 
     /// Apply syntax highlighting to content based on language.
-    fn highlightContent(self: Syntax, segments: *std.ArrayList(Segment), allocator: std.mem.Allocator, content: []const u8) !void {
+    fn highlightContent(self: Syntax, segments: *std.ArrayList(Segment), allocator: std.mem.Allocator, content: []const u8, is_highlighted: bool) !void {
         switch (self.language) {
-            .zig => try self.highlightZig(segments, allocator, content),
-            .json => try self.highlightJson(segments, allocator, content),
-            .markdown => try self.highlightMarkdown(segments, allocator, content),
+            .zig => try self.highlightZig(segments, allocator, content, is_highlighted),
+            .json => try self.highlightJson(segments, allocator, content, is_highlighted),
+            .markdown => try self.highlightMarkdown(segments, allocator, content, is_highlighted),
             .python,
             .javascript,
             .typescript,
@@ -762,12 +797,12 @@ pub const Syntax = struct {
             .css,
             .sql,
             .plain,
-            => try segments.append(allocator, self.defaultSegment(content)),
+            => try segments.append(allocator, self.defaultSegmentHighlighted(content, is_highlighted)),
         }
     }
 
     /// Render a line with indent guides at each tab stop in the leading whitespace.
-    fn renderWithIndentGuides(self: Syntax, segments: *std.ArrayList(Segment), allocator: std.mem.Allocator, line: []const u8) !void {
+    fn renderWithIndentGuides(self: Syntax, segments: *std.ArrayList(Segment), allocator: std.mem.Allocator, line: []const u8, is_highlighted: bool) !void {
         var indent_end: usize = 0;
         while (indent_end < line.len and line[indent_end] == ' ') : (indent_end += 1) {}
 
@@ -779,22 +814,23 @@ pub const Syntax = struct {
                 const next_tab_stop = ((col / tab_size) + 1) * tab_size;
 
                 if (next_tab_stop <= indent_end and indent_end - col >= tab_size) {
-                    try segments.append(allocator, self.styledSegment(
+                    try segments.append(allocator, self.styledSegmentHighlighted(
                         self.indent_guide_char,
                         self.theme.indent_guide_style,
+                        is_highlighted,
                     ));
                     const spaces_after_guide = tab_size - self.indent_guide_char.len;
                     if (spaces_after_guide > 0) {
                         const space_fill = try allocator.alloc(u8, spaces_after_guide);
                         @memset(space_fill, ' ');
-                        try segments.append(allocator, self.defaultSegment(space_fill));
+                        try segments.append(allocator, self.defaultSegmentHighlighted(space_fill, is_highlighted));
                     }
                     col = next_tab_stop;
                 } else {
                     const spaces_to_end = indent_end - col;
                     const space_fill = try allocator.alloc(u8, spaces_to_end);
                     @memset(space_fill, ' ');
-                    try segments.append(allocator, self.defaultSegment(space_fill));
+                    try segments.append(allocator, self.defaultSegmentHighlighted(space_fill, is_highlighted));
                     col = indent_end;
                 }
             }
@@ -802,7 +838,7 @@ pub const Syntax = struct {
 
         const content = line[indent_end..];
         if (content.len > 0) {
-            try self.highlightContent(segments, allocator, content);
+            try self.highlightContent(segments, allocator, content, is_highlighted);
         }
     }
 
@@ -843,29 +879,54 @@ pub const Syntax = struct {
         return Segment.styledOptional(text, style);
     }
 
+    fn defaultSegmentHighlighted(self: Syntax, text: []const u8, is_highlighted: bool) Segment {
+        if (is_highlighted) {
+            const base_style = if (self.theme.default_style.isEmpty())
+                self.theme.highlight_line_style
+            else
+                self.applyHighlightBackground(self.theme.default_style);
+            return Segment.styled(text, base_style);
+        }
+        return self.defaultSegment(text);
+    }
+
     fn styledSegment(self: Syntax, text: []const u8, style: Style) Segment {
         return Segment.styled(text, self.theme.applyBackground(style));
     }
 
-    fn highlightZig(self: Syntax, segments: *std.ArrayList(Segment), allocator: std.mem.Allocator, line: []const u8) !void {
+    fn styledSegmentHighlighted(self: Syntax, text: []const u8, style: Style, is_highlighted: bool) Segment {
+        if (is_highlighted) {
+            return Segment.styled(text, self.applyHighlightBackground(style));
+        }
+        return self.styledSegment(text, style);
+    }
+
+    /// Apply highlight line background to a style (overrides any existing background).
+    fn applyHighlightBackground(self: Syntax, style: Style) Style {
+        var result = style;
+        result.bgcolor = self.theme.highlight_line_style.bgcolor;
+        return result;
+    }
+
+    fn highlightZig(self: Syntax, segments: *std.ArrayList(Segment), allocator: std.mem.Allocator, line: []const u8, is_highlighted: bool) !void {
         var i: usize = 0;
 
         while (i < line.len) {
             if (std.mem.startsWith(u8, line[i..], "//")) {
-                try segments.append(allocator, self.styledSegment(line[i..], self.theme.comment_style));
+                try segments.append(allocator, self.styledSegmentHighlighted(line[i..], self.theme.comment_style, is_highlighted));
                 return;
             }
 
             if (line[i] == '"') {
                 const end = self.findStringEnd(line, i);
-                try segments.append(allocator, self.styledSegment(line[i..end], self.theme.string_style));
+                try segments.append(allocator, self.styledSegmentHighlighted(line[i..end], self.theme.string_style, is_highlighted));
                 i = end;
                 continue;
             }
 
             if (line[i] == '\'') {
                 const end = self.findCharEnd(line, i);
-                try segments.append(allocator, self.styledSegment(line[i..end], self.theme.string_style));
+                try segments.append(allocator, self.styledSegmentHighlighted(line[i..end], self.theme.string_style, is_highlighted));
                 i = end;
                 continue;
             }
@@ -874,9 +935,9 @@ pub const Syntax = struct {
                 const end = self.findIdentEnd(line, i + 1);
                 const builtin = line[i..end];
                 if (zig_builtins.has(builtin)) {
-                    try segments.append(allocator, self.styledSegment(builtin, self.theme.builtin_style));
+                    try segments.append(allocator, self.styledSegmentHighlighted(builtin, self.theme.builtin_style, is_highlighted));
                 } else {
-                    try segments.append(allocator, self.defaultSegment(builtin));
+                    try segments.append(allocator, self.defaultSegmentHighlighted(builtin, is_highlighted));
                 }
                 i = end;
                 continue;
@@ -884,7 +945,7 @@ pub const Syntax = struct {
 
             if (std.ascii.isDigit(line[i]) or (line[i] == '.' and i + 1 < line.len and std.ascii.isDigit(line[i + 1]))) {
                 const end = self.findNumberEnd(line, i);
-                try segments.append(allocator, self.styledSegment(line[i..end], self.theme.number_style));
+                try segments.append(allocator, self.styledSegmentHighlighted(line[i..end], self.theme.number_style, is_highlighted));
                 i = end;
                 continue;
             }
@@ -894,36 +955,36 @@ pub const Syntax = struct {
                 const ident = line[i..end];
 
                 if (zig_keywords.has(ident)) {
-                    try segments.append(allocator, self.styledSegment(ident, self.theme.keyword_style));
+                    try segments.append(allocator, self.styledSegmentHighlighted(ident, self.theme.keyword_style, is_highlighted));
                 } else if (zig_types.has(ident)) {
-                    try segments.append(allocator, self.styledSegment(ident, self.theme.type_style));
+                    try segments.append(allocator, self.styledSegmentHighlighted(ident, self.theme.type_style, is_highlighted));
                 } else if (end < line.len and line[end] == '(') {
-                    try segments.append(allocator, self.styledSegment(ident, self.theme.function_style));
+                    try segments.append(allocator, self.styledSegmentHighlighted(ident, self.theme.function_style, is_highlighted));
                 } else {
-                    try segments.append(allocator, self.defaultSegment(ident));
+                    try segments.append(allocator, self.defaultSegmentHighlighted(ident, is_highlighted));
                 }
                 i = end;
                 continue;
             }
 
             if (self.isOperator(line[i])) {
-                try segments.append(allocator, self.styledSegment(line[i .. i + 1], self.theme.operator_style));
+                try segments.append(allocator, self.styledSegmentHighlighted(line[i .. i + 1], self.theme.operator_style, is_highlighted));
                 i += 1;
                 continue;
             }
 
             if (self.isPunctuation(line[i])) {
-                try segments.append(allocator, self.styledSegment(line[i .. i + 1], self.theme.punctuation_style));
+                try segments.append(allocator, self.styledSegmentHighlighted(line[i .. i + 1], self.theme.punctuation_style, is_highlighted));
                 i += 1;
                 continue;
             }
 
-            try segments.append(allocator, self.defaultSegment(line[i .. i + 1]));
+            try segments.append(allocator, self.defaultSegmentHighlighted(line[i .. i + 1], is_highlighted));
             i += 1;
         }
     }
 
-    fn highlightJson(self: Syntax, segments: *std.ArrayList(Segment), allocator: std.mem.Allocator, line: []const u8) !void {
+    fn highlightJson(self: Syntax, segments: *std.ArrayList(Segment), allocator: std.mem.Allocator, line: []const u8, is_highlighted: bool) !void {
         var i: usize = 0;
 
         while (i < line.len) {
@@ -931,9 +992,9 @@ pub const Syntax = struct {
                 const end = self.findStringEnd(line, i);
                 const str_content = line[i..end];
                 if (end < line.len and line[end] == ':') {
-                    try segments.append(allocator, self.styledSegment(str_content, self.theme.keyword_style));
+                    try segments.append(allocator, self.styledSegmentHighlighted(str_content, self.theme.keyword_style, is_highlighted));
                 } else {
-                    try segments.append(allocator, self.styledSegment(str_content, self.theme.string_style));
+                    try segments.append(allocator, self.styledSegmentHighlighted(str_content, self.theme.string_style, is_highlighted));
                 }
                 i = end;
                 continue;
@@ -949,50 +1010,50 @@ pub const Syntax = struct {
                 null;
 
             if (keyword) |kw| {
-                try segments.append(allocator, self.styledSegment(kw, self.theme.keyword_style));
+                try segments.append(allocator, self.styledSegmentHighlighted(kw, self.theme.keyword_style, is_highlighted));
                 i += kw.len;
                 continue;
             }
 
             if (std.ascii.isDigit(line[i]) or (line[i] == '-' and i + 1 < line.len and std.ascii.isDigit(line[i + 1]))) {
                 const end = self.findNumberEnd(line, i);
-                try segments.append(allocator, self.styledSegment(line[i..end], self.theme.number_style));
+                try segments.append(allocator, self.styledSegmentHighlighted(line[i..end], self.theme.number_style, is_highlighted));
                 i = end;
                 continue;
             }
 
             if (self.isPunctuation(line[i])) {
-                try segments.append(allocator, self.styledSegment(line[i .. i + 1], self.theme.punctuation_style));
+                try segments.append(allocator, self.styledSegmentHighlighted(line[i .. i + 1], self.theme.punctuation_style, is_highlighted));
                 i += 1;
                 continue;
             }
 
-            try segments.append(allocator, self.defaultSegment(line[i .. i + 1]));
+            try segments.append(allocator, self.defaultSegmentHighlighted(line[i .. i + 1], is_highlighted));
             i += 1;
         }
     }
 
-    fn highlightMarkdown(self: Syntax, segments: *std.ArrayList(Segment), allocator: std.mem.Allocator, line: []const u8) !void {
+    fn highlightMarkdown(self: Syntax, segments: *std.ArrayList(Segment), allocator: std.mem.Allocator, line: []const u8, is_highlighted: bool) !void {
         if (line.len == 0) return;
 
         if (std.mem.startsWith(u8, line, "#")) {
-            try segments.append(allocator, self.styledSegment(line, self.theme.keyword_style.bold()));
+            try segments.append(allocator, self.styledSegmentHighlighted(line, self.theme.keyword_style.bold(), is_highlighted));
             return;
         }
 
         if (std.mem.startsWith(u8, line, "```")) {
-            try segments.append(allocator, self.styledSegment(line, self.theme.comment_style));
+            try segments.append(allocator, self.styledSegmentHighlighted(line, self.theme.comment_style, is_highlighted));
             return;
         }
 
         if (std.mem.startsWith(u8, line, "- ") or std.mem.startsWith(u8, line, "* ") or std.mem.startsWith(u8, line, "+ ")) {
-            try segments.append(allocator, self.styledSegment(line[0..2], self.theme.keyword_style));
-            try segments.append(allocator, self.defaultSegment(line[2..]));
+            try segments.append(allocator, self.styledSegmentHighlighted(line[0..2], self.theme.keyword_style, is_highlighted));
+            try segments.append(allocator, self.defaultSegmentHighlighted(line[2..], is_highlighted));
             return;
         }
 
         if (std.mem.startsWith(u8, line, "> ")) {
-            try segments.append(allocator, self.styledSegment(line, self.theme.comment_style.italic()));
+            try segments.append(allocator, self.styledSegmentHighlighted(line, self.theme.comment_style.italic(), is_highlighted));
             return;
         }
 
@@ -1002,7 +1063,7 @@ pub const Syntax = struct {
                 var end = i + 1;
                 while (end < line.len and line[end] != '`') : (end += 1) {}
                 if (end < line.len) {
-                    try segments.append(allocator, self.styledSegment(line[i .. end + 1], self.theme.string_style));
+                    try segments.append(allocator, self.styledSegmentHighlighted(line[i .. end + 1], self.theme.string_style, is_highlighted));
                     i = end + 1;
                     continue;
                 }
@@ -1012,7 +1073,7 @@ pub const Syntax = struct {
                 var end = i + 2;
                 while (end + 1 < line.len and !(line[end] == '*' and line[end + 1] == '*')) : (end += 1) {}
                 if (end + 1 < line.len) {
-                    try segments.append(allocator, self.styledSegment(line[i .. end + 2], self.theme.keyword_style.bold()));
+                    try segments.append(allocator, self.styledSegmentHighlighted(line[i .. end + 2], self.theme.keyword_style.bold(), is_highlighted));
                     i = end + 2;
                     continue;
                 }
@@ -1023,7 +1084,7 @@ pub const Syntax = struct {
                 var end = i + 1;
                 while (end < line.len and line[end] != marker) : (end += 1) {}
                 if (end < line.len) {
-                    try segments.append(allocator, self.styledSegment(line[i .. end + 1], self.theme.default_style.italic()));
+                    try segments.append(allocator, self.styledSegmentHighlighted(line[i .. end + 1], self.theme.default_style.italic(), is_highlighted));
                     i = end + 1;
                     continue;
                 }
@@ -1036,14 +1097,14 @@ pub const Syntax = struct {
                     var paren_end = bracket_end + 2;
                     while (paren_end < line.len and line[paren_end] != ')') : (paren_end += 1) {}
                     if (paren_end < line.len) {
-                        try segments.append(allocator, self.styledSegment(line[i .. paren_end + 1], self.theme.builtin_style));
+                        try segments.append(allocator, self.styledSegmentHighlighted(line[i .. paren_end + 1], self.theme.builtin_style, is_highlighted));
                         i = paren_end + 1;
                         continue;
                     }
                 }
             }
 
-            try segments.append(allocator, self.defaultSegment(line[i .. i + 1]));
+            try segments.append(allocator, self.defaultSegmentHighlighted(line[i .. i + 1], is_highlighted));
             i += 1;
         }
     }
@@ -2047,4 +2108,249 @@ test "Syntax.render with indent guides - multiline" {
         }
     }
     try std.testing.expectEqual(@as(usize, 3), guide_count);
+}
+
+// Line highlighting tests
+
+test "Syntax.withHighlightLines" {
+    const allocator = std.testing.allocator;
+    const lines = [_]usize{ 1, 3, 5 };
+    const syntax = Syntax.init(allocator, "code").withHighlightLines(&lines);
+    try std.testing.expect(syntax.highlight_lines != null);
+    try std.testing.expectEqual(@as(usize, 3), syntax.highlight_lines.?.len);
+}
+
+test "Syntax.isLineHighlighted" {
+    const allocator = std.testing.allocator;
+    const lines = [_]usize{ 2, 5, 10 };
+    const syntax = Syntax.init(allocator, "code").withHighlightLines(&lines);
+
+    try std.testing.expect(syntax.isLineHighlighted(2));
+    try std.testing.expect(syntax.isLineHighlighted(5));
+    try std.testing.expect(syntax.isLineHighlighted(10));
+    try std.testing.expect(!syntax.isLineHighlighted(1));
+    try std.testing.expect(!syntax.isLineHighlighted(3));
+    try std.testing.expect(!syntax.isLineHighlighted(100));
+}
+
+test "Syntax.isLineHighlighted no highlights" {
+    const allocator = std.testing.allocator;
+    const syntax = Syntax.init(allocator, "code");
+
+    try std.testing.expect(!syntax.isLineHighlighted(1));
+    try std.testing.expect(!syntax.isLineHighlighted(100));
+}
+
+test "Syntax.render with highlighted lines - basic" {
+    const allocator = std.testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+
+    const code = "line 1\nline 2\nline 3";
+    const lines = [_]usize{2};
+    const syntax = Syntax.init(arena.allocator(), code)
+        .withLanguage(.plain)
+        .withHighlightLines(&lines);
+
+    const segments = try syntax.render(80, arena.allocator());
+
+    // Should have some segments with highlight background
+    var found_highlighted = false;
+    for (segments) |seg| {
+        if (seg.style) |style| {
+            if (style.bgcolor != null) {
+                found_highlighted = true;
+                break;
+            }
+        }
+    }
+    try std.testing.expect(found_highlighted);
+}
+
+test "Syntax.render with highlighted lines - zig syntax" {
+    const allocator = std.testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+
+    const code =
+        \\const x = 1;
+        \\const y = 2;
+        \\const z = 3;
+    ;
+    const lines = [_]usize{2};
+    const syntax = Syntax.init(arena.allocator(), code)
+        .withLanguage(.zig)
+        .withHighlightLines(&lines);
+
+    const segments = try syntax.render(80, arena.allocator());
+
+    // Highlighted line should have background color on its segments
+    var found_highlighted = false;
+    for (segments) |seg| {
+        if (seg.style) |style| {
+            if (style.bgcolor != null) {
+                found_highlighted = true;
+                break;
+            }
+        }
+    }
+    try std.testing.expect(found_highlighted);
+}
+
+test "Syntax.render with highlighted lines and line numbers" {
+    const allocator = std.testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+
+    const code = "line 1\nline 2\nline 3";
+    const lines = [_]usize{2};
+    const syntax = Syntax.init(arena.allocator(), code)
+        .withLanguage(.plain)
+        .withLineNumbers()
+        .withHighlightLines(&lines);
+
+    const segments = try syntax.render(80, arena.allocator());
+
+    // Should render without errors and have line numbers
+    var found_line_num = false;
+    for (segments) |seg| {
+        if (std.mem.indexOf(u8, seg.text, "2") != null and seg.text.len <= 5) {
+            found_line_num = true;
+            break;
+        }
+    }
+    try std.testing.expect(found_line_num);
+}
+
+test "Syntax.render with multiple highlighted lines" {
+    const allocator = std.testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+
+    const code = "line 1\nline 2\nline 3\nline 4\nline 5";
+    const lines = [_]usize{ 1, 3, 5 };
+    const syntax = Syntax.init(arena.allocator(), code)
+        .withLanguage(.plain)
+        .withHighlightLines(&lines);
+
+    const segments = try syntax.render(80, arena.allocator());
+
+    // Multiple lines should be highlighted
+    var highlight_count: usize = 0;
+    var prev_was_newline = true;
+    for (segments) |seg| {
+        if (std.mem.eql(u8, seg.text, "\n")) {
+            prev_was_newline = true;
+            continue;
+        }
+        if (prev_was_newline and seg.style != null and seg.style.?.bgcolor != null) {
+            highlight_count += 1;
+        }
+        prev_was_newline = false;
+    }
+    try std.testing.expect(highlight_count >= 3);
+}
+
+test "Syntax.render with highlighted lines preserves syntax colors" {
+    const allocator = std.testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+
+    const code = "const x = 42;";
+    const lines = [_]usize{1};
+    const syntax = Syntax.init(arena.allocator(), code)
+        .withLanguage(.zig)
+        .withHighlightLines(&lines);
+
+    const segments = try syntax.render(80, arena.allocator());
+
+    // Should have both foreground colors (syntax) and background (highlight)
+    var found_styled = false;
+    for (segments) |seg| {
+        if (seg.style) |style| {
+            if (style.color != null and style.bgcolor != null) {
+                found_styled = true;
+                break;
+            }
+        }
+    }
+    try std.testing.expect(found_styled);
+}
+
+test "SyntaxTheme highlight styles" {
+    // Default theme
+    try std.testing.expect(SyntaxTheme.default.highlight_line_style.bgcolor != null);
+    try std.testing.expect(SyntaxTheme.default.highlight_line_number_style.color != null);
+
+    // Monokai theme
+    try std.testing.expect(SyntaxTheme.monokai.highlight_line_style.bgcolor != null);
+    try std.testing.expect(SyntaxTheme.monokai.highlight_line_number_style.color != null);
+
+    // Dracula theme
+    try std.testing.expect(SyntaxTheme.dracula.highlight_line_style.bgcolor != null);
+    try std.testing.expect(SyntaxTheme.dracula.highlight_line_number_style.color != null);
+}
+
+test "Syntax.render with highlighted lines and indent guides" {
+    const allocator = std.testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+
+    const code =
+        \\fn foo() void {
+        \\    const x = 1;
+        \\}
+    ;
+    const lines = [_]usize{2};
+    const syntax = Syntax.init(arena.allocator(), code)
+        .withLanguage(.zig)
+        .withTabSize(4)
+        .withIndentGuides()
+        .withHighlightLines(&lines);
+
+    const segments = try syntax.render(80, arena.allocator());
+
+    // Should have both indent guides and highlighted content
+    var has_guide = false;
+    var has_highlight = false;
+    for (segments) |seg| {
+        if (std.mem.eql(u8, seg.text, "|")) {
+            has_guide = true;
+        }
+        if (seg.style) |style| {
+            if (style.bgcolor != null) {
+                has_highlight = true;
+            }
+        }
+    }
+    try std.testing.expect(has_guide);
+    try std.testing.expect(has_highlight);
+}
+
+test "Syntax.render highlighted line with custom start_line" {
+    const allocator = std.testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+
+    const code = "line 1\nline 2\nline 3";
+    // Highlight line 12 (which is the second line when start_line is 11)
+    const lines = [_]usize{12};
+    const syntax = Syntax.init(arena.allocator(), code)
+        .withLanguage(.plain)
+        .withStartLine(11)
+        .withHighlightLines(&lines);
+
+    const segments = try syntax.render(80, arena.allocator());
+
+    // The second line should be highlighted
+    var found_highlighted = false;
+    for (segments) |seg| {
+        if (seg.style) |style| {
+            if (style.bgcolor != null) {
+                found_highlighted = true;
+                break;
+            }
+        }
+    }
+    try std.testing.expect(found_highlighted);
 }
