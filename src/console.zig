@@ -58,38 +58,20 @@ pub const Pager = struct {
         try self.page(text);
     }
 
-    fn tryExternalPager(self: *Pager, content: []const u8) bool {
+    fn tryExternalPager(self: *const Pager, content: []const u8) bool {
         if (builtin.os.tag == .windows) {
-            return self.tryPagerCommand("more", content);
+            return tryPagerCommand("more", content);
         }
 
         if (self.options.external_command) |cmd| {
-            if (self.tryPagerCommand(cmd, content)) return true;
+            if (tryPagerCommand(cmd, content)) return true;
         }
 
-        const pagers = [_][]const u8{ "less", "more" };
-        for (pagers) |pager_cmd| {
-            if (self.tryPagerCommand(pager_cmd, content)) return true;
+        for ([_][]const u8{ "less", "more" }) |pager_cmd| {
+            if (tryPagerCommand(pager_cmd, content)) return true;
         }
 
         return false;
-    }
-
-    fn tryPagerCommand(self: *Pager, cmd: []const u8, content: []const u8) bool {
-        _ = self;
-        var child = std.process.Child.init(&.{cmd}, std.heap.page_allocator);
-        child.stdin_behavior = .Pipe;
-
-        child.spawn() catch return false;
-
-        if (child.stdin) |stdin| {
-            stdin.writeAll(content) catch {};
-            stdin.close();
-            child.stdin = null;
-        }
-
-        _ = child.wait() catch return false;
-        return true;
     }
 
     fn internalPager(self: *Pager, content: []const u8) !void {
@@ -142,6 +124,22 @@ pub const Pager = struct {
         return lines_list.toOwnedSlice(self.allocator);
     }
 };
+
+fn tryPagerCommand(cmd: []const u8, content: []const u8) bool {
+    var child = std.process.Child.init(&.{cmd}, std.heap.page_allocator);
+    child.stdin_behavior = .Pipe;
+
+    child.spawn() catch return false;
+
+    if (child.stdin) |stdin| {
+        stdin.writeAll(content) catch {};
+        stdin.close();
+        child.stdin = null;
+    }
+
+    _ = child.wait() catch return false;
+    return true;
+}
 
 pub const LogLevel = enum {
     debug,
