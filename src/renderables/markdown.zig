@@ -41,6 +41,7 @@ pub const MarkdownTheme = struct {
     bold_style: Style = Style.empty.bold(),
     italic_style: Style = Style.empty.italic(),
     bold_italic_style: Style = Style.empty.bold().italic(),
+    link_style: Style = Style.empty.fg(Color.bright_blue).underline(),
     code_block_style: Style = Style.empty.foreground(Color.default).dim(),
     syntax_theme: SyntaxTheme = SyntaxTheme.default,
 
@@ -332,12 +333,14 @@ pub const Markdown = struct {
     const InlineSpan = struct {
         text: []const u8,
         style_type: StyleType,
+        link_url: ?[]const u8 = null,
 
         const StyleType = enum {
             plain,
             bold,
             italic,
             bold_italic,
+            link,
         };
     };
 
@@ -346,6 +349,17 @@ pub const Markdown = struct {
         var pos: usize = 0;
 
         while (pos < text.len) {
+            // Try link first: [text](url)
+            if (tryParseLink(text, pos)) |result| {
+                try spans.append(allocator, .{
+                    .text = result.link_text,
+                    .style_type = .link,
+                    .link_url = result.url,
+                });
+                pos = result.end_pos;
+                continue;
+            }
+
             if (tryParseStyledSpan(text, pos)) |result| {
                 try spans.append(allocator, .{
                     .text = result.content,
@@ -374,6 +388,58 @@ pub const Markdown = struct {
         }
 
         return spans.toOwnedSlice(allocator);
+    }
+
+    const LinkResult = struct {
+        link_text: []const u8,
+        url: []const u8,
+        end_pos: usize,
+    };
+
+    fn tryParseLink(text: []const u8, pos: usize) ?LinkResult {
+        if (pos >= text.len or text[pos] != '[') return null;
+
+        // Find closing bracket
+        const text_start = pos + 1;
+        var bracket_depth: usize = 1;
+        var text_end: usize = text_start;
+
+        while (text_end < text.len and bracket_depth > 0) {
+            if (text[text_end] == '[') {
+                bracket_depth += 1;
+            } else if (text[text_end] == ']') {
+                bracket_depth -= 1;
+            }
+            if (bracket_depth > 0) text_end += 1;
+        }
+
+        if (bracket_depth != 0) return null;
+
+        // Check for opening paren immediately after
+        const paren_start = text_end + 1;
+        if (paren_start >= text.len or text[paren_start] != '(') return null;
+
+        // Find closing paren
+        const url_start = paren_start + 1;
+        var paren_depth: usize = 1;
+        var url_end: usize = url_start;
+
+        while (url_end < text.len and paren_depth > 0) {
+            if (text[url_end] == '(') {
+                paren_depth += 1;
+            } else if (text[url_end] == ')') {
+                paren_depth -= 1;
+            }
+            if (paren_depth > 0) url_end += 1;
+        }
+
+        if (paren_depth != 0) return null;
+
+        return .{
+            .link_text = text[text_start..text_end],
+            .url = text[url_start..url_end],
+            .end_pos = url_end + 1,
+        };
     }
 
     const ParseResult = struct {
@@ -416,7 +482,7 @@ pub const Markdown = struct {
 
     fn advanceToNextDelimiter(text: []const u8, start: usize) usize {
         var pos = start;
-        while (pos < text.len and text[pos] != '*' and text[pos] != '_') {
+        while (pos < text.len and text[pos] != '*' and text[pos] != '_' and text[pos] != '[') {
             pos += 1;
         }
         return pos;
@@ -457,6 +523,13 @@ pub const Markdown = struct {
                 .bold => self.theme.bold_style,
                 .italic => self.theme.italic_style,
                 .bold_italic => self.theme.bold_italic_style,
+                .link => blk: {
+                    var link_style = self.theme.link_style;
+                    if (span.link_url) |url| {
+                        link_style = link_style.hyperlink(url);
+                    }
+                    break :blk link_style;
+                },
             };
 
             const final_style: ?Style = if (inline_style) |is|
@@ -961,4 +1034,131 @@ test "Markdown.render multiple code blocks" {
     }
     try std.testing.expect(found_const);
     try std.testing.expect(found_key);
+}
+
+test "tryParseLink basic link" {
+    const text = "[click here](https://example.com)";
+    const result = Markdown.tryParseLink(text, 0);
+    try std.testing.expect(result != null);
+    try std.testing.expectEqualStrings("click here", result.?.link_text);
+    try std.testing.expectEqualStrings("https://example.com", result.?.url);
+    try std.testing.expectEqual(@as(usize, text.len), result.?.end_pos);
+}
+
+test "tryParseLink no link" {
+    try std.testing.expect(Markdown.tryParseLink("plain text", 0) == null);
+    try std.testing.expect(Markdown.tryParseLink("[unclosed", 0) == null);
+    try std.testing.expect(Markdown.tryParseLink("[text]no paren", 0) == null);
+    try std.testing.expect(Markdown.tryParseLink("[text](unclosed", 0) == null);
+}
+
+test "tryParseLink with offset" {
+    const text = "prefix [link](url) suffix";
+    const result = Markdown.tryParseLink(text, 7);
+    try std.testing.expect(result != null);
+    try std.testing.expectEqualStrings("link", result.?.link_text);
+    try std.testing.expectEqualStrings("url", result.?.url);
+}
+
+test "tryParseLink nested brackets" {
+    const text = "[text [nested]](url)";
+    const result = Markdown.tryParseLink(text, 0);
+    try std.testing.expect(result != null);
+    try std.testing.expectEqualStrings("text [nested]", result.?.link_text);
+}
+
+test "tryParseLink nested parens in url" {
+    const text = "[link](https://example.com/path(1))";
+    const result = Markdown.tryParseLink(text, 0);
+    try std.testing.expect(result != null);
+    try std.testing.expectEqualStrings("https://example.com/path(1)", result.?.url);
+}
+
+test "parseInlineStyles with link" {
+    const allocator = std.testing.allocator;
+    const spans = try Markdown.parseInlineStyles("Check [this](https://example.com) out", allocator);
+    defer allocator.free(spans);
+
+    try std.testing.expectEqual(@as(usize, 3), spans.len);
+    try std.testing.expectEqualStrings("Check ", spans[0].text);
+    try std.testing.expectEqual(Markdown.InlineSpan.StyleType.plain, spans[0].style_type);
+    try std.testing.expectEqualStrings("this", spans[1].text);
+    try std.testing.expectEqual(Markdown.InlineSpan.StyleType.link, spans[1].style_type);
+    try std.testing.expectEqualStrings("https://example.com", spans[1].link_url.?);
+    try std.testing.expectEqualStrings(" out", spans[2].text);
+    try std.testing.expectEqual(Markdown.InlineSpan.StyleType.plain, spans[2].style_type);
+}
+
+test "Markdown.render with link" {
+    const allocator = std.testing.allocator;
+    const md = Markdown.init("Visit [Example](https://example.com) for more info");
+    const segments = try md.render(80, allocator);
+    defer allocator.free(segments);
+
+    var found_link = false;
+    for (segments) |seg| {
+        if (std.mem.eql(u8, seg.text, "Example")) {
+            found_link = true;
+            try std.testing.expect(seg.style != null);
+            try std.testing.expect(seg.style.?.link != null);
+            try std.testing.expectEqualStrings("https://example.com", seg.style.?.link.?);
+            try std.testing.expect(seg.style.?.hasAttribute(.underline));
+        }
+    }
+    try std.testing.expect(found_link);
+}
+
+test "Markdown.render link at start" {
+    const allocator = std.testing.allocator;
+    const md = Markdown.init("[Start](url) of line");
+    const segments = try md.render(80, allocator);
+    defer allocator.free(segments);
+
+    try std.testing.expect(segments.len >= 2);
+    try std.testing.expectEqualStrings("Start", segments[0].text);
+    try std.testing.expect(segments[0].style.?.link != null);
+}
+
+test "Markdown.render link at end" {
+    const allocator = std.testing.allocator;
+    const md = Markdown.init("End with [link](url)");
+    const segments = try md.render(80, allocator);
+    defer allocator.free(segments);
+
+    var found_link = false;
+    for (segments) |seg| {
+        if (std.mem.eql(u8, seg.text, "link")) {
+            found_link = true;
+            try std.testing.expect(seg.style.?.link != null);
+        }
+    }
+    try std.testing.expect(found_link);
+}
+
+test "Markdown.render multiple links" {
+    const allocator = std.testing.allocator;
+    const md = Markdown.init("[one](url1) and [two](url2)");
+    const segments = try md.render(80, allocator);
+    defer allocator.free(segments);
+
+    var found_one = false;
+    var found_two = false;
+    for (segments) |seg| {
+        if (std.mem.eql(u8, seg.text, "one")) {
+            found_one = true;
+            try std.testing.expectEqualStrings("url1", seg.style.?.link.?);
+        }
+        if (std.mem.eql(u8, seg.text, "two")) {
+            found_two = true;
+            try std.testing.expectEqualStrings("url2", seg.style.?.link.?);
+        }
+    }
+    try std.testing.expect(found_one);
+    try std.testing.expect(found_two);
+}
+
+test "MarkdownTheme has link style" {
+    const theme = MarkdownTheme.default;
+    try std.testing.expect(theme.link_style.hasAttribute(.underline));
+    try std.testing.expect(theme.link_style.color != null);
 }
