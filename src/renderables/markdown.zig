@@ -34,6 +34,9 @@ pub const MarkdownTheme = struct {
     h6_style: Style = Style.empty.bold().fg(Color.magenta).dim(),
     h1_underline: ?[]const u8 = "\u{2550}",
     h2_underline: ?[]const u8 = "\u{2500}",
+    bold_style: Style = Style.empty.bold(),
+    italic_style: Style = Style.empty.italic(),
+    bold_italic_style: Style = Style.empty.bold().italic(),
 
     pub const default: MarkdownTheme = .{};
 
@@ -159,7 +162,7 @@ pub const Markdown = struct {
                 try segments.appendSlice(allocator, header_segments);
             } else {
                 if (line.len > 0) {
-                    try segments.append(allocator, Segment.plain(line));
+                    try self.renderInlineText(line, null, &segments, allocator);
                 }
                 try segments.append(allocator, Segment.line());
             }
@@ -193,6 +196,147 @@ pub const Markdown = struct {
 
         const text = std.mem.trim(u8, line[hash_count..], " \t");
         return .{ .level = level, .text = text };
+    }
+
+    const InlineSpan = struct {
+        text: []const u8,
+        style_type: StyleType,
+
+        const StyleType = enum {
+            plain,
+            bold,
+            italic,
+            bold_italic,
+        };
+    };
+
+    fn parseInlineStyles(text: []const u8, allocator: std.mem.Allocator) ![]InlineSpan {
+        var spans: std.ArrayList(InlineSpan) = .empty;
+        var pos: usize = 0;
+
+        while (pos < text.len) {
+            // Check for bold+italic (*** or ___)
+            if (pos + 2 < text.len and
+                ((text[pos] == '*' and text[pos + 1] == '*' and text[pos + 2] == '*') or
+                    (text[pos] == '_' and text[pos + 1] == '_' and text[pos + 2] == '_')))
+            {
+                const delimiter = text[pos];
+                const start = pos + 3;
+                if (findClosingDelimiter(text, start, delimiter, 3)) |end| {
+                    try spans.append(allocator, .{
+                        .text = text[start..end],
+                        .style_type = .bold_italic,
+                    });
+                    pos = end + 3;
+                    continue;
+                }
+            }
+
+            // Check for bold (** or __)
+            if (pos + 1 < text.len and
+                ((text[pos] == '*' and text[pos + 1] == '*') or
+                    (text[pos] == '_' and text[pos + 1] == '_')))
+            {
+                const delimiter = text[pos];
+                const start = pos + 2;
+                if (findClosingDelimiter(text, start, delimiter, 2)) |end| {
+                    try spans.append(allocator, .{
+                        .text = text[start..end],
+                        .style_type = .bold,
+                    });
+                    pos = end + 2;
+                    continue;
+                }
+            }
+
+            // Check for italic (* or _)
+            if (text[pos] == '*' or text[pos] == '_') {
+                const delimiter = text[pos];
+                const start = pos + 1;
+                if (findClosingDelimiter(text, start, delimiter, 1)) |end| {
+                    try spans.append(allocator, .{
+                        .text = text[start..end],
+                        .style_type = .italic,
+                    });
+                    pos = end + 1;
+                    continue;
+                }
+            }
+
+            // Plain text - find next potential delimiter or end
+            const plain_start = pos;
+            while (pos < text.len and text[pos] != '*' and text[pos] != '_') {
+                pos += 1;
+            }
+
+            // If no delimiter found at pos, include it as plain text
+            if (pos < text.len and plain_start == pos) {
+                pos += 1;
+                while (pos < text.len and text[pos] != '*' and text[pos] != '_') {
+                    pos += 1;
+                }
+            }
+
+            if (pos > plain_start) {
+                try spans.append(allocator, .{
+                    .text = text[plain_start..pos],
+                    .style_type = .plain,
+                });
+            }
+        }
+
+        return spans.toOwnedSlice(allocator);
+    }
+
+    fn findClosingDelimiter(text: []const u8, start: usize, delimiter: u8, count: usize) ?usize {
+        if (start >= text.len) return null;
+
+        var pos = start;
+        while (pos + count <= text.len) {
+            var match = true;
+            for (0..count) |i| {
+                if (text[pos + i] != delimiter) {
+                    match = false;
+                    break;
+                }
+            }
+            if (match) {
+                // Make sure it's not part of a longer delimiter sequence
+                const before_ok = pos == start or text[pos - 1] != delimiter;
+                const after_ok = pos + count >= text.len or text[pos + count] != delimiter;
+                if (before_ok and after_ok) {
+                    return pos;
+                }
+            }
+            pos += 1;
+        }
+        return null;
+    }
+
+    fn renderInlineText(
+        self: Markdown,
+        text: []const u8,
+        base_style: ?Style,
+        segments: *std.ArrayList(Segment),
+        allocator: std.mem.Allocator,
+    ) !void {
+        const spans = try parseInlineStyles(text, allocator);
+        defer allocator.free(spans);
+
+        for (spans) |span| {
+            const span_style = switch (span.style_type) {
+                .plain => base_style,
+                .bold => if (base_style) |bs| bs.combine(self.theme.bold_style) else self.theme.bold_style,
+                .italic => if (base_style) |bs| bs.combine(self.theme.italic_style) else self.theme.italic_style,
+                .bold_italic => if (base_style) |bs| bs.combine(self.theme.bold_italic_style) else self.theme.bold_italic_style,
+            };
+
+            if (span_style) |s| {
+                try segments.append(allocator, Segment.styled(span.text, s));
+            } else {
+                try segments.append(allocator, Segment.plain(span.text));
+            }
+        }
     }
 };
 
@@ -307,4 +451,188 @@ test "Header all levels" {
         try std.testing.expect(segments[0].style != null);
         try std.testing.expect(segments[0].style.?.hasAttribute(.bold));
     }
+}
+
+test "parseInlineStyles plain text" {
+    const allocator = std.testing.allocator;
+    const spans = try Markdown.parseInlineStyles("Hello world", allocator);
+    defer allocator.free(spans);
+
+    try std.testing.expectEqual(@as(usize, 1), spans.len);
+    try std.testing.expectEqualStrings("Hello world", spans[0].text);
+    try std.testing.expectEqual(Markdown.InlineSpan.StyleType.plain, spans[0].style_type);
+}
+
+test "parseInlineStyles single asterisk italic" {
+    const allocator = std.testing.allocator;
+    const spans = try Markdown.parseInlineStyles("Hello *italic* world", allocator);
+    defer allocator.free(spans);
+
+    try std.testing.expectEqual(@as(usize, 3), spans.len);
+    try std.testing.expectEqualStrings("Hello ", spans[0].text);
+    try std.testing.expectEqual(Markdown.InlineSpan.StyleType.plain, spans[0].style_type);
+    try std.testing.expectEqualStrings("italic", spans[1].text);
+    try std.testing.expectEqual(Markdown.InlineSpan.StyleType.italic, spans[1].style_type);
+    try std.testing.expectEqualStrings(" world", spans[2].text);
+    try std.testing.expectEqual(Markdown.InlineSpan.StyleType.plain, spans[2].style_type);
+}
+
+test "parseInlineStyles underscore italic" {
+    const allocator = std.testing.allocator;
+    const spans = try Markdown.parseInlineStyles("Hello _italic_ world", allocator);
+    defer allocator.free(spans);
+
+    try std.testing.expectEqual(@as(usize, 3), spans.len);
+    try std.testing.expectEqualStrings("italic", spans[1].text);
+    try std.testing.expectEqual(Markdown.InlineSpan.StyleType.italic, spans[1].style_type);
+}
+
+test "parseInlineStyles double asterisk bold" {
+    const allocator = std.testing.allocator;
+    const spans = try Markdown.parseInlineStyles("Hello **bold** world", allocator);
+    defer allocator.free(spans);
+
+    try std.testing.expectEqual(@as(usize, 3), spans.len);
+    try std.testing.expectEqualStrings("bold", spans[1].text);
+    try std.testing.expectEqual(Markdown.InlineSpan.StyleType.bold, spans[1].style_type);
+}
+
+test "parseInlineStyles double underscore bold" {
+    const allocator = std.testing.allocator;
+    const spans = try Markdown.parseInlineStyles("Hello __bold__ world", allocator);
+    defer allocator.free(spans);
+
+    try std.testing.expectEqual(@as(usize, 3), spans.len);
+    try std.testing.expectEqualStrings("bold", spans[1].text);
+    try std.testing.expectEqual(Markdown.InlineSpan.StyleType.bold, spans[1].style_type);
+}
+
+test "parseInlineStyles triple asterisk bold italic" {
+    const allocator = std.testing.allocator;
+    const spans = try Markdown.parseInlineStyles("Hello ***bold italic*** world", allocator);
+    defer allocator.free(spans);
+
+    try std.testing.expectEqual(@as(usize, 3), spans.len);
+    try std.testing.expectEqualStrings("bold italic", spans[1].text);
+    try std.testing.expectEqual(Markdown.InlineSpan.StyleType.bold_italic, spans[1].style_type);
+}
+
+test "parseInlineStyles triple underscore bold italic" {
+    const allocator = std.testing.allocator;
+    const spans = try Markdown.parseInlineStyles("Hello ___bold italic___ world", allocator);
+    defer allocator.free(spans);
+
+    try std.testing.expectEqual(@as(usize, 3), spans.len);
+    try std.testing.expectEqualStrings("bold italic", spans[1].text);
+    try std.testing.expectEqual(Markdown.InlineSpan.StyleType.bold_italic, spans[1].style_type);
+}
+
+test "parseInlineStyles multiple styles in one line" {
+    const allocator = std.testing.allocator;
+    const spans = try Markdown.parseInlineStyles("*italic* and **bold**", allocator);
+    defer allocator.free(spans);
+
+    // Expected: italic, " and ", bold (no trailing text)
+    try std.testing.expectEqual(@as(usize, 3), spans.len);
+    try std.testing.expectEqual(Markdown.InlineSpan.StyleType.italic, spans[0].style_type);
+    try std.testing.expectEqualStrings("italic", spans[0].text);
+    try std.testing.expectEqual(Markdown.InlineSpan.StyleType.plain, spans[1].style_type);
+    try std.testing.expectEqualStrings(" and ", spans[1].text);
+    try std.testing.expectEqual(Markdown.InlineSpan.StyleType.bold, spans[2].style_type);
+    try std.testing.expectEqualStrings("bold", spans[2].text);
+}
+
+test "parseInlineStyles at start of line" {
+    const allocator = std.testing.allocator;
+    const spans = try Markdown.parseInlineStyles("**bold** at start", allocator);
+    defer allocator.free(spans);
+
+    try std.testing.expectEqual(@as(usize, 2), spans.len);
+    try std.testing.expectEqualStrings("bold", spans[0].text);
+    try std.testing.expectEqual(Markdown.InlineSpan.StyleType.bold, spans[0].style_type);
+}
+
+test "parseInlineStyles at end of line" {
+    const allocator = std.testing.allocator;
+    const spans = try Markdown.parseInlineStyles("end with *italic*", allocator);
+    defer allocator.free(spans);
+
+    try std.testing.expectEqual(@as(usize, 2), spans.len);
+    try std.testing.expectEqualStrings("italic", spans[1].text);
+    try std.testing.expectEqual(Markdown.InlineSpan.StyleType.italic, spans[1].style_type);
+}
+
+test "parseInlineStyles unclosed delimiter treated as plain" {
+    const allocator = std.testing.allocator;
+    const spans = try Markdown.parseInlineStyles("Hello *unclosed", allocator);
+    defer allocator.free(spans);
+
+    // Unclosed delimiter should be treated as plain text
+    try std.testing.expect(spans.len >= 1);
+    // The text should be preserved
+    var total_len: usize = 0;
+    for (spans) |span| {
+        total_len += span.text.len;
+    }
+    try std.testing.expectEqual(@as(usize, 15), total_len);
+}
+
+test "Markdown.render with bold text" {
+    const allocator = std.testing.allocator;
+    const md = Markdown.init("This is **bold** text");
+    const segments = try md.render(80, allocator);
+    defer allocator.free(segments);
+
+    var found_bold = false;
+    for (segments) |seg| {
+        if (std.mem.eql(u8, seg.text, "bold")) {
+            found_bold = true;
+            try std.testing.expect(seg.style != null);
+            try std.testing.expect(seg.style.?.hasAttribute(.bold));
+        }
+    }
+    try std.testing.expect(found_bold);
+}
+
+test "Markdown.render with italic text" {
+    const allocator = std.testing.allocator;
+    const md = Markdown.init("This is *italic* text");
+    const segments = try md.render(80, allocator);
+    defer allocator.free(segments);
+
+    var found_italic = false;
+    for (segments) |seg| {
+        if (std.mem.eql(u8, seg.text, "italic")) {
+            found_italic = true;
+            try std.testing.expect(seg.style != null);
+            try std.testing.expect(seg.style.?.hasAttribute(.italic));
+        }
+    }
+    try std.testing.expect(found_italic);
+}
+
+test "Markdown.render with bold italic text" {
+    const allocator = std.testing.allocator;
+    const md = Markdown.init("This is ***bold italic*** text");
+    const segments = try md.render(80, allocator);
+    defer allocator.free(segments);
+
+    var found_bold_italic = false;
+    for (segments) |seg| {
+        if (std.mem.eql(u8, seg.text, "bold italic")) {
+            found_bold_italic = true;
+            try std.testing.expect(seg.style != null);
+            try std.testing.expect(seg.style.?.hasAttribute(.bold));
+            try std.testing.expect(seg.style.?.hasAttribute(.italic));
+        }
+    }
+    try std.testing.expect(found_bold_italic);
+}
+
+test "MarkdownTheme has bold and italic styles" {
+    const theme = MarkdownTheme.default;
+    try std.testing.expect(theme.bold_style.hasAttribute(.bold));
+    try std.testing.expect(theme.italic_style.hasAttribute(.italic));
+    try std.testing.expect(theme.bold_italic_style.hasAttribute(.bold));
+    try std.testing.expect(theme.bold_italic_style.hasAttribute(.italic));
 }
