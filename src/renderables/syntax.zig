@@ -717,9 +717,6 @@ pub const Syntax = struct {
     }
 
     fn highlightLine(self: Syntax, segments: *std.ArrayList(Segment), allocator: std.mem.Allocator, line: []const u8) !void {
-        // Expand tabs before highlighting
-        // Note: expanded text is not freed because segments hold slices into it.
-        // The caller (render) uses an arena allocator for segments, so this is fine.
         const expanded = try self.expandTabs(line, allocator);
 
         switch (self.language) {
@@ -749,20 +746,12 @@ pub const Syntax = struct {
     /// Expand tabs to spaces based on tab_size setting.
     /// Returns the original slice if no tabs are present (no allocation).
     fn expandTabs(self: Syntax, line: []const u8, allocator: std.mem.Allocator) ![]const u8 {
-        // Fast path: no tabs in line
-        if (std.mem.indexOfScalar(u8, line, '\t') == null) {
-            return line;
-        }
+        const tab_count = std.mem.count(u8, line, "\t");
+        if (tab_count == 0) return line;
 
-        // Count tabs to pre-allocate
-        var tab_count: usize = 0;
-        for (line) |c| {
-            if (c == '\t') tab_count += 1;
-        }
-
-        // Calculate result size (each tab expands to tab_size spaces)
-        const result_len = line.len - tab_count + tab_count * self.tab_size;
-        var result = try allocator.alloc(u8, result_len);
+        // Over-allocate: actual size may be smaller due to tab-stop alignment
+        const max_len = line.len - tab_count + tab_count * self.tab_size;
+        const result = try allocator.alloc(u8, max_len);
 
         var src_pos: usize = 0;
         var dst_pos: usize = 0;
