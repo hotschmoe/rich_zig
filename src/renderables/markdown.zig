@@ -351,25 +351,20 @@ pub const Markdown = struct {
     fn isTableRow(line: []const u8) bool {
         const trimmed = std.mem.trim(u8, line, " \t");
         if (trimmed.len == 0) return false;
-        // A table row must start with | or contain at least one |
-        if (trimmed[0] == '|') return true;
-        // Also accept rows without leading pipe if they contain a pipe
-        return std.mem.indexOf(u8, trimmed, "|") != null;
+        return std.mem.indexOfScalar(u8, trimmed, '|') != null;
     }
 
     fn isTableSeparator(line: []const u8) bool {
         const trimmed = std.mem.trim(u8, line, " \t|");
         if (trimmed.len == 0) return false;
 
-        // Separator row contains only -, :, |, and spaces
-        for (trimmed) |c| {
-            if (c != '-' and c != ':' and c != '|' and c != ' ') return false;
-        }
-
-        // Must have at least 3 dashes total
         var dash_count: usize = 0;
         for (trimmed) |c| {
-            if (c == '-') dash_count += 1;
+            switch (c) {
+                '-' => dash_count += 1,
+                ':', '|', ' ' => {},
+                else => return false,
+            }
         }
         return dash_count >= 3;
     }
@@ -389,19 +384,11 @@ pub const Markdown = struct {
     fn splitTableCells(line: []const u8, allocator: std.mem.Allocator) ![][]const u8 {
         var result: std.ArrayList([]const u8) = .empty;
 
-        // Remove leading and trailing pipes
-        var content = std.mem.trim(u8, line, " \t");
-        if (content.len > 0 and content[0] == '|') {
-            content = content[1..];
-        }
-        if (content.len > 0 and content[content.len - 1] == '|') {
-            content = content[0 .. content.len - 1];
-        }
+        const content = std.mem.trim(u8, std.mem.trim(u8, line, " \t"), "|");
 
         var iter = std.mem.splitScalar(u8, content, '|');
         while (iter.next()) |cell| {
-            const trimmed_cell = std.mem.trim(u8, cell, " \t");
-            try result.append(allocator, trimmed_cell);
+            try result.append(allocator, std.mem.trim(u8, cell, " \t"));
         }
 
         return result.toOwnedSlice(allocator);
@@ -416,9 +403,9 @@ pub const Markdown = struct {
     ) !void {
         defer table_lines.clearRetainingCapacity();
 
-        // Need at least 2 lines for a valid table (header + separator)
-        if (table_lines.items.len < 2) {
-            // Not a valid table, render as plain text
+        const is_valid_table = table_lines.items.len >= 2 and isTableSeparator(table_lines.items[1]);
+
+        if (!is_valid_table) {
             for (table_lines.items) |line| {
                 try self.renderInlineText(line, null, segments, allocator);
                 try segments.append(allocator, Segment.line());
@@ -426,45 +413,28 @@ pub const Markdown = struct {
             return;
         }
 
-        // Check if second line is a valid separator
-        if (!isTableSeparator(table_lines.items[1])) {
-            // Not a valid table, render as plain text
-            for (table_lines.items) |line| {
-                try self.renderInlineText(line, null, segments, allocator);
-                try segments.append(allocator, Segment.line());
-            }
-            return;
-        }
-
-        // Parse header row
         const header_cells = try splitTableCells(table_lines.items[0], allocator);
         defer allocator.free(header_cells);
 
-        // Parse separator row for alignments
         const sep_cells = try splitTableCells(table_lines.items[1], allocator);
         defer allocator.free(sep_cells);
 
-        // Build the table
         var table = Table.init(allocator);
         defer table.deinit();
 
-        // Add columns with headers and alignments
         for (header_cells, 0..) |header, i| {
             const justify = if (i < sep_cells.len) parseTableAlignment(sep_cells[i]) else .left;
             _ = table.withColumn(Column.init(header).withJustify(justify));
         }
 
-        // Apply theme styling
         _ = table.withHeaderStyle(self.theme.table_header_style);
         _ = table.withBorderStyle(self.theme.table_border_style);
         _ = table.withBoxStyle(self.theme.table_box_style);
 
-        // Add data rows (skip header and separator)
         for (table_lines.items[2..]) |row_line| {
             const row_cells = try splitTableCells(row_line, allocator);
             defer allocator.free(row_cells);
 
-            // Pad or truncate to match column count
             const row = try allocator.alloc([]const u8, header_cells.len);
             defer allocator.free(row);
 
@@ -475,7 +445,6 @@ pub const Markdown = struct {
             try table.addRow(row);
         }
 
-        // Render the table
         const table_segments = try table.render(max_width, allocator);
         defer allocator.free(table_segments);
         try segments.appendSlice(allocator, table_segments);
