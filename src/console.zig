@@ -545,67 +545,9 @@ pub const Console = struct {
 
     pub fn inputWithOptions(self: *Console, prompt_text: []const u8, options: InputOptions) InputError![]u8 {
         var writer = self.getWriter();
-
-        // Write the prompt
         writer.interface.writeAll(prompt_text) catch return InputError.OutOfMemory;
-
-        // Show default value if configured
-        if (options.show_default) {
-            if (options.default) |default| {
-                writer.interface.print(" [{s}]", .{default}) catch return InputError.OutOfMemory;
-            }
-        }
-        writer.interface.writeAll(": ") catch return InputError.OutOfMemory;
-        writer.interface.flush() catch return InputError.OutOfMemory;
-
-        // Read input from stdin
-        const stdin = std.io.getStdIn();
-        var input_buf: [4096]u8 = undefined;
-        const line = stdin.reader().readUntilDelimiterOrEof(&input_buf, '\n') catch |err| {
-            return switch (err) {
-                error.EndOfStream => InputError.EndOfStream,
-                else => InputError.OutOfMemory,
-            };
-        };
-
-        if (line == null) {
-            return InputError.EndOfStream;
-        }
-
-        // Trim carriage return if present (Windows compatibility)
-        var trimmed = line.?;
-        if (trimmed.len > 0 and trimmed[trimmed.len - 1] == '\r') {
-            trimmed = trimmed[0 .. trimmed.len - 1];
-        }
-
-        // Use default if input is empty
-        if (trimmed.len == 0) {
-            if (options.default) |default| {
-                return self.allocator.dupe(u8, default) catch return InputError.OutOfMemory;
-            }
-        }
-
-        // Check max length
-        if (options.max_length) |max_len| {
-            if (trimmed.len > max_len) {
-                trimmed = trimmed[0..max_len];
-            }
-        }
-
-        // Run validation if provided
-        if (options.validator) |validate| {
-            const result = validate(trimmed);
-            switch (result) {
-                .valid => {},
-                .invalid => |msg| {
-                    // Print error message and return error
-                    self.printValidationError(msg) catch {};
-                    return InputError.ValidationFailed;
-                },
-            }
-        }
-
-        return self.allocator.dupe(u8, trimmed) catch return InputError.OutOfMemory;
+        self.writeDefaultSuffix(&writer.interface, options) catch return InputError.OutOfMemory;
+        return self.readAndProcessInput(options);
     }
 
     pub fn prompt(self: *Console, prompt_markup: []const u8) InputError![]u8 {
@@ -613,7 +555,6 @@ pub const Console = struct {
     }
 
     pub fn promptWithOptions(self: *Console, prompt_markup: []const u8, options: InputOptions) InputError![]u8 {
-        // Parse and print the styled prompt
         var txt = Text.fromMarkup(self.allocator, prompt_markup) catch return InputError.OutOfMemory;
         defer txt.deinit();
 
@@ -625,16 +566,22 @@ pub const Console = struct {
             self.printSegment(seg, &writer.interface) catch return InputError.OutOfMemory;
         }
 
-        // Show default value if configured
+        self.writeDefaultSuffix(&writer.interface, options) catch return InputError.OutOfMemory;
+        return self.readAndProcessInput(options);
+    }
+
+    fn writeDefaultSuffix(self: *Console, writer: anytype, options: InputOptions) !void {
+        _ = self;
         if (options.show_default) {
             if (options.default) |default| {
-                writer.interface.print(" [{s}]", .{default}) catch return InputError.OutOfMemory;
+                try writer.print(" [{s}]", .{default});
             }
         }
-        writer.interface.writeAll(": ") catch return InputError.OutOfMemory;
-        writer.interface.flush() catch return InputError.OutOfMemory;
+        try writer.writeAll(": ");
+        try writer.flush();
+    }
 
-        // Read input from stdin
+    fn readAndProcessInput(self: *Console, options: InputOptions) InputError![]u8 {
         const stdin = std.io.getStdIn();
         var input_buf: [4096]u8 = undefined;
         const line = stdin.reader().readUntilDelimiterOrEof(&input_buf, '\n') catch |err| {
@@ -648,27 +595,23 @@ pub const Console = struct {
             return InputError.EndOfStream;
         }
 
-        // Trim carriage return if present (Windows compatibility)
         var trimmed = line.?;
         if (trimmed.len > 0 and trimmed[trimmed.len - 1] == '\r') {
             trimmed = trimmed[0 .. trimmed.len - 1];
         }
 
-        // Use default if input is empty
         if (trimmed.len == 0) {
             if (options.default) |default| {
                 return self.allocator.dupe(u8, default) catch return InputError.OutOfMemory;
             }
         }
 
-        // Check max length
         if (options.max_length) |max_len| {
             if (trimmed.len > max_len) {
                 trimmed = trimmed[0..max_len];
             }
         }
 
-        // Run validation if provided
         if (options.validator) |validate| {
             const result = validate(trimmed);
             switch (result) {
