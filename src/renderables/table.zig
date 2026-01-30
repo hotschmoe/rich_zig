@@ -122,7 +122,7 @@ const RowSpanTracker = struct {
 
         for (col_idx..end_col) |j| {
             if (cell.rowspan > 1) {
-                self.remaining[j] = cell.rowspan - 1;
+                self.remaining[j] = cell.rowspan;
                 self.span_cells[j] = cell;
             }
         }
@@ -1633,11 +1633,11 @@ test "RowSpanTracker basic functionality" {
     try std.testing.expect(tracker.isBlocked(0));
     try std.testing.expect(!tracker.isBlocked(1));
 
-    // After advancing, still blocked (1 remaining)
+    // After advancing once, still blocked (rowspan=2 means 1 more row to block)
     tracker.advanceRow();
-    try std.testing.expect(!tracker.isBlocked(0)); // Now at 0, not blocked anymore
+    try std.testing.expect(tracker.isBlocked(0));
 
-    // Advance again - should still be unblocked
+    // After advancing again, no longer blocked
     tracker.advanceRow();
     try std.testing.expect(!tracker.isBlocked(0));
 }
