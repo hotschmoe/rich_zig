@@ -284,9 +284,12 @@ pub const Console = struct {
 
     /// Renders and prints any type that implements render(width, allocator) -> ![]Segment.
     /// This is a convenience method for printing renderables like Panel, Table, Rule, etc.
+    /// Uses an arena allocator to ensure all render allocations (including segment text) are freed.
     pub fn printRenderable(self: *Console, renderable: anytype) !void {
-        const segments = try renderable.render(self.width(), self.allocator);
-        defer self.allocator.free(segments);
+        var arena = std.heap.ArenaAllocator.init(self.allocator);
+        defer arena.deinit();
+
+        const segments = try renderable.render(self.width(), arena.allocator());
         try self.printSegments(segments);
     }
 

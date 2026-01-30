@@ -138,8 +138,10 @@ pub const ProgressDisplay = struct {
             self.mutex.unlock();
 
             if (live) |l| {
-                const segments = self.group.render(80, self.allocator) catch continue;
-                defer self.allocator.free(segments);
+                var arena = std.heap.ArenaAllocator.init(self.allocator);
+                defer arena.deinit();
+
+                const segments = self.group.render(80, arena.allocator()) catch continue;
                 l.forceUpdate(segments) catch {};
             }
         }
