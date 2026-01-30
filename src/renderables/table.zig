@@ -705,58 +705,6 @@ pub const Table = struct {
         try segments.append(allocator, Segment.line());
     }
 
-    fn renderSpannedDataRow(self: Table, segments: *std.ArrayList(Segment), allocator: std.mem.Allocator, row: []const Cell, widths: []usize, b: BoxStyle, row_idx: usize) !void {
-        try segments.append(allocator, Segment.styled(b.left, self.border_style));
-
-        const row_style = self.getSpannedRowStyle(row_idx);
-        var col_idx: usize = 0;
-        var cell_idx: usize = 0;
-
-        while (col_idx < self.columns.items.len) {
-            const cell = if (cell_idx < row.len) row[cell_idx] else Cell.text("");
-            const span = @min(cell.colspan, @as(u8, @intCast(self.columns.items.len - col_idx)));
-
-            // Calculate the total width for this spanning cell
-            var total_width: usize = 0;
-            for (col_idx..col_idx + span) |j| {
-                total_width += widths[j];
-            }
-            // Add separator widths for spanned columns
-            if (span > 1) {
-                total_width += span - 1;
-            }
-
-            // Get the column for styling (use the first column in the span)
-            const col = self.columns.items[col_idx];
-
-            // Determine effective style: cell style > row style > column style
-            var effective_style = col.style;
-            if (row_style) |rs| {
-                effective_style = rs.combine(col.style);
-            }
-            if (cell.style) |cs| {
-                effective_style = effective_style.combine(cs);
-            }
-
-            // Determine justify: cell justify > column justify
-            const justify = cell.justify orelse col.justify;
-
-            try self.renderSpannedCell(segments, allocator, cell, total_width, justify, effective_style, col);
-
-            // Move past the spanned columns
-            col_idx += span;
-            cell_idx += 1;
-
-            // Add separator if not at the end
-            if (col_idx < self.columns.items.len) {
-                try segments.append(allocator, Segment.styled(b.vertical, self.border_style));
-            }
-        }
-
-        try segments.append(allocator, Segment.styled(b.right, self.border_style));
-        try segments.append(allocator, Segment.line());
-    }
-
     fn renderSpannedDataRowWithTracker(self: Table, segments: *std.ArrayList(Segment), allocator: std.mem.Allocator, row: []const Cell, widths: []usize, b: BoxStyle, row_idx: usize, tracker: *RowSpanTracker) !void {
         try segments.append(allocator, Segment.styled(b.left, self.border_style));
 
@@ -854,23 +802,9 @@ pub const Table = struct {
             }
 
             if (i < widths.len - 1) {
-                // Determine intersection character based on spans
-                const left_blocked = tracker.isBlocked(i);
-                const right_blocked = tracker.isBlocked(i + 1);
-
-                if (left_blocked and right_blocked) {
-                    // Both sides have row spans - use vertical
-                    try segments.append(allocator, Segment.styled(vertical, self.border_style));
-                } else if (left_blocked) {
-                    // Left side has row span
-                    try segments.append(allocator, Segment.styled(cross, self.border_style));
-                } else if (right_blocked) {
-                    // Right side has row span
-                    try segments.append(allocator, Segment.styled(cross, self.border_style));
-                } else {
-                    // Normal cross
-                    try segments.append(allocator, Segment.styled(cross, self.border_style));
-                }
+                const both_blocked = tracker.isBlocked(i) and tracker.isBlocked(i + 1);
+                const char = if (both_blocked) vertical else cross;
+                try segments.append(allocator, Segment.styled(char, self.border_style));
             }
         }
 
@@ -891,13 +825,13 @@ pub const Table = struct {
     }
 
     fn getSpannedRowStyle(self: Table, row_idx: usize) ?Style {
-        // Calculate the index within spanned_row_styles
-        const text_rows = self.rows.items.len;
-        const rich_rows = self.rich_rows.items.len;
-        if (row_idx >= text_rows + rich_rows) {
-            const spanned_idx = row_idx - text_rows - rich_rows;
-            if (spanned_idx < self.spanned_row_styles.items.len and self.spanned_row_styles.items[spanned_idx] != null) {
-                return self.spanned_row_styles.items[spanned_idx];
+        const base_idx = self.rows.items.len + self.rich_rows.items.len;
+        if (row_idx >= base_idx) {
+            const spanned_idx = row_idx - base_idx;
+            if (spanned_idx < self.spanned_row_styles.items.len) {
+                if (self.spanned_row_styles.items[spanned_idx]) |style| {
+                    return style;
+                }
             }
         }
 
