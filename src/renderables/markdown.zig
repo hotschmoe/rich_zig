@@ -801,7 +801,7 @@ pub const Markdown = struct {
     fn tryParseImage(text: []const u8, pos: usize) ?LinkResult {
         // Image syntax: ![alt text](url) - same as link but with ! prefix
         if (pos >= text.len or text[pos] != '!') return null;
-        return tryParseLinkAt(text, pos + 1);
+        return tryParseLink(text, pos + 1);
     }
 
     /// Scans for a matching closing delimiter, respecting nesting.
@@ -823,10 +823,6 @@ pub const Markdown = struct {
     }
 
     fn tryParseLink(text: []const u8, pos: usize) ?LinkResult {
-        return tryParseLinkAt(text, pos);
-    }
-
-    fn tryParseLinkAt(text: []const u8, pos: usize) ?LinkResult {
         if (pos >= text.len or text[pos] != '[') return null;
 
         const text_start = pos + 1;
