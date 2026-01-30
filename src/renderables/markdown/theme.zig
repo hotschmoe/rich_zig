@@ -85,7 +85,6 @@ pub const MarkdownTheme = struct {
     }
 };
 
-
 test "HeaderLevel.fromCount" {
     try std.testing.expectEqual(HeaderLevel.h1, HeaderLevel.fromCount(1).?);
     try std.testing.expectEqual(HeaderLevel.h6, HeaderLevel.fromCount(6).?);

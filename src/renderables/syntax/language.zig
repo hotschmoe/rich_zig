@@ -192,25 +192,20 @@ pub const Language = enum {
         return .plain;
     }
 
-    /// Auto-detect language from filename and/or content
-    /// Tries filename first, falls back to content heuristics
+    /// Auto-detect language from filename and/or content.
+    /// Tries filename first, falls back to content heuristics.
     pub fn detect(filename: ?[]const u8, content: []const u8) Language {
-        // Try filename-based detection first
         if (filename) |fname| {
             const from_file = fromFilename(fname);
             if (from_file != .plain) return from_file;
         }
-
-        // Fall back to content-based detection
         return fromContent(content);
     }
 
     fn looksLikeJson(content: []const u8) bool {
-        // Simple heuristic: check for common JSON patterns
         var brace_count: i32 = 0;
         var bracket_count: i32 = 0;
         var colon_count: usize = 0;
-        var comma_count: usize = 0;
         var quote_count: usize = 0;
         const check_len = @min(content.len, 500);
 
@@ -221,16 +216,12 @@ pub const Language = enum {
                 '[' => bracket_count += 1,
                 ']' => bracket_count -= 1,
                 ':' => colon_count += 1,
-                ',' => comma_count += 1,
                 '"' => quote_count += 1,
                 else => {},
             }
         }
 
-        // JSON object: has braces, colons, and usually quotes
         const looks_like_object = brace_count == 0 and colon_count > 0 and quote_count >= 2;
-
-        // JSON array: starts with [, has balanced brackets, may have commas
         const looks_like_array = content[0] == '[' and bracket_count == 0;
 
         return looks_like_object or looks_like_array;

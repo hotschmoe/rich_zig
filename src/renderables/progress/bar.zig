@@ -208,35 +208,28 @@ pub const ProgressBar = struct {
             const hours = seconds / 3600;
             const mins = (seconds % 3600) / 60;
             const secs = seconds % 60;
-            const len = std.fmt.bufPrint(buf, "{d:0>2}:{d:0>2}:{d:0>2}", .{ hours, mins, secs }) catch return "??:??:??";
-            return len;
-        } else {
-            const mins = seconds / 60;
-            const secs = seconds % 60;
-            const len = std.fmt.bufPrint(buf, "{d:0>2}:{d:0>2}", .{ mins, secs }) catch return "??:??";
-            return len;
+            return std.fmt.bufPrint(buf, "{d:0>2}:{d:0>2}:{d:0>2}", .{ hours, mins, secs }) catch "??:??:??";
         }
+        const mins = seconds / 60;
+        const secs = seconds % 60;
+        return std.fmt.bufPrint(buf, "{d:0>2}:{d:0>2}", .{ mins, secs }) catch "??:??";
     }
 
     pub fn formatSpeed(rate: f64, unit: SpeedUnit, suffix: []const u8, buf: []u8) []const u8 {
-        if (unit == .bytes) {
-            if (rate >= 1_000_000_000) {
-                const len = std.fmt.bufPrint(buf, "{d:.1} GB/s", .{rate / 1_000_000_000}) catch return "? GB/s";
-                return len;
-            } else if (rate >= 1_000_000) {
-                const len = std.fmt.bufPrint(buf, "{d:.1} MB/s", .{rate / 1_000_000}) catch return "? MB/s";
-                return len;
-            } else if (rate >= 1_000) {
-                const len = std.fmt.bufPrint(buf, "{d:.1} KB/s", .{rate / 1_000}) catch return "? KB/s";
-                return len;
-            } else {
-                const len = std.fmt.bufPrint(buf, "{d:.0} B/s", .{rate}) catch return "? B/s";
-                return len;
-            }
-        } else {
-            const len = std.fmt.bufPrint(buf, "{d:.1} {s}", .{ rate, suffix }) catch return "? ?/s";
-            return len;
+        if (unit != .bytes) {
+            return std.fmt.bufPrint(buf, "{d:.1} {s}", .{ rate, suffix }) catch "? ?/s";
         }
+
+        if (rate >= 1_000_000_000) {
+            return std.fmt.bufPrint(buf, "{d:.1} GB/s", .{rate / 1_000_000_000}) catch "? GB/s";
+        }
+        if (rate >= 1_000_000) {
+            return std.fmt.bufPrint(buf, "{d:.1} MB/s", .{rate / 1_000_000}) catch "? MB/s";
+        }
+        if (rate >= 1_000) {
+            return std.fmt.bufPrint(buf, "{d:.1} KB/s", .{rate / 1_000}) catch "? KB/s";
+        }
+        return std.fmt.bufPrint(buf, "{d:.0} B/s", .{rate}) catch "? B/s";
     }
 
     pub fn advancePulse(self: *ProgressBar) void {

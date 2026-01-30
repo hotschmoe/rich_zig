@@ -105,11 +105,14 @@ pub const CodeBlock = struct {
         const lang = self.language orelse return .plain;
         if (lang.len == 0) return .plain;
 
-        if (std.mem.eql(u8, lang, "zig")) return .zig;
-        if (std.mem.eql(u8, lang, "json")) return .json;
-        if (std.mem.eql(u8, lang, "md") or std.mem.eql(u8, lang, "markdown")) return .markdown;
+        const lang_map = std.StaticStringMap(Language).initComptime(.{
+            .{ "zig", .zig },
+            .{ "json", .json },
+            .{ "md", .markdown },
+            .{ "markdown", .markdown },
+        });
 
-        return .plain;
+        return lang_map.get(lang) orelse .plain;
     }
 
     pub fn render(self: CodeBlock, max_width: usize, allocator: std.mem.Allocator) ![]Segment {
@@ -136,7 +139,6 @@ pub const CodeBlock = struct {
         return segments.toOwnedSlice(allocator);
     }
 };
-
 
 test "Header.h1 creates correct level" {
     const header = Header.h1("Title");

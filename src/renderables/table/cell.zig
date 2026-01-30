@@ -100,10 +100,8 @@ pub const RowSpanTracker = struct {
     }
 
     pub fn getSpanningCell(self: RowSpanTracker, col_idx: usize) ?Cell {
-        if (col_idx < self.span_cells.len) {
-            return self.span_cells[col_idx];
-        }
-        return null;
+        if (col_idx >= self.span_cells.len) return null;
+        return self.span_cells[col_idx];
     }
 
     pub fn registerSpan(self: *RowSpanTracker, col_idx: usize, cell: Cell) void {

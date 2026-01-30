@@ -1,13 +1,13 @@
-pub const theme_mod = @import("theme.zig");
-pub const HeaderLevel = theme_mod.HeaderLevel;
-pub const MarkdownTheme = theme_mod.MarkdownTheme;
+pub const theme = @import("theme.zig");
+pub const HeaderLevel = theme.HeaderLevel;
+pub const MarkdownTheme = theme.MarkdownTheme;
 
-pub const elements_mod = @import("elements.zig");
-pub const Header = elements_mod.Header;
-pub const CodeBlock = elements_mod.CodeBlock;
+pub const elements = @import("elements.zig");
+pub const Header = elements.Header;
+pub const CodeBlock = elements.CodeBlock;
 
-pub const markdown_mod = @import("markdown.zig");
-pub const Markdown = markdown_mod.Markdown;
+pub const markdown = @import("markdown.zig");
+pub const Markdown = markdown.Markdown;
 
 test {
     _ = @import("theme.zig");

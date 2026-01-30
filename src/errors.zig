@@ -1,22 +1,21 @@
-// src/errors.zig
 // Semantic error types for precise error handling
 
 pub const MarkupError = error{
-    UnmatchedTag, // [bold without closing [/]
-    InvalidColorName, // [unknown_color]
-    InvalidStyleAttribute, // [notareal]
-    NestedTagMismatch, // [bold][italic][/bold]
+    UnmatchedTag,
+    InvalidColorName,
+    InvalidStyleAttribute,
+    NestedTagMismatch,
 };
 
 pub const RenderError = error{
     OutOfMemory,
-    InvalidWidth, // Width too small for content
-    ContentTooLarge, // Exceeds max dimensions
+    InvalidWidth,
+    ContentTooLarge,
 };
 
 pub const TableError = error{
-    ColumnCountMismatch, // Row has wrong number of cells
-    InvalidSpan, // Colspan/rowspan out of bounds
+    ColumnCountMismatch,
+    InvalidSpan,
     OutOfMemory,
 };
 

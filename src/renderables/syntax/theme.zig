@@ -64,10 +64,7 @@ pub const SyntaxTheme = struct {
 
     /// Apply theme's background color to an optional style, if the theme has one
     pub fn applyBackgroundOpt(self: SyntaxTheme, style: ?Style) ?Style {
-        if (self.background_color) |bg| {
-            const base_style = style orelse Style.empty;
-            return base_style.background(bg);
-        }
-        return style;
+        const bg = self.background_color orelse return style;
+        return (style orelse Style.empty).background(bg);
     }
 };
