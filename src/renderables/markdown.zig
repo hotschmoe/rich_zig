@@ -45,6 +45,8 @@ pub const MarkdownTheme = struct {
     code_block_style: Style = Style.empty.foreground(Color.default).dim(),
     syntax_theme: SyntaxTheme = SyntaxTheme.default,
     list_number_style: Style = Style.empty.fg(Color.bright_yellow),
+    list_bullet_style: Style = Style.empty.fg(Color.bright_cyan),
+    list_bullet_char: []const u8 = "\u{2022}",
     list_indent: usize = 3,
 
     pub const default: MarkdownTheme = .{};
@@ -257,6 +259,9 @@ pub const Markdown = struct {
             } else if (parseOrderedListItem(line)) |list_item| {
                 try self.renderOrderedListItem(list_item, &segments, allocator);
                 try segments.append(allocator, Segment.line());
+            } else if (parseUnorderedListItem(line)) |list_item| {
+                try self.renderUnorderedListItem(list_item, &segments, allocator);
+                try segments.append(allocator, Segment.line());
             } else {
                 if (line.len > 0) {
                     try self.renderInlineText(line, null, &segments, allocator);
@@ -319,6 +324,12 @@ pub const Markdown = struct {
         indent_level: usize,
     };
 
+    const UnorderedListItem = struct {
+        text: []const u8,
+        indent_level: usize,
+        bullet: u8,
+    };
+
     fn parseOrderedListItem(line: []const u8) ?OrderedListItem {
         var indent: usize = 0;
         while (indent < line.len and line[indent] == ' ') : (indent += 1) {}
@@ -345,6 +356,46 @@ pub const Markdown = struct {
             .text = text,
             .indent_level = indent / 2,
         };
+    }
+
+    fn parseUnorderedListItem(line: []const u8) ?UnorderedListItem {
+        var indent: usize = 0;
+        while (indent < line.len and line[indent] == ' ') : (indent += 1) {}
+
+        const rest = line[indent..];
+        if (rest.len < 2) return null;
+
+        const bullet = rest[0];
+        if (bullet != '-' and bullet != '*' and bullet != '+') return null;
+
+        if (rest[1] != ' ') return null;
+
+        const text = std.mem.trim(u8, rest[2..], " \t");
+
+        return .{
+            .text = text,
+            .indent_level = indent / 2,
+            .bullet = bullet,
+        };
+    }
+
+    fn renderUnorderedListItem(
+        self: Markdown,
+        item: UnorderedListItem,
+        segments: *std.ArrayList(Segment),
+        allocator: std.mem.Allocator,
+    ) !void {
+        const base_indent = item.indent_level * self.theme.list_indent;
+        if (base_indent > 0) {
+            const indent_str = try allocator.alloc(u8, base_indent);
+            @memset(indent_str, ' ');
+            try segments.append(allocator, Segment.plain(indent_str));
+        }
+
+        const bullet_with_space = try std.fmt.allocPrint(allocator, "{s} ", .{self.theme.list_bullet_char});
+        try segments.append(allocator, Segment.styled(bullet_with_space, self.theme.list_bullet_style));
+
+        try self.renderInlineText(item.text, null, segments, allocator);
     }
 
     fn renderOrderedListItem(
@@ -1391,5 +1442,193 @@ test "Markdown.render ordered list mixed with other elements" {
 test "MarkdownTheme has list styles" {
     const theme = MarkdownTheme.default;
     try std.testing.expect(theme.list_number_style.color != null);
+    try std.testing.expect(theme.list_bullet_style.color != null);
     try std.testing.expectEqual(@as(usize, 3), theme.list_indent);
+}
+
+test "parseUnorderedListItem dash" {
+    const item = Markdown.parseUnorderedListItem("- First item");
+    try std.testing.expect(item != null);
+    try std.testing.expectEqualStrings("First item", item.?.text);
+    try std.testing.expectEqual(@as(usize, 0), item.?.indent_level);
+    try std.testing.expectEqual(@as(u8, '-'), item.?.bullet);
+}
+
+test "parseUnorderedListItem asterisk" {
+    const item = Markdown.parseUnorderedListItem("* Asterisk item");
+    try std.testing.expect(item != null);
+    try std.testing.expectEqualStrings("Asterisk item", item.?.text);
+    try std.testing.expectEqual(@as(u8, '*'), item.?.bullet);
+}
+
+test "parseUnorderedListItem plus" {
+    const item = Markdown.parseUnorderedListItem("+ Plus item");
+    try std.testing.expect(item != null);
+    try std.testing.expectEqualStrings("Plus item", item.?.text);
+    try std.testing.expectEqual(@as(u8, '+'), item.?.bullet);
+}
+
+test "parseUnorderedListItem with indentation" {
+    const item1 = Markdown.parseUnorderedListItem("  - Indented once");
+    try std.testing.expect(item1 != null);
+    try std.testing.expectEqual(@as(usize, 1), item1.?.indent_level);
+    try std.testing.expectEqualStrings("Indented once", item1.?.text);
+
+    const item2 = Markdown.parseUnorderedListItem("    - Indented twice");
+    try std.testing.expect(item2 != null);
+    try std.testing.expectEqual(@as(usize, 2), item2.?.indent_level);
+}
+
+test "parseUnorderedListItem invalid" {
+    try std.testing.expect(Markdown.parseUnorderedListItem("Not a list") == null);
+    try std.testing.expect(Markdown.parseUnorderedListItem("-NoSpace") == null);
+    try std.testing.expect(Markdown.parseUnorderedListItem("") == null);
+    try std.testing.expect(Markdown.parseUnorderedListItem("-") == null);
+}
+
+test "Markdown.render unordered list" {
+    const allocator = std.testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+
+    const md = Markdown.init("- First\n- Second\n- Third");
+    const segments = try md.render(80, arena.allocator());
+
+    var found_first = false;
+    var found_second = false;
+    var found_third = false;
+    var found_bullet = false;
+
+    for (segments) |seg| {
+        if (std.mem.eql(u8, seg.text, "First")) found_first = true;
+        if (std.mem.eql(u8, seg.text, "Second")) found_second = true;
+        if (std.mem.eql(u8, seg.text, "Third")) found_third = true;
+        if (std.mem.indexOf(u8, seg.text, "\u{2022}") != null) {
+            found_bullet = true;
+            try std.testing.expect(seg.style != null);
+        }
+    }
+
+    try std.testing.expect(found_first);
+    try std.testing.expect(found_second);
+    try std.testing.expect(found_third);
+    try std.testing.expect(found_bullet);
+}
+
+test "Markdown.render unordered list with inline styles" {
+    const allocator = std.testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+
+    const md = Markdown.init("- Item with **bold** text");
+    const segments = try md.render(80, arena.allocator());
+
+    var found_bold = false;
+    for (segments) |seg| {
+        if (std.mem.eql(u8, seg.text, "bold")) {
+            found_bold = true;
+            try std.testing.expect(seg.style != null);
+            try std.testing.expect(seg.style.?.hasAttribute(.bold));
+        }
+    }
+    try std.testing.expect(found_bold);
+}
+
+test "Markdown.render nested unordered list" {
+    const allocator = std.testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+
+    const source =
+        \\- Outer item
+        \\  - Nested item
+        \\  - Another nested
+        \\- Back to outer
+    ;
+    const md = Markdown.init(source);
+    const segments = try md.render(80, arena.allocator());
+
+    var found_outer = false;
+    var found_nested = false;
+    var found_indent = false;
+
+    for (segments) |seg| {
+        if (std.mem.eql(u8, seg.text, "Outer item")) found_outer = true;
+        if (std.mem.eql(u8, seg.text, "Nested item")) found_nested = true;
+        if (seg.text.len == 3) {
+            var all_spaces = true;
+            for (seg.text) |c| {
+                if (c != ' ') all_spaces = false;
+            }
+            if (all_spaces) found_indent = true;
+        }
+    }
+
+    try std.testing.expect(found_outer);
+    try std.testing.expect(found_nested);
+    try std.testing.expect(found_indent);
+}
+
+test "Markdown.render unordered list mixed with other elements" {
+    const allocator = std.testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+
+    const source =
+        \\# Header
+        \\
+        \\- First item
+        \\- Second item
+        \\
+        \\Some text
+    ;
+    const md = Markdown.init(source);
+    const segments = try md.render(80, arena.allocator());
+
+    var found_header = false;
+    var found_first = false;
+    var found_text = false;
+
+    for (segments) |seg| {
+        if (std.mem.eql(u8, seg.text, "Header")) found_header = true;
+        if (std.mem.eql(u8, seg.text, "First item")) found_first = true;
+        if (std.mem.eql(u8, seg.text, "Some text")) found_text = true;
+    }
+
+    try std.testing.expect(found_header);
+    try std.testing.expect(found_first);
+    try std.testing.expect(found_text);
+}
+
+test "Markdown.render mixed ordered and unordered lists" {
+    const allocator = std.testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+
+    const source =
+        \\1. Ordered first
+        \\2. Ordered second
+        \\
+        \\- Unordered first
+        \\- Unordered second
+    ;
+    const md = Markdown.init(source);
+    const segments = try md.render(80, arena.allocator());
+
+    var found_ordered = false;
+    var found_unordered = false;
+    var found_number = false;
+    var found_bullet = false;
+
+    for (segments) |seg| {
+        if (std.mem.eql(u8, seg.text, "Ordered first")) found_ordered = true;
+        if (std.mem.eql(u8, seg.text, "Unordered first")) found_unordered = true;
+        if (std.mem.eql(u8, seg.text, "1. ")) found_number = true;
+        if (std.mem.indexOf(u8, seg.text, "\u{2022}") != null) found_bullet = true;
+    }
+
+    try std.testing.expect(found_ordered);
+    try std.testing.expect(found_unordered);
+    try std.testing.expect(found_number);
+    try std.testing.expect(found_bullet);
 }
