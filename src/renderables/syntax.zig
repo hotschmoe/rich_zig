@@ -229,7 +229,7 @@ pub const Syntax = struct {
         const segments = try self.render(max_width, allocator);
 
         for (segments) |*seg| {
-            if (seg.text.len > 0 and seg.text.ptr != "\n".ptr) {
+            if (seg.text.len > 0 and !std.mem.eql(u8, seg.text, "\n")) {
                 seg.text = try allocator.dupe(u8, seg.text);
             }
         }

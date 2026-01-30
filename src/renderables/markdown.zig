@@ -232,16 +232,7 @@ pub const Markdown = struct {
 
             if (in_code_block) {
                 if (parseFenceClose(trimmed)) {
-                    const code = try code_lines.toOwnedSlice(allocator);
-                    defer allocator.free(code);
-                    var code_block = CodeBlock.init(code).withTheme(self.theme);
-                    if (code_block_lang) |lang| {
-                        code_block = code_block.withLanguage(lang);
-                    }
-                    const code_segments = try code_block.render(max_width, allocator);
-                    defer allocator.free(code_segments);
-                    try segments.appendSlice(allocator, code_segments);
-
+                    try self.emitCodeBlock(&code_lines, code_block_lang, max_width, &segments, allocator);
                     in_code_block = false;
                     code_block_lang = null;
                     continue;
@@ -269,18 +260,29 @@ pub const Markdown = struct {
         }
 
         if (in_code_block and code_lines.items.len > 0) {
-            const code = try code_lines.toOwnedSlice(allocator);
-            defer allocator.free(code);
-            var code_block = CodeBlock.init(code).withTheme(self.theme);
-            if (code_block_lang) |lang| {
-                code_block = code_block.withLanguage(lang);
-            }
-            const code_segments = try code_block.render(max_width, allocator);
-            defer allocator.free(code_segments);
-            try segments.appendSlice(allocator, code_segments);
+            try self.emitCodeBlock(&code_lines, code_block_lang, max_width, &segments, allocator);
         }
 
         return segments.toOwnedSlice(allocator);
+    }
+
+    fn emitCodeBlock(
+        self: Markdown,
+        code_lines: *std.ArrayList(u8),
+        lang: ?[]const u8,
+        max_width: usize,
+        segments: *std.ArrayList(Segment),
+        allocator: std.mem.Allocator,
+    ) !void {
+        const code = try code_lines.toOwnedSlice(allocator);
+        defer allocator.free(code);
+        var code_block = CodeBlock.init(code).withTheme(self.theme);
+        if (lang) |l| {
+            code_block = code_block.withLanguage(l);
+        }
+        const code_segments = try code_block.render(max_width, allocator);
+        defer allocator.free(code_segments);
+        try segments.appendSlice(allocator, code_segments);
     }
 
     fn parseFenceOpen(line: []const u8) ?[]const u8 {
