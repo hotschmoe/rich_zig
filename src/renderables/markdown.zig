@@ -48,6 +48,10 @@ pub const MarkdownTheme = struct {
     list_bullet_style: Style = Style.empty.fg(Color.bright_cyan),
     list_bullet_char: []const u8 = "\u{2022}",
     list_indent: usize = 3,
+    blockquote_style: Style = Style.empty.fg(Color.bright_black).italic(),
+    blockquote_border_style: Style = Style.empty.fg(Color.bright_cyan),
+    blockquote_border_char: []const u8 = "\u{2502}",
+    blockquote_indent: usize = 2,
 
     pub const default: MarkdownTheme = .{};
 
@@ -256,6 +260,9 @@ pub const Markdown = struct {
                 const header_segments = try header.render(max_width, allocator);
                 defer allocator.free(header_segments);
                 try segments.appendSlice(allocator, header_segments);
+            } else if (parseBlockquote(line)) |blockquote| {
+                try self.renderBlockquoteLine(blockquote, &segments, allocator);
+                try segments.append(allocator, Segment.line());
             } else if (parseOrderedListItem(line)) |list_item| {
                 try self.renderOrderedListItem(list_item, &segments, allocator);
                 try segments.append(allocator, Segment.line());
@@ -329,6 +336,11 @@ pub const Markdown = struct {
         indent_level: usize,
     };
 
+    const BlockquoteItem = struct {
+        text: []const u8,
+        depth: usize,
+    };
+
     fn countLeadingSpaces(line: []const u8) usize {
         var count: usize = 0;
         while (count < line.len and line[count] == ' ') : (count += 1) {}
@@ -375,6 +387,35 @@ pub const Markdown = struct {
         };
     }
 
+    fn parseBlockquote(line: []const u8) ?BlockquoteItem {
+        var pos: usize = 0;
+        var depth: usize = 0;
+
+        while (pos < line.len) {
+            // Skip leading spaces
+            while (pos < line.len and line[pos] == ' ') : (pos += 1) {}
+
+            // Check for >
+            if (pos < line.len and line[pos] == '>') {
+                depth += 1;
+                pos += 1;
+                // Skip optional space after >
+                if (pos < line.len and line[pos] == ' ') {
+                    pos += 1;
+                }
+            } else {
+                break;
+            }
+        }
+
+        if (depth == 0) return null;
+
+        return .{
+            .text = if (pos < line.len) line[pos..] else "",
+            .depth = depth,
+        };
+    }
+
     fn renderListIndent(
         self: Markdown,
         indent_level: usize,
@@ -415,6 +456,31 @@ pub const Markdown = struct {
         try segments.append(allocator, Segment.styled(number_str, self.theme.list_number_style));
 
         try self.renderInlineText(item.text, null, segments, allocator);
+    }
+
+    fn renderBlockquoteLine(
+        self: Markdown,
+        item: BlockquoteItem,
+        segments: *std.ArrayList(Segment),
+        allocator: std.mem.Allocator,
+    ) !void {
+        // Render border characters for each depth level
+        for (0..item.depth) |_| {
+            const border_with_space = try std.fmt.allocPrint(allocator, "{s} ", .{self.theme.blockquote_border_char});
+            try segments.append(allocator, Segment.styled(border_with_space, self.theme.blockquote_border_style));
+
+            // Add additional indent after border
+            if (self.theme.blockquote_indent > 0) {
+                const indent_str = try allocator.alloc(u8, self.theme.blockquote_indent);
+                @memset(indent_str, ' ');
+                try segments.append(allocator, Segment.plain(indent_str));
+            }
+        }
+
+        // Render the text content with blockquote styling
+        if (item.text.len > 0) {
+            try self.renderInlineText(item.text, self.theme.blockquote_style, segments, allocator);
+        }
     }
 
     fn parseHeader(line: []const u8) ?HeaderInfo {
@@ -1628,4 +1694,215 @@ test "Markdown.render mixed ordered and unordered lists" {
     try std.testing.expect(found_unordered);
     try std.testing.expect(found_number);
     try std.testing.expect(found_bullet);
+}
+
+test "parseBlockquote basic" {
+    const item = Markdown.parseBlockquote("> Quote text");
+    try std.testing.expect(item != null);
+    try std.testing.expectEqual(@as(usize, 1), item.?.depth);
+    try std.testing.expectEqualStrings("Quote text", item.?.text);
+}
+
+test "parseBlockquote no space after marker" {
+    const item = Markdown.parseBlockquote(">Quote text");
+    try std.testing.expect(item != null);
+    try std.testing.expectEqual(@as(usize, 1), item.?.depth);
+    try std.testing.expectEqualStrings("Quote text", item.?.text);
+}
+
+test "parseBlockquote nested" {
+    const item = Markdown.parseBlockquote(">> Nested quote");
+    try std.testing.expect(item != null);
+    try std.testing.expectEqual(@as(usize, 2), item.?.depth);
+    try std.testing.expectEqualStrings("Nested quote", item.?.text);
+}
+
+test "parseBlockquote deeply nested" {
+    const item = Markdown.parseBlockquote(">>> Deep quote");
+    try std.testing.expect(item != null);
+    try std.testing.expectEqual(@as(usize, 3), item.?.depth);
+    try std.testing.expectEqualStrings("Deep quote", item.?.text);
+}
+
+test "parseBlockquote with spaces between markers" {
+    const item = Markdown.parseBlockquote("> > Spaced nested");
+    try std.testing.expect(item != null);
+    try std.testing.expectEqual(@as(usize, 2), item.?.depth);
+    try std.testing.expectEqualStrings("Spaced nested", item.?.text);
+}
+
+test "parseBlockquote empty line" {
+    const item = Markdown.parseBlockquote(">");
+    try std.testing.expect(item != null);
+    try std.testing.expectEqual(@as(usize, 1), item.?.depth);
+    try std.testing.expectEqualStrings("", item.?.text);
+}
+
+test "parseBlockquote leading spaces" {
+    const item = Markdown.parseBlockquote("  > Indented quote");
+    try std.testing.expect(item != null);
+    try std.testing.expectEqual(@as(usize, 1), item.?.depth);
+    try std.testing.expectEqualStrings("Indented quote", item.?.text);
+}
+
+test "parseBlockquote not a quote" {
+    try std.testing.expect(Markdown.parseBlockquote("Not a quote") == null);
+    try std.testing.expect(Markdown.parseBlockquote("") == null);
+    try std.testing.expect(Markdown.parseBlockquote("- List item") == null);
+}
+
+test "Markdown.render blockquote basic" {
+    const allocator = std.testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+
+    const md = Markdown.init("> This is a quote");
+    const segments = try md.render(80, arena.allocator());
+
+    var found_border = false;
+    var found_text = false;
+
+    for (segments) |seg| {
+        if (std.mem.indexOf(u8, seg.text, "\u{2502}") != null) {
+            found_border = true;
+            try std.testing.expect(seg.style != null);
+        }
+        if (std.mem.eql(u8, seg.text, "This is a quote")) {
+            found_text = true;
+            try std.testing.expect(seg.style != null);
+            try std.testing.expect(seg.style.?.hasAttribute(.italic));
+        }
+    }
+
+    try std.testing.expect(found_border);
+    try std.testing.expect(found_text);
+}
+
+test "Markdown.render multiline blockquote" {
+    const allocator = std.testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+
+    const source =
+        \\> First line
+        \\> Second line
+        \\> Third line
+    ;
+    const md = Markdown.init(source);
+    const segments = try md.render(80, arena.allocator());
+
+    var found_first = false;
+    var found_second = false;
+    var found_third = false;
+    var border_count: usize = 0;
+
+    for (segments) |seg| {
+        if (std.mem.eql(u8, seg.text, "First line")) found_first = true;
+        if (std.mem.eql(u8, seg.text, "Second line")) found_second = true;
+        if (std.mem.eql(u8, seg.text, "Third line")) found_third = true;
+        if (std.mem.indexOf(u8, seg.text, "\u{2502}") != null) border_count += 1;
+    }
+
+    try std.testing.expect(found_first);
+    try std.testing.expect(found_second);
+    try std.testing.expect(found_third);
+    try std.testing.expect(border_count >= 3);
+}
+
+test "Markdown.render nested blockquote" {
+    const allocator = std.testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+
+    const source =
+        \\> Outer quote
+        \\>> Nested quote
+        \\> Back to outer
+    ;
+    const md = Markdown.init(source);
+    const segments = try md.render(80, arena.allocator());
+
+    var found_outer = false;
+    var found_nested = false;
+    var max_border_count: usize = 0;
+    var current_border_count: usize = 0;
+
+    for (segments) |seg| {
+        if (std.mem.eql(u8, seg.text, "\n")) {
+            if (current_border_count > max_border_count) {
+                max_border_count = current_border_count;
+            }
+            current_border_count = 0;
+        }
+        if (std.mem.eql(u8, seg.text, "Outer quote") or std.mem.eql(u8, seg.text, "Back to outer")) {
+            found_outer = true;
+        }
+        if (std.mem.eql(u8, seg.text, "Nested quote")) {
+            found_nested = true;
+        }
+        if (std.mem.indexOf(u8, seg.text, "\u{2502}") != null) {
+            current_border_count += 1;
+        }
+    }
+
+    try std.testing.expect(found_outer);
+    try std.testing.expect(found_nested);
+    try std.testing.expect(max_border_count >= 2);
+}
+
+test "Markdown.render blockquote with inline styles" {
+    const allocator = std.testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+
+    const md = Markdown.init("> Quote with **bold** text");
+    const segments = try md.render(80, arena.allocator());
+
+    var found_bold = false;
+    for (segments) |seg| {
+        if (std.mem.eql(u8, seg.text, "bold")) {
+            found_bold = true;
+            try std.testing.expect(seg.style != null);
+            try std.testing.expect(seg.style.?.hasAttribute(.bold));
+        }
+    }
+    try std.testing.expect(found_bold);
+}
+
+test "Markdown.render blockquote mixed with other elements" {
+    const allocator = std.testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+
+    const source =
+        \\# Header
+        \\
+        \\> A blockquote
+        \\
+        \\Normal paragraph
+    ;
+    const md = Markdown.init(source);
+    const segments = try md.render(80, arena.allocator());
+
+    var found_header = false;
+    var found_quote = false;
+    var found_paragraph = false;
+
+    for (segments) |seg| {
+        if (std.mem.eql(u8, seg.text, "Header")) found_header = true;
+        if (std.mem.eql(u8, seg.text, "A blockquote")) found_quote = true;
+        if (std.mem.eql(u8, seg.text, "Normal paragraph")) found_paragraph = true;
+    }
+
+    try std.testing.expect(found_header);
+    try std.testing.expect(found_quote);
+    try std.testing.expect(found_paragraph);
+}
+
+test "MarkdownTheme has blockquote styles" {
+    const theme = MarkdownTheme.default;
+    try std.testing.expect(theme.blockquote_style.hasAttribute(.italic));
+    try std.testing.expect(theme.blockquote_border_style.color != null);
+    try std.testing.expectEqualStrings("\u{2502}", theme.blockquote_border_char);
+    try std.testing.expectEqual(@as(usize, 2), theme.blockquote_indent);
 }
