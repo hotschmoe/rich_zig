@@ -13,6 +13,9 @@ pub fn main() !void {
     var console = rich.Console.init(allocator);
     defer console.deinit();
 
+    try console.printRenderable(rich.Rule.init().withTitle("Advanced Table Example").withCharacters("="));
+    try console.print("");
+
     // Table with caption
     try console.print("[bold]Table with Caption:[/]");
     {

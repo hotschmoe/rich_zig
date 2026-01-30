@@ -13,6 +13,9 @@ pub fn main() !void {
     var console = rich.Console.init(allocator);
     defer console.deinit();
 
+    try console.printRenderable(rich.Rule.init().withTitle("JSON and Syntax Example").withCharacters("="));
+    try console.print("");
+
     // JSON rendering - use fromString to parse JSON text
     try console.print("[bold]JSON Rendering:[/]");
     {

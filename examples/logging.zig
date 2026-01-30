@@ -13,6 +13,9 @@ pub fn main() !void {
     var console = rich.Console.init(allocator);
     defer console.deinit();
 
+    try console.printRenderable(rich.Rule.init().withTitle("Logging Example").withCharacters("="));
+    try console.print("");
+
     try console.print("[bold]RichHandler Logging:[/]");
     try console.print("");
 

@@ -13,6 +13,9 @@ pub fn main() !void {
     var console = rich.Console.init(allocator);
     defer console.deinit();
 
+    try console.printRenderable(rich.Rule.init().withTitle("Advanced Progress Example").withCharacters("="));
+    try console.print("");
+
     // Progress bar with timing information
     try console.print("[bold]Progress with Timing Info:[/]");
     {

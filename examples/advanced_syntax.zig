@@ -13,6 +13,9 @@ pub fn main() !void {
     var console = rich.Console.init(allocator);
     defer console.deinit();
 
+    try console.printRenderable(rich.Rule.init().withTitle("Advanced Syntax Example").withCharacters("="));
+    try console.print("");
+
     // Syntax with Monokai theme
     try console.print("[bold]Syntax with Monokai Theme:[/]");
     {

@@ -13,6 +13,9 @@ pub fn main() !void {
     var console = rich.Console.init(allocator);
     defer console.deinit();
 
+    try console.printRenderable(rich.Rule.init().withTitle("Traceback Example").withCharacters("="));
+    try console.print("");
+
     // Basic traceback
     try console.print("[bold]Basic Traceback:[/]");
     {

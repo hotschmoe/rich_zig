@@ -250,8 +250,8 @@ pub const Console = struct {
     pub fn printPlain(self: *Console, text: []const u8) !void {
         var writer = self.getWriter();
         try writer.interface.writeAll(text);
-        try self.writeLine();
         try writer.interface.flush();
+        try self.writeLine();
     }
 
     pub fn printStyled(self: *Console, text: []const u8, style: Style) !void {
@@ -259,8 +259,8 @@ pub const Console = struct {
         try self.setStyle(style, &writer.interface);
         try writer.interface.writeAll(text);
         try self.resetStyle(&writer.interface);
-        try self.writeLine();
         try writer.interface.flush();
+        try self.writeLine();
     }
 
     pub fn printText(self: *Console, txt: Text) !void {
@@ -338,6 +338,7 @@ pub const Console = struct {
         if (self.capture_buffer) |*buf| {
             try buf.append(self.allocator, '\n');
         }
+        try writer.interface.flush();
     }
 
     pub fn rule(self: *Console, title_opt: ?[]const u8) !void {

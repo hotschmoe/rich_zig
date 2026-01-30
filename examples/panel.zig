@@ -13,6 +13,9 @@ pub fn main() !void {
     var console = rich.Console.init(allocator);
     defer console.deinit();
 
+    try console.printRenderable(rich.Rule.init().withTitle("Panel Example").withCharacters("="));
+    try console.print("");
+
     // Basic panel
     const basic = rich.Panel.fromText(allocator, "This is a basic panel with default styling.");
     try console.printRenderable(basic);

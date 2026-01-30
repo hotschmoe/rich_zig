@@ -17,6 +17,9 @@ pub fn main() !void {
     var console = rich.Console.init(allocator);
     defer console.deinit();
 
+    try console.printRenderable(rich.Rule.init().withTitle("Terminal Example").withCharacters("="));
+    try console.print("");
+
     try console.print("[bold]Terminal Detection:[/]");
 
     // Detect terminal capabilities

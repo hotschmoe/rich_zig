@@ -13,6 +13,9 @@ pub fn main() !void {
     var console = rich.Console.init(allocator);
     defer console.deinit();
 
+    try console.printRenderable(rich.Rule.init().withTitle("Split Example").withCharacters("="));
+    try console.print("");
+
     // Vertical split (stacked regions)
     try console.print("[bold]Vertical Split (Top/Bottom):[/]");
     {
@@ -77,4 +80,5 @@ pub fn main() !void {
         const segs = try split.render(40, arena.allocator());
         try console.printSegments(segs);
     }
+    try console.print("");
 }

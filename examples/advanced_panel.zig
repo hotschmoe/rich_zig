@@ -13,6 +13,9 @@ pub fn main() !void {
     var console = rich.Console.init(allocator);
     defer console.deinit();
 
+    try console.printRenderable(rich.Rule.init().withTitle("Advanced Panel Example").withCharacters("="));
+    try console.print("");
+
     // Panel with left-aligned title
     try console.print("[bold]Title Alignment - Left:[/]");
     {

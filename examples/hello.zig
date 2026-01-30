@@ -13,6 +13,9 @@ pub fn main() !void {
     var console = rich.Console.init(allocator);
     defer console.deinit();
 
+    try console.printRenderable(rich.Rule.init().withTitle("Hello Example").withCharacters("="));
+    try console.print("");
+
     // Basic styled text with BBCode-like markup
     try console.print("Hello, [bold cyan]rich_zig[/]!");
     try console.print("");
@@ -62,4 +65,5 @@ pub fn main() !void {
         rich.Segment.styled("creation", Style.empty.italic().foreground(Color.cyan)),
     };
     try console.printSegments(&manual_segments);
+    try console.print("");
 }

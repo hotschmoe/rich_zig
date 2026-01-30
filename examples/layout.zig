@@ -13,6 +13,9 @@ pub fn main() !void {
     var console = rich.Console.init(allocator);
     defer console.deinit();
 
+    try console.printRenderable(rich.Rule.init().withTitle("Layout Example").withCharacters("="));
+    try console.print("");
+
     // Padding example - Padding wraps segments, not renderables
     try console.print("[bold]Padding:[/]");
     {

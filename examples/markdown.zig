@@ -13,6 +13,9 @@ pub fn main() !void {
     var console = rich.Console.init(allocator);
     defer console.deinit();
 
+    try console.printRenderable(rich.Rule.init().withTitle("Markdown Example").withCharacters("="));
+    try console.print("");
+
     // Headers
     try console.print("[bold]Markdown Headers:[/]");
     {
