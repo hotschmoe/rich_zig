@@ -873,32 +873,23 @@ pub const Syntax = struct {
         return result[0..dst_pos];
     }
 
-    fn defaultSegment(self: Syntax, text: []const u8) Segment {
-        const base_style = if (self.theme.default_style.isEmpty()) null else self.theme.default_style;
-        const style = self.theme.applyBackgroundOpt(base_style);
-        return Segment.styledOptional(text, style);
-    }
-
     fn defaultSegmentHighlighted(self: Syntax, text: []const u8, is_highlighted: bool) Segment {
         if (is_highlighted) {
-            const base_style = if (self.theme.default_style.isEmpty())
+            const style = if (self.theme.default_style.isEmpty())
                 self.theme.highlight_line_style
             else
                 self.applyHighlightBackground(self.theme.default_style);
-            return Segment.styled(text, base_style);
+            return Segment.styled(text, style);
         }
-        return self.defaultSegment(text);
-    }
-
-    fn styledSegment(self: Syntax, text: []const u8, style: Style) Segment {
-        return Segment.styled(text, self.theme.applyBackground(style));
+        const base_style = if (self.theme.default_style.isEmpty()) null else self.theme.default_style;
+        return Segment.styledOptional(text, self.theme.applyBackgroundOpt(base_style));
     }
 
     fn styledSegmentHighlighted(self: Syntax, text: []const u8, style: Style, is_highlighted: bool) Segment {
         if (is_highlighted) {
             return Segment.styled(text, self.applyHighlightBackground(style));
         }
-        return self.styledSegment(text, style);
+        return Segment.styled(text, self.theme.applyBackground(style));
     }
 
     /// Apply highlight line background to a style (overrides any existing background).
