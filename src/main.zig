@@ -237,6 +237,14 @@ pub fn main() !void {
     try console.logWarn("This is a warning message", .{});
     try console.logErr("This is an error message", .{});
 
+    // Console.printRenderable() convenience method
+    try stdout.writeAll("\nConsole.printRenderable() demo:\n");
+    try stdout.flush();
+    const demo_panel = rich.Panel.fromText(allocator, "Printed via console.printRenderable()")
+        .withTitle("Easy Rendering")
+        .withWidth(45);
+    try console.printRenderable(demo_panel);
+
     // v0.8.0 Features
     try stdout.writeAll("\nv0.8.0 New Features\n");
     try stdout.writeAll("-------------------\n");

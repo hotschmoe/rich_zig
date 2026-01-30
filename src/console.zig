@@ -282,6 +282,14 @@ pub const Console = struct {
         try writer.interface.flush();
     }
 
+    /// Renders and prints any type that implements render(width, allocator) -> ![]Segment.
+    /// This is a convenience method for printing renderables like Panel, Table, Rule, etc.
+    pub fn printRenderable(self: *Console, renderable: anytype) !void {
+        const segments = try renderable.render(self.width(), self.allocator);
+        defer self.allocator.free(segments);
+        try self.printSegments(segments);
+    }
+
     fn printSegment(self: *Console, seg: Segment, writer: anytype) !void {
         if (seg.control) |ctrl| {
             try ctrl.toEscapeSequence(writer);

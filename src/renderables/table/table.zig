@@ -19,6 +19,23 @@ pub const AlternatingStyles = struct {
     odd: Style,
 };
 
+/// A flexible table renderer with support for headers, footers, row/column spanning,
+/// and alternating row styles.
+///
+/// Table uses pointer returns (*Table) for configuration methods because it owns
+/// allocated collections (columns, rows). This differs from Panel/Rule which use
+/// value returns for borrowed content. Returning *Table prevents shallow copies
+/// that would share backing array pointers.
+///
+/// Example:
+/// ```
+/// var table = Table.init(allocator);
+/// defer table.deinit();
+/// _ = table.addColumn("Name").addColumn("Value");
+/// try table.addRow(&.{ "foo", "123" });
+/// const segments = try table.render(80, allocator);
+/// defer allocator.free(segments);
+/// ```
 pub const Table = struct {
     columns: std.ArrayList(Column),
     rows: std.ArrayList([]const []const u8),

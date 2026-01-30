@@ -285,7 +285,7 @@ const cells = @import("rich_zig").cells;
 
 // Width calculation
 const width1 = cells.cellLen("Hello"); // 5
-const width2 = cells.cellLen("中文"); // 4 (2 CJK chars * 2 cells each)
+const width2 = cells.cellLen("\u{4E2D}\u{6587}"); // 4 (2 CJK chars * 2 cells each)
 const width3 = cells.cellLen("e\u{0301}"); // 1 (e + combining acute accent)
 
 // Byte/cell conversion
@@ -310,21 +310,179 @@ defer allocator.free(padded);
 **Module:** `rich_zig.Text`
 **File:** `src/text.zig`
 
-[TODO: Document Text type - styled text with span support]
+#### Overview
+
+Styled text with span-based formatting. Stores plain text content alongside style spans that define formatting for specific character ranges.
+
+#### Construction
+
+| Constructor | Description |
+|------------|-------------|
+| `Text.init(allocator)` | Create empty text |
+| `Text.fromPlain(allocator, text)` | Create from plain string (borrowed) |
+| `Text.fromPlainOwned(allocator, text)` | Create from string (allocator owns copy) |
+| `Text.fromMarkup(allocator, text)` | Parse BBCode-like markup syntax |
+
+#### Methods
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `deinit()` | `void` | Free owned resources |
+| `cellLength()` | `usize` | Display width in terminal cells |
+| `len()` | `usize` | Byte length of plain text |
+| `isEmpty()` | `bool` | Check if text is empty |
+| `render(allocator)` | `![]Segment` | Render to segments |
+
+#### Types
+
+```zig
+pub const Span = struct {
+    start: usize,
+    end: usize,
+    style: Style,
+};
+```
+
+#### Example
+
+```zig
+const Text = @import("rich_zig").Text;
+
+// Parse markup
+var text = try Text.fromMarkup(allocator, "[bold red]Hello[/] [italic]World[/]!");
+defer text.deinit();
+
+// Render to segments
+const segments = try text.render(allocator);
+defer allocator.free(segments);
+
+// Measure
+const width = text.cellLength(); // 12
+```
+
+---
 
 ### Markup
 
 **Module:** `rich_zig.markup`
 **File:** `src/markup.zig`
 
-[TODO: Document markup parser - BBCode-like syntax for inline styling]
+#### Overview
+
+BBCode-like markup parser for inline text styling. Supports nested tags, escaped brackets, and tag parameters.
+
+#### Syntax
+
+- **Open tag**: `[bold]`, `[red]`, `[bold red on white]`
+- **Close tag**: `[/]` (closes any) or `[/bold]` (specific)
+- **Escaped brackets**: `\[` and `\]`
+- **Parameters**: `[link=https://example.com]text[/link]`
+
+#### Functions
+
+| Function | Returns | Description |
+|----------|---------|-------------|
+| `parseMarkup(text, allocator)` | `![]MarkupToken` | Parse markup into tokens |
+| `render(text, base_style, allocator)` | `![]Segment` | Parse and render to segments |
+| `escape(text, allocator)` | `![]u8` | Escape brackets in text |
+
+#### Types
+
+```zig
+pub const MarkupToken = union(enum) {
+    text: []const u8,
+    open_tag: Tag,
+    close_tag: ?[]const u8, // null means [/]
+};
+
+pub const Tag = struct {
+    name: []const u8,
+    parameters: ?[]const u8 = null,
+};
+```
+
+#### Example
+
+```zig
+const markup = @import("rich_zig").markup;
+
+// Render styled text
+const segments = try markup.render("[bold]Hello[/] [red]World[/]", Style.empty, allocator);
+defer allocator.free(segments);
+
+// Escape user input
+const escaped = try markup.escape("Use [brackets] safely", allocator);
+defer allocator.free(escaped);
+// Result: "Use \\[brackets\\] safely"
+```
+
+---
 
 ### BoxStyle
 
 **Module:** `rich_zig.BoxStyle`
 **File:** `src/box.zig`
 
-[TODO: Document box drawing styles - rounded, square, heavy, double, ASCII]
+#### Overview
+
+Defines box drawing characters for borders on panels, tables, and other bordered content. Provides predefined styles and supports custom character sets.
+
+#### Predefined Styles
+
+| Style | Description | Characters |
+|-------|-------------|------------|
+| `BoxStyle.rounded` | Rounded corners | Curved Unicode corners |
+| `BoxStyle.square` | Square corners | Standard box drawing |
+| `BoxStyle.heavy` | Heavy/thick lines | Bold box drawing |
+| `BoxStyle.double` | Double lines | Double-line box drawing |
+| `BoxStyle.ascii` | ASCII only | `+`, `-`, `|` |
+| `BoxStyle.minimal` | Lines only | No corners, horizontal lines |
+| `BoxStyle.simple` | Very minimal | Space corners |
+
+#### Custom Boxes
+
+```zig
+pub const CustomChars = struct {
+    top_left: []const u8 = "+",
+    top_right: []const u8 = "+",
+    bottom_left: []const u8 = "+",
+    bottom_right: []const u8 = "+",
+    horizontal: []const u8 = "-",
+    vertical: []const u8 = "|",
+    left: []const u8 = "|",
+    right: []const u8 = "|",
+    cross: []const u8 = "+",
+    top_tee: []const u8 = "+",
+    bottom_tee: []const u8 = "+",
+    left_tee: []const u8 = "+",
+    right_tee: []const u8 = "+",
+};
+
+pub fn custom(chars: CustomChars) BoxStyle;
+```
+
+#### Methods
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `getHorizontal(width, allocator)` | `![]u8` | Generate horizontal line of given width |
+
+#### Example
+
+```zig
+const BoxStyle = @import("rich_zig").BoxStyle;
+
+// Use predefined style
+const panel = Panel.fromText(allocator, "content").rounded();
+
+// Custom box style
+const custom = BoxStyle.custom(.{
+    .top_left = "*",
+    .top_right = "*",
+    .horizontal = "=",
+    .vertical = "!",
+});
+```
 
 ---
 
@@ -335,7 +493,53 @@ defer allocator.free(padded);
 **Module:** `rich_zig.terminal`
 **File:** `src/terminal.zig`
 
-[TODO: Document terminal detection - color support, size, TTY detection]
+#### Overview
+
+Detects terminal capabilities including size, color support, TTY status, and Unicode support. Cross-platform support for POSIX and Windows.
+
+#### Functions
+
+| Function | Returns | Description |
+|----------|---------|-------------|
+| `detect()` | `TerminalInfo` | Detect terminal capabilities |
+| `enableVirtualTerminal()` | `bool` | Enable ANSI on Windows |
+| `enableUtf8()` | `bool` | Enable UTF-8 on Windows |
+
+#### Types
+
+```zig
+pub const TerminalInfo = struct {
+    width: u16 = 80,
+    height: u16 = 24,
+    color_system: ColorSystem = .standard,
+    is_tty: bool = false,
+    supports_unicode: bool = true,
+    supports_hyperlinks: bool = false,
+    term: ?[]const u8 = null,
+    term_program: ?[]const u8 = null,
+};
+```
+
+#### Environment Variables
+
+- `NO_COLOR`: Disables color output
+- `FORCE_COLOR`: Forces color output even when not a TTY
+- `TERM`: Terminal type (used for capability detection)
+- `TERM_PROGRAM`: Terminal program name
+- `COLORTERM`: Color capability hint
+
+#### Example
+
+```zig
+const terminal = @import("rich_zig").terminal;
+
+const info = terminal.detect();
+std.debug.print("Terminal: {d}x{d}\n", .{ info.width, info.height });
+std.debug.print("Color: {s}\n", .{ @tagName(info.color_system) });
+std.debug.print("TTY: {}\n", .{ info.is_tty });
+```
+
+---
 
 ### Console
 
@@ -385,6 +589,7 @@ pub const ConsoleOptions = struct {
 | `printStyled(text: []const u8, style: Style)` | Print with explicit style, add newline |
 | `printText(txt: Text)` | Print Text object (no automatic newline) |
 | `printSegments(segments: []const Segment)` | Print pre-rendered segments |
+| `printRenderable(renderable: anytype)` | Render and print any renderable type |
 | `rule(title_opt: ?[]const u8)` | Print horizontal rule with optional title |
 | `clear()` | Clear screen |
 | `bell()` | Emit terminal bell |
@@ -458,14 +663,6 @@ pub const InputValidationResult = union(enum) {
 | `printPaged(content: []const u8)` | `!void` | Print content with pagination |
 | `printSegmentsPaged(segments)` | `!void` | Print segments with pagination |
 
-#### Capture
-
-| Method | Returns | Description |
-|--------|---------|-------------|
-| `beginCapture()` | `void` | Start capturing output |
-| `endCapture()` | `?[]const u8` | Stop capturing and return buffer |
-| `exportCapture()` | `?[]u8` | Get copy of current capture buffer |
-
 #### Example
 
 ```zig
@@ -485,40 +682,15 @@ pub fn main() !void {
     try console.printPlain("Plain text");
     try console.rule("Section");
 
-    // Status line
-    try console.status("Processing...");
-    std.time.sleep(1 * std.time.ns_per_s);
-    try console.clearStatus();
+    // Renderable output
+    const panel = rich.Panel.fromText(allocator, "Content").withTitle("Title");
+    try console.printRenderable(panel);
 
     // Logging
     try console.logInfo("Application started", .{});
     try console.logWarn("Disk space low: {d}%", .{15});
-
-    // Input
-    const name = try console.input("Enter your name");
-    defer allocator.free(name);
-
-    const age_str = try console.inputWithOptions("Enter your age", .{
-        .validator = &validateAge,
-        .max_length = 3,
-    });
-    defer allocator.free(age_str);
-}
-
-fn validateAge(input: []const u8) rich.Console.InputValidationResult {
-    const age = std.fmt.parseInt(u8, input, 10) catch {
-        return .{ .invalid = "Must be a number" };
-    };
-    if (age < 1 or age > 120) {
-        return .{ .invalid = "Age must be 1-120" };
-    }
-    return .valid;
 }
 ```
-
-### ConsoleOptions
-
-[Documented inline above]
 
 ---
 
@@ -566,35 +738,18 @@ Draws a bordered box around content with optional title and subtitle. Supports v
 | `double()` | Use double-line box style |
 | `ascii()` | Use ASCII box style |
 
-#### Types
-
-```zig
-pub const Alignment = enum { left, center, right };
-pub const VOverflow = enum { clip, visible, ellipsis };
-```
-
 #### Example
 
 ```zig
 const Panel = @import("rich_zig").Panel;
-const Style = @import("rich_zig").Style;
-const Color = @import("rich_zig").Color;
 
-var panel = Panel.fromText(allocator, "Hello, World!")
+const panel = Panel.fromText(allocator, "Hello, World!")
     .withTitle("Greeting")
-    .withSubtitle("Example")
     .withWidth(40)
-    .withHeight(10)
-    .withPadding(1, 2, 1, 2)
     .withBorderStyle(Style.empty.fg(Color.cyan))
-    .withTitleStyle(Style.empty.bold())
-    .withTitleAlignment(.left)
     .rounded();
 
-const segments = try panel.render(80, allocator);
-defer allocator.free(segments);
-
-try console.printSegments(segments);
+try console.printRenderable(panel);
 ```
 
 ---
@@ -602,11 +757,13 @@ try console.printSegments(segments);
 ### Table
 
 **Module:** `rich_zig.Table`
-**File:** `src/renderables/table.zig`
+**File:** `src/renderables/table/table.zig`
 
 #### Overview
 
 Flexible table rendering with support for headers, footers, multiple row types, column sizing, cell spanning, and alternating row styles.
+
+Table uses pointer returns (`*Table`) for configuration methods because it owns allocated collections (columns, rows). This differs from Panel/Rule which use value returns for borrowed content.
 
 #### Construction
 
@@ -626,13 +783,8 @@ defer table.deinit();
 | `withHeaderStyle(style: Style)` | `*Table` | Set header row style |
 | `withBorderStyle(style: Style)` | `*Table` | Set border color/style |
 | `withCaption(caption_text: []const u8)` | `*Table` | Add caption below table |
-| `withCaptionStyle(style: Style)` | `*Table` | Set caption text style |
-| `withCaptionJustify(justify: JustifyMethod)` | `*Table` | Align caption |
 | `withAlternatingStyles(even: Style, odd: Style)` | `*Table` | Set alternating row styles |
-| `withRowStyle(row_index: usize, style: Style)` | `*Table` | Override specific row style |
-| `withCollapsePadding(collapse: bool)` | `*Table` | Remove cell padding |
 | `withFooter(footer_row: []const []const u8)` | `*Table` | Add footer row |
-| `withFooterStyle(style: Style)` | `*Table` | Set footer style |
 
 #### Row Methods
 
@@ -640,46 +792,32 @@ defer table.deinit();
 |--------|-------------|
 | `addRow(row: []const []const u8)` | Add plain text row |
 | `addRowStyled(row: []const []const u8, style: Style)` | Add row with style |
-| `addRowRich(row: []const CellContent)` | Add row with mixed content types |
-| `addRowRichStyled(row: []const CellContent, style: Style)` | Add rich row with style |
 | `addSpannedRow(row: []const Cell)` | Add row with cell spanning |
-| `addSpannedRowStyled(row: []const Cell, style: Style)` | Add spanned row with style |
 
 #### Column Configuration
 
 ```zig
 pub const Column = struct {
-    // ...
-
     pub fn init(header: []const u8) Column;
     pub fn withJustify(self: Column, j: JustifyMethod) Column;
     pub fn withWidth(self: Column, w: usize) Column;
     pub fn withMinWidth(self: Column, w: usize) Column;
     pub fn withMaxWidth(self: Column, w: usize) Column;
     pub fn withStyle(self: Column, s: Style) Column;
-    pub fn withHeaderStyle(self: Column, s: Style) Column;
-    pub fn withRatio(self: Column, r: u8) Column; // Proportional width
-    pub fn withOverflow(self: Column, o: Overflow) Column;
-    pub fn withEllipsis(self: Column, e: []const u8) Column;
-    pub fn withNoWrap(self: Column, nw: bool) Column;
+    pub fn withRatio(self: Column, r: u8) Column;
 };
 
 pub const JustifyMethod = enum { left, center, right };
-pub const Overflow = enum { fold, ellipsis, crop };
 ```
 
 #### Cell Spanning
 
 ```zig
 pub const Cell = struct {
-    // ...
-
     pub fn text(t: []const u8) Cell;
-    pub fn segments(segs: []const Segment) Cell;
     pub fn withColspan(self: Cell, span: u8) Cell;
     pub fn withRowspan(self: Cell, span: u8) Cell;
     pub fn withStyle(self: Cell, s: Style) Cell;
-    pub fn withJustify(self: Cell, j: JustifyMethod) Cell;
 };
 ```
 
@@ -687,155 +825,735 @@ pub const Cell = struct {
 
 ```zig
 const Table = @import("rich_zig").Table;
-const Column = @import("rich_zig").Column;
 const Cell = @import("rich_zig").Cell;
 
 var table = Table.init(allocator);
 defer table.deinit();
 
-// Configure columns
-_ = table
-    .withColumn(Column.init("Name").withWidth(20))
-    .withColumn(Column.init("Status").withJustify(.center))
-    .withColumn(Column.init("Progress").withRatio(2))
-    .withHeaderStyle(Style.empty.bold().fg(Color.cyan))
-    .withAlternatingStyles(Style.empty.dim(), Style.empty);
+_ = table.addColumn("Name").addColumn("Status").addColumn("Progress");
+_ = table.withAlternatingStyles(Style.empty, Style.empty.dim());
 
-// Add rows
 try table.addRow(&.{ "Server A", "Running", "85%" });
 try table.addRow(&.{ "Server B", "Stopped", "0%" });
 
-// Add spanning row
+// Spanning row
 try table.addSpannedRow(&.{
     Cell.text("Summary").withColspan(2).withStyle(Style.empty.bold()),
     Cell.text("42.5%"),
 });
 
-const segments = try table.render(80, allocator);
-defer allocator.free(segments);
-
-try console.printSegments(segments);
+try console.printRenderable(table);
 ```
 
 ---
-
-### Column
-
-[Documented inline with Table above]
 
 ### Tree
 
 **Module:** `rich_zig.Tree`
 **File:** `src/renderables/tree.zig`
 
-[TODO: Document Tree and TreeNode - hierarchical tree structures]
+#### Overview
 
-### TreeNode
+Renders hierarchical tree structures with customizable guide characters and node styling.
 
-[TODO: Document node manipulation and styling]
+#### TreeNode
+
+| Constructor | Description |
+|------------|-------------|
+| `TreeNode.init(allocator, label)` | Create node with text label |
+| `TreeNode.initWithSegments(allocator, segments)` | Create node with styled segments |
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `deinit()` | `void` | Free node and all children |
+| `addChild(child: TreeNode)` | `!void` | Add existing node as child |
+| `addChildLabel(label: []const u8)` | `!*TreeNode` | Add new child by label, returns pointer |
+| `withStyle(style: Style)` | `TreeNode` | Set node style |
+| `withGuideStyle(style: Style)` | `TreeNode` | Set guide line style |
+| `collapsed()` | `TreeNode` | Set node as collapsed |
+
+#### Tree
+
+| Constructor | Description |
+|------------|-------------|
+| `Tree.init(root: TreeNode)` | Create tree from root node |
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `withGuide(guide: TreeGuide)` | `Tree` | Set guide characters |
+| `hideRoot()` | `Tree` | Hide root node, show only children |
+
+#### TreeGuide
+
+```zig
+pub const TreeGuide = struct {
+    vertical: []const u8 = "|",
+    horizontal: []const u8 = "--",
+    corner: []const u8 = "`-",
+    tee: []const u8 = "+-",
+    space: []const u8 = "   ",
+};
+```
+
+#### Example
+
+```zig
+const Tree = @import("rich_zig").Tree;
+const TreeNode = @import("rich_zig").TreeNode;
+
+var root = TreeNode.init(allocator, "project");
+defer root.deinit();
+
+const src = try root.addChildLabel("src");
+_ = try src.addChildLabel("main.zig");
+_ = try src.addChildLabel("lib.zig");
+_ = try root.addChildLabel("build.zig");
+
+const tree = Tree.init(root);
+try console.printRenderable(tree);
+```
+
+---
 
 ### Rule
 
 **Module:** `rich_zig.Rule`
 **File:** `src/renderables/rule.zig`
 
-[TODO: Document horizontal rules with optional titles]
+#### Overview
+
+Horizontal line/divider with optional centered, left, or right-aligned title.
+
+#### Construction
+
+```zig
+const rule = Rule.init();
+```
+
+#### Modifier Methods
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `withTitle(title: []const u8)` | `Rule` | Set title text |
+| `withStyle(style: Style)` | `Rule` | Set line style |
+| `withTitleStyle(style: Style)` | `Rule` | Set title style |
+| `withCharacters(chars: []const u8)` | `Rule` | Set line character(s) |
+| `alignLeft()` | `Rule` | Left-align title |
+| `alignCenter()` | `Rule` | Center title (default) |
+| `alignRight()` | `Rule` | Right-align title |
+
+#### Example
+
+```zig
+const Rule = @import("rich_zig").Rule;
+
+const rule = Rule.init()
+    .withTitle("Section")
+    .withStyle(Style.empty.fg(Color.cyan))
+    .alignLeft();
+
+try console.printRenderable(rule);
+```
+
+---
 
 ### ProgressBar
 
 **Module:** `rich_zig.ProgressBar`
-**File:** `src/renderables/progress.zig`
+**File:** `src/renderables/progress/bar.zig`
 
-[TODO: Document progress bars with customizable styles]
+#### Overview
+
+Single progress bar with customizable appearance, timing info, and indeterminate mode.
+
+#### Construction
+
+```zig
+const bar = ProgressBar.init();
+```
+
+#### Modifier Methods
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `withCompleted(n: usize)` | `ProgressBar` | Set completed count |
+| `withTotal(n: usize)` | `ProgressBar` | Set total count |
+| `withWidth(w: usize)` | `ProgressBar` | Set bar width |
+| `withDescription(text: []const u8)` | `ProgressBar` | Set description text |
+| `withCompleteStyle(style: Style)` | `ProgressBar` | Set completed portion style |
+| `withIncompleteStyle(style: Style)` | `ProgressBar` | Set incomplete portion style |
+| `withTiming()` | `ProgressBar` | Enable elapsed/ETA display |
+| `withElapsed()` | `ProgressBar` | Enable elapsed time display |
+| `withEta()` | `ProgressBar` | Enable ETA display |
+| `withSpeed()` | `ProgressBar` | Enable speed display |
+| `asIndeterminate()` | `ProgressBar` | Set indeterminate mode |
+| `withTransient(bool)` | `ProgressBar` | Hide when complete |
+
+#### State Methods
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `percentage()` | `f64` | Get completion percentage |
+| `isFinished()` | `bool` | Check if completed >= total |
+| `advance(amount: usize)` | `void` | Increment completed |
+| `advancePulse()` | `void` | Advance indeterminate animation |
+| `reset()` | `void` | Reset to zero |
+
+#### Example
+
+```zig
+const ProgressBar = @import("rich_zig").ProgressBar;
+
+const bar = ProgressBar.init()
+    .withDescription("Downloading")
+    .withCompleted(75)
+    .withTotal(100)
+    .withWidth(30)
+    .withTiming();
+
+const segments = try bar.render(80, allocator);
+defer allocator.free(segments);
+try console.printSegments(segments);
+```
+
+---
 
 ### Spinner
 
-[TODO: Document animated spinners]
+**Module:** `rich_zig.Spinner`
+**File:** `src/renderables/progress/spinner.zig`
+
+#### Overview
+
+Animated spinner indicator for operations with unknown duration.
+
+#### Construction
+
+| Constructor | Description |
+|------------|-------------|
+| `Spinner.init()` | Default braille spinner |
+| `Spinner.dots()` | Dots animation |
+| `Spinner.line()` | ASCII line spinner (`-\|/`) |
+
+#### Methods
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `withStyle(style: Style)` | `Spinner` | Set spinner style |
+| `advance()` | `void` | Move to next frame |
+| `render(allocator)` | `![]Segment` | Render current frame |
+
+#### Example
+
+```zig
+const Spinner = @import("rich_zig").Spinner;
+
+var spinner = Spinner.init().withStyle(Style.empty.fg(Color.cyan));
+
+// Animation loop
+while (!done) {
+    const segments = try spinner.render(allocator);
+    defer allocator.free(segments);
+    try console.printSegments(segments);
+    spinner.advance();
+    std.time.sleep(100 * std.time.ns_per_ms);
+}
+```
+
+---
 
 ### ProgressGroup
 
-[TODO: Document multiple concurrent progress indicators]
+**Module:** `rich_zig.ProgressGroup`
+**File:** `src/renderables/progress/group.zig`
+
+#### Overview
+
+Multiple concurrent progress bars displayed together.
+
+#### Construction
+
+```zig
+var group = ProgressGroup.init(allocator);
+defer group.deinit();
+```
+
+#### Methods
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `addTask(description, total)` | `!*ProgressBar` | Add new progress bar |
+| `addTaskWithTiming(description, total)` | `!*ProgressBar` | Add bar with timing enabled |
+| `addBar(bar: ProgressBar)` | `!*ProgressBar` | Add configured bar |
+| `allFinished()` | `bool` | Check if all bars complete |
+| `visibleCount()` | `usize` | Count of non-hidden bars |
+
+#### Example
+
+```zig
+const ProgressGroup = @import("rich_zig").ProgressGroup;
+
+var group = ProgressGroup.init(allocator);
+defer group.deinit();
+
+const dl = try group.addTask("Download", 100);
+const extract = try group.addTask("Extract", 100);
+
+// Update progress
+dl.completed = 75;
+extract.completed = 30;
+
+try console.printRenderable(group);
+```
+
+---
 
 ### Padding
 
 **Module:** `rich_zig.Padding`
 **File:** `src/renderables/padding.zig`
 
-[TODO: Document adding padding around renderables]
+#### Overview
+
+Wraps content with configurable padding on all sides.
+
+#### Construction
+
+```zig
+const padding = Padding.init(content_segments);
+```
+
+#### Modifier Methods
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `uniform(n: u8)` | `Padding` | Set equal padding all sides |
+| `horizontal(n: u8)` | `Padding` | Set left and right padding |
+| `vertical(n: u8)` | `Padding` | Set top and bottom padding |
+| `withPadding(top, right, bottom, left)` | `Padding` | Set individual padding |
+| `withStyle(style: Style)` | `Padding` | Set background style |
+
+#### Example
+
+```zig
+const Padding = @import("rich_zig").Padding;
+
+const content = [_]Segment{Segment.plain("Content")};
+const padded = Padding.init(&content)
+    .uniform(2)
+    .withStyle(Style.empty.bg(Color.blue));
+
+try console.printRenderable(padded);
+```
+
+---
 
 ### Align
 
 **Module:** `rich_zig.Align`
 **File:** `src/renderables/align.zig`
 
-[TODO: Document alignment wrapper for renderables]
+#### Overview
+
+Aligns content horizontally and/or vertically within a specified area.
+
+#### Construction
+
+```zig
+const aligned = Align.init(content_segments);
+```
+
+#### Modifier Methods
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `left()` | `Align` | Left horizontal alignment |
+| `center()` | `Align` | Center horizontal alignment |
+| `right()` | `Align` | Right horizontal alignment |
+| `top()` | `Align` | Top vertical alignment |
+| `middle()` | `Align` | Middle vertical alignment |
+| `bottom()` | `Align` | Bottom vertical alignment |
+| `withWidth(w: usize)` | `Align` | Set target width |
+| `withHeight(h: usize)` | `Align` | Set target height |
+| `withPadStyle(style: Style)` | `Align` | Set padding fill style |
+
+#### Example
+
+```zig
+const Align = @import("rich_zig").Align;
+
+const content = [_]Segment{Segment.plain("Centered")};
+const aligned = Align.init(&content)
+    .center()
+    .withWidth(40);
+
+try console.printRenderable(aligned);
+```
+
+---
 
 ### Columns
 
 **Module:** `rich_zig.Columns`
 **File:** `src/renderables/columns.zig`
 
-[TODO: Document column layout for multiple renderables]
+#### Overview
 
-### Layout
+Arranges multiple items in a column layout, like a multi-column newspaper.
 
-**Module:** `rich_zig.Layout`
+#### Construction
+
+| Constructor | Description |
+|------------|-------------|
+| `Columns.init(allocator, items)` | Create from segment arrays |
+| `Columns.fromText(allocator, texts)` | Create from text strings |
+
+#### Modifier Methods
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `withColumnCount(count: usize)` | `Columns` | Set number of columns |
+| `withPadding(gap: u8)` | `Columns` | Set gap between columns |
+| `withEqualWidth(equal: bool)` | `Columns` | Force equal column widths |
+| `withExpand(exp: bool)` | `Columns` | Expand to fill width |
+| `withMinWidth(w: usize)` | `Columns` | Set minimum column width |
+| `withMaxWidth(w: usize)` | `Columns` | Set maximum column width |
+| `left()`, `center()`, `right()` | `Columns` | Set content alignment |
+
+#### Example
+
+```zig
+const Columns = @import("rich_zig").Columns;
+
+const texts = [_][]const u8{ "Item 1", "Item 2", "Item 3", "Item 4" };
+const columns = (try Columns.fromText(allocator, &texts))
+    .withColumnCount(2)
+    .withEqualWidth(true)
+    .withPadding(4);
+
+try console.printRenderable(columns);
+```
+
+---
+
+### Split (Layout)
+
+**Module:** `rich_zig.Split`
 **File:** `src/renderables/layout.zig`
 
-[TODO: Document flexible layout system]
+#### Overview
+
+Divides space into regions with horizontal or vertical splits. Supports ratio-based, fixed, and minimum size constraints.
+
+#### Construction
+
+| Constructor | Description |
+|------------|-------------|
+| `Split.horizontal(allocator)` | Create horizontal split (side-by-side) |
+| `Split.vertical(allocator)` | Create vertical split (stacked) |
+
+#### Methods
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `deinit()` | `void` | Free resources |
+| `add(content: []const Segment)` | `*Split` | Add region with auto size |
+| `addNamed(name, content)` | `*Split` | Add named region |
+| `addWithRatio(content, ratio)` | `*Split` | Add region with ratio |
+| `addWithMinSize(content, min)` | `*Split` | Add region with minimum size |
+| `addWithFixedSize(content, size)` | `*Split` | Add region with fixed size |
+| `addSplit(nested: *Split)` | `*Split` | Add nested split |
+| `withSplitter()` | `Split` | Show separator between regions |
+
+#### Example
+
+```zig
+const Split = @import("rich_zig").Split;
+
+var split = Split.horizontal(allocator);
+defer split.deinit();
+
+const left = [_]Segment{Segment.plain("Left")};
+const right = [_]Segment{Segment.plain("Right")};
+
+_ = split.addWithRatio(&left, 1).addWithRatio(&right, 2);
+
+try console.printRenderable(split);
+```
+
+---
 
 ### Live
 
 **Module:** `rich_zig.Live`
 **File:** `src/renderables/live.zig`
 
-[TODO: Document live-updating displays]
+#### Overview
 
-### JSON
+Live-updating display that refreshes content in place. Useful for progress indicators, dashboards, and real-time updates.
 
-**Module:** `rich_zig.JSON`
+#### Construction
+
+```zig
+var live = Live.init(&console);
+```
+
+#### Methods
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `withRefreshRate(ms: u64)` | `Live` | Set minimum refresh interval |
+| `withOverflow(mode: OverflowMode)` | `Live` | Set overflow behavior |
+| `withMaxLines(lines: ?usize)` | `Live` | Set maximum display lines |
+| `start()` | `!void` | Begin live display (hides cursor) |
+| `stop()` | `!void` | End live display (shows cursor) |
+| `update(segments: []const Segment)` | `!void` | Update displayed content |
+| `forceUpdate(segments)` | `!void` | Update ignoring rate limit |
+| `setContent(segments)` | `void` | Set content for auto-refresh |
+| `startAutoRefresh(allocator)` | `!void` | Begin background refresh |
+| `stopAutoRefresh()` | `void` | Stop background refresh |
+
+#### Example
+
+```zig
+const Live = @import("rich_zig").Live;
+
+var live = Live.init(&console).withRefreshRate(100);
+try live.start();
+defer live.stop() catch {};
+
+while (!done) {
+    const segments = try renderable.render(80, allocator);
+    defer allocator.free(segments);
+    try live.update(segments);
+    std.time.sleep(100 * std.time.ns_per_ms);
+}
+```
+
+---
+
+### Json
+
+**Module:** `rich_zig.Json`
 **File:** `src/renderables/json.zig`
 
-[TODO: Document pretty-printed JSON rendering]
+#### Overview
+
+Pretty-prints JSON data with syntax highlighting and configurable formatting.
+
+#### Construction
+
+| Constructor | Description |
+|------------|-------------|
+| `Json.init(allocator, value)` | Create from std.json.Value |
+| `Json.fromString(allocator, json_str)` | Parse and create from string |
+
+#### Methods
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `deinit()` | `void` | Free parsed JSON if owned |
+| `withTheme(theme: JsonTheme)` | `Json` | Set color theme |
+| `withIndent(spaces: u8)` | `Json` | Set indentation width |
+| `withSortKeys(sort: bool)` | `Json` | Sort object keys |
+| `withMaxDepth(depth: ?usize)` | `Json` | Limit nesting depth |
+| `withMaxStringLength(len: ?usize)` | `Json` | Truncate long strings |
+
+#### JsonTheme
+
+```zig
+pub const JsonTheme = struct {
+    key_style: Style,
+    string_style: Style,
+    number_style: Style,
+    bool_style: Style,
+    null_style: Style,
+    bracket_style: Style,
+
+    pub const default: JsonTheme;
+    pub const monokai: JsonTheme;
+};
+```
+
+#### Example
+
+```zig
+const Json = @import("rich_zig").Json;
+
+var json = try Json.fromString(allocator,
+    \\{"name": "rich_zig", "version": "1.0.0"}
+);
+defer json.deinit();
+
+const styled = json.withIndent(4).withTheme(JsonTheme.monokai);
+try console.printRenderable(styled);
+```
+
+---
 
 ### Syntax
 
 **Module:** `rich_zig.Syntax`
-**File:** `src/renderables/syntax.zig`
+**File:** `src/renderables/syntax/highlighter.zig`
 
-[TODO: Document syntax highlighting]
+#### Overview
+
+Syntax highlighting for source code with language detection, line numbers, and theming.
+
+#### Construction
+
+| Constructor | Description |
+|------------|-------------|
+| `Syntax.init(allocator, code)` | Create from code string |
+| `Syntax.fromFile(allocator, code, filename)` | Auto-detect language from filename |
+| `Syntax.loadFile(allocator, path)` | Load and highlight file from disk |
+
+#### Methods
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `deinit()` | `void` | Free loaded file content |
+| `withLanguage(lang: Language)` | `Syntax` | Set language explicitly |
+| `withAutoDetect(filename: ?[]const u8)` | `Syntax` | Auto-detect language |
+| `withTheme(theme: SyntaxTheme)` | `Syntax` | Set color theme |
+| `withLineNumbers()` | `Syntax` | Show line numbers |
+| `withStartLine(line: usize)` | `Syntax` | Set starting line number |
+| `withWordWrap()` | `Syntax` | Enable word wrapping |
+| `withTabSize(size: u8)` | `Syntax` | Set tab expansion width |
+| `withIndentGuides()` | `Syntax` | Show indent guides |
+| `withHighlightLines(lines: []const usize)` | `Syntax` | Highlight specific lines |
+
+#### Supported Languages
+
+```zig
+pub const Language = enum {
+    plain, zig, rust, python, javascript, typescript,
+    c, cpp, java, go, ruby, bash, json, yaml, toml,
+    html, css, sql, markdown,
+
+    pub fn fromExtension(ext: []const u8) Language;
+    pub fn detect(filename: ?[]const u8, content: []const u8) Language;
+};
+```
+
+#### Example
+
+```zig
+const Syntax = @import("rich_zig").Syntax;
+
+const code =
+    \\const std = @import("std");
+    \\pub fn main() void {
+    \\    std.debug.print("Hello!\n", .{});
+    \\}
+;
+
+const syntax = Syntax.init(allocator, code)
+    .withLanguage(.zig)
+    .withLineNumbers()
+    .withTheme(SyntaxTheme.monokai);
+
+try console.printRenderable(syntax);
+```
+
+---
 
 ### Markdown
 
 **Module:** `rich_zig.Markdown`
-**File:** `src/renderables/markdown.zig`
+**File:** `src/renderables/markdown/markdown.zig`
 
-[TODO: Document markdown rendering]
+#### Overview
+
+Renders Markdown to styled terminal output with support for headers, lists, code blocks, tables, and inline formatting.
+
+#### Construction
+
+```zig
+const md = Markdown.init(source_text);
+```
+
+#### Methods
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `withTheme(theme: MarkdownTheme)` | `Markdown` | Set styling theme |
+
+#### Supported Syntax
+
+- **Headers**: `# H1`, `## H2`, `### H3`, etc.
+- **Bold**: `**text**` or `__text__`
+- **Italic**: `*text*` or `_text_`
+- **Strikethrough**: `~~text~~`
+- **Inline code**: `` `code` ``
+- **Code blocks**: Fenced with ``` (language optional)
+- **Links**: `[text](url)`
+- **Images**: `![alt](url)` (shows alt text)
+- **Lists**: Unordered (`-`, `*`) and ordered (`1.`)
+- **Task lists**: `- [x]` and `- [ ]`
+- **Blockquotes**: `> text`
+- **Horizontal rules**: `---`, `***`, `___`
+- **Tables**: GFM table syntax
+
+#### Example
+
+```zig
+const Markdown = @import("rich_zig").Markdown;
+
+const md = Markdown.init(
+    \\# Title
+    \\
+    \\This has **bold** and *italic* text.
+    \\
+    \\```zig
+    \\const x = 42;
+    \\```
+);
+
+try console.printRenderable(md);
+```
 
 ---
 
 ## Phase 5: Utilities
-
-### Logging
-
-**Module:** `rich_zig.Console` (methods)
-**File:** `src/console.zig`
-
-Documented inline with Console above (see logging section).
-
-### Prompt
-
-**Module:** `rich_zig.Console` (methods)
-**File:** `src/console.zig`
-
-Documented inline with Console above (see input/prompts section).
 
 ### Emoji
 
 **Module:** `rich_zig.emoji`
 **File:** `src/emoji.zig`
 
-[TODO: Document emoji replacement and handling]
+#### Overview
+
+Maps emoji shortcodes to Unicode emoji characters. Use `:emoji_name:` syntax in markup.
+
+#### Functions
+
+| Function | Returns | Description |
+|----------|---------|-------------|
+| `emoji_map.get(name)` | `?[]const u8` | Look up emoji by name |
+
+#### Common Shortcodes
+
+| Shortcode | Emoji | Shortcode | Emoji |
+|-----------|-------|-----------|-------|
+| `smile` | :smile: | `check` | :heavy_check_mark: |
+| `thumbsup` | :+1: | `x` | :x: |
+| `rocket` | :rocket: | `fire` | :fire: |
+| `star` | :star: | `warning` | :warning: |
+| `heart` | :heart: | `sparkles` | :sparkles: |
+
+#### Example
+
+```zig
+const emoji = @import("rich_zig").emoji;
+
+if (emoji.emoji_map.get("rocket")) |rocket| {
+    std.debug.print("{s} Launch!\n", .{rocket});
+}
+
+// In markup
+try console.print(":rocket: Launch!");
+```
 
 ---
 
@@ -863,12 +1581,6 @@ error.InputCancelled    // User cancelled input
 error.EndOfStream       // Input stream closed
 error.OutOfMemory       // Allocation failed
 ```
-
-### Standard Zig Errors
-
-Most API functions can return standard Zig errors:
-- `error.OutOfMemory` - Allocation failed
-- File I/O errors (when applicable)
 
 ### Error Handling Pattern
 
@@ -942,6 +1654,5 @@ For detailed change history, see CHANGELOG.md.
 ## See Also
 
 - [README.md](../README.md) - Project overview and quick start
-- [ARCHITECTURE.md](./ARCHITECTURE.md) - System design and internals
-- [EXAMPLES.md](./EXAMPLES.md) - Usage examples and recipes
-- [api_and_opt.md](./api_and_opt.md) - API roadmap and optimization plans
+- [quickstart.md](./guide/quickstart.md) - Getting started guide
+- [examples/](../examples/) - Working example code

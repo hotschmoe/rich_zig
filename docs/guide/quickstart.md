@@ -32,10 +32,10 @@ pub fn main() !void {
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
-    var console = try rich.Console.init(allocator);
+    var console = rich.Console.init(allocator);
     defer console.deinit();
 
-    try console.print("Hello, [bold cyan]rich_zig[/]!", .{});
+    try console.print("Hello, [bold cyan]rich_zig[/]!");
 }
 ```
 
@@ -46,11 +46,11 @@ Output: Hello, **rich_zig**! (with cyan color and bold styling)
 rich_zig uses BBCode-like markup syntax for inline styling:
 
 ```zig
-try console.print("[bold]Bold text[/]", .{});
-try console.print("[red]Red text[/]", .{});
-try console.print("[bold red on white]Bold red text on white background[/]", .{});
-try console.print("[italic dim]Subtle italic text[/]", .{});
-try console.print("[link=https://ziglang.org]Visit Zig[/link]", .{});
+try console.print("[bold]Bold text[/]");
+try console.print("[red]Red text[/]");
+try console.print("[bold red on white]Bold red text on white background[/]");
+try console.print("[italic dim]Subtle italic text[/]");
+try console.print("[link=https://ziglang.org]Visit Zig[/link]");
 ```
 
 Styles can be combined: `[bold italic underline red]`
@@ -69,50 +69,43 @@ Close any style with `[/]` or use specific closing tags like `[/bold]`.
 Panels add visual structure to your output:
 
 ```zig
-const Panel = rich.renderables.Panel;
+const Panel = rich.Panel;
 
-var panel = try Panel.fromText(allocator, "This is a simple panel");
-defer panel.deinit();
-
-panel.title = try allocator.dupe(u8, "My First Panel");
-defer allocator.free(panel.title.?);
+const panel = Panel.fromText(allocator, "This is a simple panel")
+    .withTitle("My First Panel");
 
 try console.printRenderable(panel);
 ```
 
 Output:
 ```
-╭─ My First Panel ─╮
-│ This is a simple │
-│ panel            │
-╰──────────────────╯
++-- My First Panel --+
+| This is a simple   |
+| panel              |
++--------------------+
 ```
 
-## Semantic Panels (New in v1.0.0)
+## Semantic Panels
 
 Use semantic panel constructors for common message types:
 
 ```zig
-const Panel = rich.renderables.Panel;
+const Panel = rich.Panel;
 
 // Information panel (blue)
-var info = try Panel.info(allocator, "Database connected successfully");
-defer info.deinit();
+const info = Panel.info(allocator, "Database connected successfully");
 try console.printRenderable(info);
 
 // Warning panel (yellow)
-var warning = try Panel.warning(allocator, "Cache size approaching limit");
-defer warning.deinit();
+const warning = Panel.warning(allocator, "Cache size approaching limit");
 try console.printRenderable(warning);
 
 // Error panel (red)
-var err_panel = try Panel.err(allocator, "Failed to load configuration");
-defer err_panel.deinit();
+const err_panel = Panel.err(allocator, "Failed to load configuration");
 try console.printRenderable(err_panel);
 
 // Success panel (green)
-var success = try Panel.success(allocator, "Build completed in 2.3s");
-defer success.deinit();
+const success = Panel.success(allocator, "Build completed in 2.3s");
 try console.printRenderable(success);
 ```
 
@@ -123,36 +116,36 @@ These panels come pre-styled with appropriate colors, icons, and box styles.
 Create structured data displays with tables:
 
 ```zig
-const Table = rich.renderables.Table;
+const Table = rich.Table;
 
 // Create table with column headers
-var table = try Table.init(allocator);
+var table = Table.init(allocator);
 defer table.deinit();
 
-try table.addColumn("Name");
-try table.addColumn("Language");
-try table.addColumn("Stars");
+_ = table.addColumn("Name");
+_ = table.addColumn("Language");
+_ = table.addColumn("Stars");
 
 // Add rows
 try table.addRow(&.{ "rich_zig", "Zig", "1,234" });
 try table.addRow(&.{ "ziglang", "Zig", "12,345" });
 try table.addRow(&.{ "rich", "Python", "45,678" });
 
-// Optional: set table properties
-table.title = try allocator.dupe(u8, "Popular Projects");
+// Optional: set table title
+_ = table.withTitle("Popular Projects");
 
 try console.printRenderable(table);
 ```
 
 Output:
 ```
-┌──────────┬──────────┬────────┐
-│   Name   │ Language │ Stars  │
-├──────────┼──────────┼────────┤
-│ rich_zig │   Zig    │ 1,234  │
-│ ziglang  │   Zig    │ 12,345 │
-│ rich     │  Python  │ 45,678 │
-└──────────┴──────────┴────────┘
++----------+----------+--------+
+|   Name   | Language | Stars  |
++----------+----------+--------+
+| rich_zig |   Zig    | 1,234  |
+| ziglang  |   Zig    | 12,345 |
+| rich     |  Python  | 45,678 |
++----------+----------+--------+
 ```
 
 ## Progress Bars
@@ -160,29 +153,44 @@ Output:
 Show progress for long-running operations:
 
 ```zig
-const Progress = rich.renderables.Progress;
-const std = @import("std");
+const ProgressBar = rich.ProgressBar;
 
-var progress = try Progress.init(allocator);
-defer progress.deinit();
+// Simple progress bar
+const bar = ProgressBar.init()
+    .withDescription("Downloading...")
+    .withCompleted(60)
+    .withTotal(100)
+    .withWidth(30);
 
-const task_id = try progress.addTask("Downloading...", 100);
-
-// Simulate work
-var i: usize = 0;
-while (i <= 100) : (i += 10) {
-    try progress.update(task_id, i);
-    try console.printRenderable(progress);
-    std.time.sleep(100 * std.time.ns_per_ms);
-}
+const segments = try bar.render(80, allocator);
+defer allocator.free(segments);
+try console.printSegments(segments);
 ```
 
-Output (animated):
+Output:
 ```
-Downloading... ████████████░░░░░░░░ 60% 60/100
+Downloading...  ==================--------  60%
 ```
 
-## Using the Prelude (New in v1.0.0)
+For multiple concurrent tasks, use `ProgressGroup`:
+
+```zig
+const ProgressGroup = rich.ProgressGroup;
+
+var group = ProgressGroup.init(allocator);
+defer group.deinit();
+
+_ = try group.addTask("Download", 100);
+_ = try group.addTask("Extract", 100);
+
+// Update progress
+group.bars.items[0].completed = 80;
+group.bars.items[1].completed = 30;
+
+try console.printRenderable(group);
+```
+
+## Using the Prelude
 
 For quick scripts and prototyping, use the prelude to import common items:
 
@@ -195,21 +203,20 @@ pub fn main() !void {
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
-    var console = try prelude.Console.init(allocator);
+    var console = prelude.Console.init(allocator);
     defer console.deinit();
 
     // All common types available without namespace prefixes
-    var panel = try prelude.Panel.success(allocator, "Quick and easy!");
-    defer panel.deinit();
+    const panel = prelude.Panel.success(allocator, "Quick and easy!");
     try console.printRenderable(panel);
 
-    var table = try prelude.Table.init(allocator);
+    var table = prelude.Table.init(allocator);
     defer table.deinit();
-    try table.addColumn("Feature");
-    try table.addColumn("Available");
-    try table.addRow(&.{ "Console", "✓" });
-    try table.addRow(&.{ "Panel", "✓" });
-    try table.addRow(&.{ "Table", "✓" });
+    _ = table.addColumn("Feature");
+    _ = table.addColumn("Available");
+    try table.addRow(&.{ "Console", "[check]" });
+    try table.addRow(&.{ "Panel", "[check]" });
+    try table.addRow(&.{ "Table", "[check]" });
     try console.printRenderable(table);
 }
 ```
@@ -224,9 +231,9 @@ The prelude exports:
 
 Now that you've mastered the basics, explore:
 
-- **Full API Reference**: `/docs/api/` - Complete documentation for all modules
+- **Full API Reference**: `/docs/api.md` - Complete documentation for all modules
 - **Advanced Guide**: `/docs/guide/advanced.md` - Custom renderables, layout system, live displays
-- **Examples**: `/src/main.zig` - Comprehensive demo showing all features
-- **Architecture**: `/docs/architecture.md` - Understanding the 4-phase rendering pipeline
+- **Examples**: `/examples/` - Working example files for each feature
+- **Demo**: Run `zig build run` to see all features in action
 
 Happy coding with rich_zig!
