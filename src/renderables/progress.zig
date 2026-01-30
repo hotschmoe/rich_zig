@@ -997,28 +997,30 @@ pub const ProgressColumn = struct {
 
     pub fn render(self: ProgressColumn, ctx: ColumnRenderContext, bar_width: usize, allocator: std.mem.Allocator) ![]Segment {
         if (!self.visible) {
-            return try allocator.alloc(Segment, 0);
+            return &.{};
         }
 
         switch (self.column_type) {
             .builtin => |b| return try self.renderBuiltin(b, ctx, bar_width, allocator),
             .custom => |func| {
                 const segments = try func(ctx, allocator);
-                return self.applyStyle(segments, allocator);
+                self.applyStyle(segments);
+                return segments;
             },
             .text => |content| {
                 const result = try allocator.alloc(Segment, 1);
-                result[0] = if (self.style.isEmpty())
-                    Segment.plain(content)
-                else
-                    Segment.styled(content, self.style);
+                result[0] = self.styledSegment(content);
                 return result;
             },
         }
     }
 
-    fn applyStyle(self: ProgressColumn, segments: []Segment, allocator: std.mem.Allocator) ![]Segment {
-        if (self.style.isEmpty()) return segments;
+    fn styledSegment(self: ProgressColumn, content: []const u8) Segment {
+        return if (self.style.isEmpty()) Segment.plain(content) else Segment.styled(content, self.style);
+    }
+
+    fn applyStyle(self: ProgressColumn, segments: []Segment) void {
+        if (self.style.isEmpty()) return;
 
         for (segments) |*seg| {
             if (seg.style) |existing| {
@@ -1027,8 +1029,6 @@ pub const ProgressColumn = struct {
                 seg.style = self.style;
             }
         }
-        _ = allocator;
-        return segments;
     }
 
     fn renderBuiltin(self: ProgressColumn, col: BuiltinColumn, ctx: ColumnRenderContext, bar_width: usize, allocator: std.mem.Allocator) ![]Segment {
@@ -1037,10 +1037,7 @@ pub const ProgressColumn = struct {
         switch (col) {
             .description => {
                 if (ctx.description) |desc| {
-                    try segments.append(allocator, if (self.style.isEmpty())
-                        Segment.plain(desc)
-                    else
-                        Segment.styled(desc, self.style));
+                    try segments.append(allocator, self.styledSegment(desc));
                 }
             },
             .bar => {
@@ -1068,31 +1065,19 @@ pub const ProgressColumn = struct {
                 }
             },
             .percentage => {
-                const pct_str = getPercentageString(ctx.percentage);
-                try segments.append(allocator, if (self.style.isEmpty())
-                    Segment.plain(pct_str)
-                else
-                    Segment.styled(pct_str, self.style));
+                try segments.append(allocator, self.styledSegment(getPercentageString(ctx.percentage)));
             },
             .elapsed => {
                 var buf: [12]u8 = undefined;
                 const time_str = ProgressBar.formatTime(ctx.elapsed_seconds, &buf);
-                const duped = try allocator.dupe(u8, time_str);
-                try segments.append(allocator, if (self.style.isEmpty())
-                    Segment.plain(duped)
-                else
-                    Segment.styled(duped, self.style));
+                try segments.append(allocator, self.styledSegment(try allocator.dupe(u8, time_str)));
             },
             .eta => {
                 if (ctx.eta_seconds) |eta| {
                     var buf: [16]u8 = undefined;
                     const eta_str = ProgressBar.formatTime(eta, &buf);
-                    const duped = try allocator.dupe(u8, eta_str);
                     try segments.append(allocator, Segment.plain("ETA "));
-                    try segments.append(allocator, if (self.style.isEmpty())
-                        Segment.plain(duped)
-                    else
-                        Segment.styled(duped, self.style));
+                    try segments.append(allocator, self.styledSegment(try allocator.dupe(u8, eta_str)));
                 } else {
                     try segments.append(allocator, Segment.plain("--:--"));
                 }
@@ -1100,11 +1085,7 @@ pub const ProgressColumn = struct {
             .speed => {
                 var buf: [24]u8 = undefined;
                 const speed_str = ProgressBar.formatSpeed(ctx.speed, .items, "it/s", &buf);
-                const duped = try allocator.dupe(u8, speed_str);
-                try segments.append(allocator, if (self.style.isEmpty())
-                    Segment.plain(duped)
-                else
-                    Segment.styled(duped, self.style));
+                try segments.append(allocator, self.styledSegment(try allocator.dupe(u8, speed_str)));
             },
             .spinner => {
                 const frames = [_][]const u8{
@@ -1112,37 +1093,22 @@ pub const ProgressColumn = struct {
                     "\u{283C}", "\u{2834}", "\u{2826}", "\u{2827}",
                 };
                 const frame_idx = @as(usize, @intCast(@mod(@divFloor(std.time.milliTimestamp(), 100), @as(i64, frames.len))));
-                try segments.append(allocator, if (self.style.isEmpty())
-                    Segment.plain(frames[frame_idx])
-                else
-                    Segment.styled(frames[frame_idx], self.style));
+                try segments.append(allocator, self.styledSegment(frames[frame_idx]));
             },
             .completed => {
                 var buf: [16]u8 = undefined;
                 const str = std.fmt.bufPrint(&buf, "{d}", .{ctx.completed}) catch "?";
-                const duped = try allocator.dupe(u8, str);
-                try segments.append(allocator, if (self.style.isEmpty())
-                    Segment.plain(duped)
-                else
-                    Segment.styled(duped, self.style));
+                try segments.append(allocator, self.styledSegment(try allocator.dupe(u8, str)));
             },
             .total => {
                 var buf: [16]u8 = undefined;
                 const str = std.fmt.bufPrint(&buf, "{d}", .{ctx.total}) catch "?";
-                const duped = try allocator.dupe(u8, str);
-                try segments.append(allocator, if (self.style.isEmpty())
-                    Segment.plain(duped)
-                else
-                    Segment.styled(duped, self.style));
+                try segments.append(allocator, self.styledSegment(try allocator.dupe(u8, str)));
             },
             .task_count => {
                 var buf: [24]u8 = undefined;
                 const str = std.fmt.bufPrint(&buf, "{d}/{d}", .{ ctx.completed, ctx.total }) catch "?/?";
-                const duped = try allocator.dupe(u8, str);
-                try segments.append(allocator, if (self.style.isEmpty())
-                    Segment.plain(duped)
-                else
-                    Segment.styled(duped, self.style));
+                try segments.append(allocator, self.styledSegment(try allocator.dupe(u8, str)));
             },
         }
 
@@ -1365,7 +1331,7 @@ pub const Progress = struct {
 
     pub fn render(self: Progress, max_width: usize, allocator: std.mem.Allocator) ![]Segment {
         if (self.columns.items.len == 0) {
-            return try allocator.alloc(Segment, 0);
+            return &.{};
         }
 
         const ctx = self.buildContext();
