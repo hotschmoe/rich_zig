@@ -585,13 +585,36 @@ pub const Syntax = struct {
         return s;
     }
 
-    /// Create syntax highlighter from file path (auto-detects language)
+    /// Create syntax highlighter from code string with filename for language detection
     pub fn fromFile(allocator: std.mem.Allocator, code: []const u8, filename: []const u8) Syntax {
         return Syntax{
             .code = code,
             .language = Language.detect(filename, code),
             .allocator = allocator,
         };
+    }
+
+    /// Load code from filesystem and create syntax highlighter (auto-detects language from extension)
+    pub fn loadFile(allocator: std.mem.Allocator, path: []const u8) !Syntax {
+        const file = try std.fs.cwd().openFile(path, .{});
+        defer file.close();
+
+        const stat = try file.stat();
+        const size = stat.size;
+
+        const code = try allocator.alloc(u8, size);
+        const bytes_read = try file.readAll(code);
+
+        return Syntax{
+            .code = code[0..bytes_read],
+            .language = Language.fromFilename(path),
+            .allocator = allocator,
+        };
+    }
+
+    /// Free memory allocated by loadFile
+    pub fn deinit(self: *Syntax) void {
+        self.allocator.free(self.code);
     }
 
     pub fn withTheme(self: Syntax, theme: SyntaxTheme) Syntax {
@@ -1446,4 +1469,43 @@ test "wrapSegments zero width returns input" {
 
     try std.testing.expectEqual(@as(usize, 1), wrapped.len);
     try std.testing.expectEqualStrings("Hello", wrapped[0].text);
+}
+
+test "Syntax.loadFile reads file and detects language" {
+    const allocator = std.testing.allocator;
+
+    // Load this source file itself
+    var syntax = try Syntax.loadFile(allocator, "src/renderables/syntax.zig");
+    defer syntax.deinit();
+
+    // Should detect as Zig from extension
+    try std.testing.expectEqual(Language.zig, syntax.language);
+
+    // Should contain actual code
+    try std.testing.expect(syntax.code.len > 0);
+    try std.testing.expect(std.mem.indexOf(u8, syntax.code, "const std") != null);
+}
+
+test "Syntax.loadFile error on non-existent file" {
+    const allocator = std.testing.allocator;
+
+    const result = Syntax.loadFile(allocator, "non_existent_file_xyz123.zig");
+    try std.testing.expectError(error.FileNotFound, result);
+}
+
+test "Syntax.loadFile renders correctly" {
+    const allocator = std.testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+
+    // Load build.zig.zon (small file)
+    var syntax = try Syntax.loadFile(arena.allocator(), "build.zig.zon");
+    // No need for deinit since arena handles cleanup
+
+    // Should detect as Zig from extension
+    try std.testing.expectEqual(Language.zig, syntax.language);
+
+    // Should render successfully
+    const segments = try syntax.render(80, arena.allocator());
+    try std.testing.expect(segments.len > 0);
 }
