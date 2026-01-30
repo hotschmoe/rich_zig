@@ -354,7 +354,7 @@ We aim to implement all features from the Rich library that are feasible in Zig 
 | Lists (ordered) | Y | Y | [x] | Numbered |
 | Lists (unordered) | Y | Y | [x] | Bullet points |
 | Blockquotes | Y | Y | [x] | Indented |
-| Horizontal rules | Y | Y | [x] | Dividers |
+| Horizontal rules | Y | Y | [ ] | Dividers |
 | Tables | Y | Y | [ ] | GFM tables |
 | Task lists | Y | Y | [ ] | Checkboxes |
 | Strikethrough | Y | Y | [ ] | GFM extension |
@@ -388,7 +388,7 @@ We aim to implement all features from the Rich library that are feasible in Zig 
 |---------|------|-----------|----------|-------|
 | Rich handler | Y | Y | [x] | Styled logs |
 | Tracebacks | Y | Y | [x] | Formatted errors |
-| Syntax in tracebacks | Y | Y | [x] | Code context |
+| Syntax in tracebacks | Y | Y | [ ] | Code context |
 | Local variables | Y | Y | [ ] | Show locals |
 
 ---
