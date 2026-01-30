@@ -7,6 +7,7 @@ const syntax_mod = @import("syntax.zig");
 const Syntax = syntax_mod.Syntax;
 const SyntaxTheme = syntax_mod.SyntaxTheme;
 const Language = syntax_mod.Language;
+const Rule = @import("rule.zig").Rule;
 
 pub const HeaderLevel = enum(u3) {
     h1 = 1,
@@ -56,6 +57,8 @@ pub const MarkdownTheme = struct {
     image_style: Style = Style.empty.fg(Color.bright_black).italic(),
     image_prefix: []const u8 = "[Image: ",
     image_suffix: []const u8 = "]",
+    rule_style: Style = Style.empty.fg(Color.bright_black),
+    rule_char: []const u8 = "\u{2500}",
 
     pub const default: MarkdownTheme = .{};
 
@@ -264,6 +267,13 @@ pub const Markdown = struct {
                 const header_segments = try header.render(max_width, allocator);
                 defer allocator.free(header_segments);
                 try segments.appendSlice(allocator, header_segments);
+            } else if (parseHorizontalRule(trimmed)) {
+                const rule = Rule.init()
+                    .withCharacters(self.theme.rule_char)
+                    .withStyle(self.theme.rule_style);
+                const rule_segments = try rule.render(max_width, allocator);
+                defer allocator.free(rule_segments);
+                try segments.appendSlice(allocator, rule_segments);
             } else if (parseBlockquote(line)) |blockquote| {
                 try self.renderBlockquoteLine(blockquote, &segments, allocator);
                 try segments.append(allocator, Segment.line());
@@ -497,6 +507,25 @@ pub const Markdown = struct {
 
         const text = std.mem.trim(u8, line[hash_count..], " \t");
         return .{ .level = level, .text = text };
+    }
+
+    fn parseHorizontalRule(line: []const u8) bool {
+        const trimmed = std.mem.trim(u8, line, " \t");
+        if (trimmed.len < 3) return false;
+
+        const first_char = trimmed[0];
+        if (first_char != '-' and first_char != '*' and first_char != '_') return false;
+
+        for (trimmed) |c| {
+            if (c != first_char and c != ' ') return false;
+        }
+
+        var char_count: usize = 0;
+        for (trimmed) |c| {
+            if (c == first_char) char_count += 1;
+        }
+
+        return char_count >= 3;
     }
 
     const InlineSpan = struct {
@@ -2455,4 +2484,101 @@ test "MarkdownTheme has image style" {
     try std.testing.expect(theme.image_style.color != null);
     try std.testing.expectEqualStrings("[Image: ", theme.image_prefix);
     try std.testing.expectEqualStrings("]", theme.image_suffix);
+}
+
+test "parseHorizontalRule basic dashes" {
+    try std.testing.expect(Markdown.parseHorizontalRule("---"));
+    try std.testing.expect(Markdown.parseHorizontalRule("----"));
+    try std.testing.expect(Markdown.parseHorizontalRule("-----"));
+    try std.testing.expect(Markdown.parseHorizontalRule("----------"));
+}
+
+test "parseHorizontalRule basic asterisks" {
+    try std.testing.expect(Markdown.parseHorizontalRule("***"));
+    try std.testing.expect(Markdown.parseHorizontalRule("****"));
+    try std.testing.expect(Markdown.parseHorizontalRule("*****"));
+}
+
+test "parseHorizontalRule basic underscores" {
+    try std.testing.expect(Markdown.parseHorizontalRule("___"));
+    try std.testing.expect(Markdown.parseHorizontalRule("____"));
+    try std.testing.expect(Markdown.parseHorizontalRule("_____"));
+}
+
+test "parseHorizontalRule with spaces" {
+    try std.testing.expect(Markdown.parseHorizontalRule("- - -"));
+    try std.testing.expect(Markdown.parseHorizontalRule("* * *"));
+    try std.testing.expect(Markdown.parseHorizontalRule("_ _ _"));
+    try std.testing.expect(Markdown.parseHorizontalRule("  ---  "));
+    try std.testing.expect(Markdown.parseHorizontalRule("- - - -"));
+}
+
+test "parseHorizontalRule invalid" {
+    try std.testing.expect(!Markdown.parseHorizontalRule("--"));
+    try std.testing.expect(!Markdown.parseHorizontalRule("**"));
+    try std.testing.expect(!Markdown.parseHorizontalRule("__"));
+    try std.testing.expect(!Markdown.parseHorizontalRule("- * -"));
+    try std.testing.expect(!Markdown.parseHorizontalRule("abc"));
+    try std.testing.expect(!Markdown.parseHorizontalRule(""));
+    try std.testing.expect(!Markdown.parseHorizontalRule("- -a-"));
+}
+
+test "Markdown.render horizontal rule" {
+    const allocator = std.testing.allocator;
+    const md = Markdown.init("Above\n\n---\n\nBelow");
+    const segments = try md.render(40, allocator);
+    defer allocator.free(segments);
+
+    var found_above = false;
+    var found_below = false;
+    var found_rule_char = false;
+
+    for (segments) |seg| {
+        if (std.mem.eql(u8, seg.text, "Above")) found_above = true;
+        if (std.mem.eql(u8, seg.text, "Below")) found_below = true;
+        if (std.mem.eql(u8, seg.text, "\u{2500}")) {
+            found_rule_char = true;
+            try std.testing.expect(seg.style != null);
+        }
+    }
+
+    try std.testing.expect(found_above);
+    try std.testing.expect(found_below);
+    try std.testing.expect(found_rule_char);
+}
+
+test "Markdown.render horizontal rule asterisks" {
+    const allocator = std.testing.allocator;
+    const md = Markdown.init("***");
+    const segments = try md.render(20, allocator);
+    defer allocator.free(segments);
+
+    var found_rule = false;
+    for (segments) |seg| {
+        if (std.mem.eql(u8, seg.text, "\u{2500}")) {
+            found_rule = true;
+        }
+    }
+    try std.testing.expect(found_rule);
+}
+
+test "Markdown.render horizontal rule underscores" {
+    const allocator = std.testing.allocator;
+    const md = Markdown.init("___");
+    const segments = try md.render(20, allocator);
+    defer allocator.free(segments);
+
+    var found_rule = false;
+    for (segments) |seg| {
+        if (std.mem.eql(u8, seg.text, "\u{2500}")) {
+            found_rule = true;
+        }
+    }
+    try std.testing.expect(found_rule);
+}
+
+test "MarkdownTheme has rule style" {
+    const theme = MarkdownTheme.default;
+    try std.testing.expect(theme.rule_style.color != null);
+    try std.testing.expectEqualStrings("\u{2500}", theme.rule_char);
 }
