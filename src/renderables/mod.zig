@@ -17,6 +17,12 @@ pub const progress = @import("progress.zig");
 pub const ProgressBar = progress.ProgressBar;
 pub const Spinner = progress.Spinner;
 pub const SpeedUnit = progress.SpeedUnit;
+pub const Progress = progress.Progress;
+pub const ProgressColumn = progress.ProgressColumn;
+pub const BuiltinColumn = progress.BuiltinColumn;
+pub const ColumnWidth = progress.ColumnWidth;
+pub const ColumnRenderContext = progress.ColumnRenderContext;
+pub const CustomColumnFn = progress.CustomColumnFn;
 
 pub const tree = @import("tree.zig");
 pub const Tree = tree.Tree;
