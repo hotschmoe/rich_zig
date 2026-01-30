@@ -57,13 +57,13 @@ rich_zig brings rich text and beautiful formatting to Zig terminal applications.
 | Layout | Split views (horizontal/vertical) | Complete |
 | Live | Real-time updating display | Complete |
 
-### Optional (Phase 5) - Partial
+### Optional (Phase 5) - Complete
 
 | Component | Description | Status |
 |-----------|-------------|--------|
 | JSON | Pretty-printed JSON with themes | Complete |
-| Syntax | Syntax highlighting | Planned |
-| Markdown | Terminal markdown rendering | Planned |
+| Syntax | Syntax highlighting | Complete |
+| Markdown | Terminal markdown rendering | Complete |
 
 ## Installation
 
@@ -120,10 +120,16 @@ pub fn build(b: *std.Build) void {
 
 ### Using a Specific Version
 
+```bash
+zig fetch --save git+https://github.com/hotschmoe-zig/rich_zig.git#v1.0.0
+```
+
+Or manually in `build.zig.zon`:
+
 ```zig
 .dependencies = .{
     .rich_zig = .{
-        .url = "git+https://github.com/hotschmoe-zig/rich_zig.git#v0.9.1",
+        .url = "git+https://github.com/hotschmoe-zig/rich_zig.git#v1.0.0",
         .hash = "...",
     },
 },
@@ -139,6 +145,23 @@ Clone and reference locally:
         .path = "../rich_zig",
     },
 },
+```
+
+### Verify Installation
+
+Test your installation with this simple program:
+
+```zig
+const rich = @import("rich_zig");
+const std = @import("std");
+
+pub fn main() !void {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    const allocator = gpa.allocator();
+
+    var console = rich.Console.init(allocator);
+    try console.print("[bold green]rich_zig v1.0.0 installed successfully![/]");
+}
 ```
 
 ## Usage
@@ -197,7 +220,7 @@ Output:
 ```zig
 const panel = rich.Panel.fromText(allocator, "Welcome to the system!")
     .withTitle("Message")
-    .withSubtitle("v0.9.1")
+    .withSubtitle("v1.0.0")
     .withWidth(50)
     .rounded();
 
@@ -208,7 +231,7 @@ Output:
 ```
 +-- Message --------------------------+
 | Welcome to the system!             |
-+------------------------- v0.9.1 ---+
++------------------------- v1.0.0 ---+
 ```
 
 ### Progress Bars
@@ -252,6 +275,21 @@ project
 +-- build.zig
 +-- README.md
 ```
+
+## Quick Reference
+
+| Task | Code |
+|------|------|
+| Print styled text | `try console.print("[bold red]Error![/]")` |
+| Create panel | `Panel.fromText(alloc, "text").withTitle("T")` |
+| Info panel | `Panel.info(alloc, "message")` |
+| Create table | `Table.init(alloc).withColumn(Column.init("A"))` |
+| Add table row | `try table.addRowCells(.{ "a", "b", "c" })` |
+| Progress bar | `ProgressBar.init().withCompleted(50).withTotal(100)` |
+| Horizontal rule | `Rule.init().withTitle("Section")` |
+| Tree node | `TreeNode.init(alloc, "root")` |
+| Style composition | `Style.empty.bold().fg(Color.red)` |
+| Prelude import | `const rich = @import("rich_zig").prelude;` |
 
 ## Architecture
 
@@ -365,8 +403,8 @@ We track 100% feature parity with Rich/rich_rust. See [docs/FEATURE_PARITY.md](d
 |-------|------------|--------|
 | Core (P0) | Color, Style, Segment, Cells, Markup, Text | 100% Complete |
 | Console (P0) | Terminal detection, Console I/O | 100% Complete |
-| Renderables (P1) | Panel, Table, Rule, Progress, Tree, Layout | ~95% Complete |
-| Optional (P2) | JSON, Syntax, Markdown | ~35% Complete |
+| Renderables (P1) | Panel, Table, Rule, Progress, Tree, Layout | 100% Complete |
+| Optional (P2) | JSON, Syntax, Markdown | 100% Complete |
 
 ## CI/CD
 

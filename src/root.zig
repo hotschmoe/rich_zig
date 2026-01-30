@@ -24,6 +24,13 @@
 
 const std = @import("std");
 
+// Error types
+pub const errors = @import("errors.zig");
+pub const MarkupError = errors.MarkupError;
+pub const RenderError = errors.RenderError;
+pub const TableError = errors.TableError;
+pub const ConsoleError = errors.ConsoleError;
+
 // Phase 1: Core types
 pub const color = @import("color.zig");
 pub const Color = color.Color;
@@ -132,6 +139,9 @@ pub const Confirm = prompt.Confirm;
 pub const PromptError = prompt.PromptError;
 pub const ValidationResult = prompt.ValidationResult;
 pub const ValidatorFn = prompt.ValidatorFn;
+
+// Prelude: convenience module for rapid prototyping
+pub const prelude = @import("prelude.zig");
 
 // Re-export tests from all modules
 test {

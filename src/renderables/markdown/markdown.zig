@@ -1,229 +1,21 @@
 const std = @import("std");
-const Segment = @import("../segment.zig").Segment;
-const Style = @import("../style.zig").Style;
-const Color = @import("../color.zig").Color;
-const cells = @import("../cells.zig");
-const syntax_mod = @import("syntax.zig");
+const Segment = @import("../../segment.zig").Segment;
+const Style = @import("../../style.zig").Style;
+const syntax_mod = @import("../syntax/mod.zig");
 const Syntax = syntax_mod.Syntax;
 const SyntaxTheme = syntax_mod.SyntaxTheme;
 const Language = syntax_mod.Language;
-const Rule = @import("rule.zig").Rule;
-const table_mod = @import("table.zig");
+const Rule = @import("../rule.zig").Rule;
+const table_mod = @import("../table/mod.zig");
 const Table = table_mod.Table;
 const Column = table_mod.Column;
 const JustifyMethod = table_mod.JustifyMethod;
-const BoxStyle = @import("../box.zig").BoxStyle;
-
-pub const HeaderLevel = enum(u3) {
-    h1 = 1,
-    h2 = 2,
-    h3 = 3,
-    h4 = 4,
-    h5 = 5,
-    h6 = 6,
-
-    pub fn fromCount(count: usize) ?HeaderLevel {
-        return switch (count) {
-            1 => .h1,
-            2 => .h2,
-            3 => .h3,
-            4 => .h4,
-            5 => .h5,
-            6 => .h6,
-            else => null,
-        };
-    }
-};
-
-pub const MarkdownTheme = struct {
-    h1_style: Style = Style.empty.bold().fg(Color.bright_cyan),
-    h2_style: Style = Style.empty.bold().fg(Color.bright_blue),
-    h3_style: Style = Style.empty.bold().fg(Color.bright_magenta),
-    h4_style: Style = Style.empty.bold().fg(Color.cyan),
-    h5_style: Style = Style.empty.bold().fg(Color.blue),
-    h6_style: Style = Style.empty.bold().fg(Color.magenta).dim(),
-    h1_underline: ?[]const u8 = "\u{2550}",
-    h2_underline: ?[]const u8 = "\u{2500}",
-    bold_style: Style = Style.empty.bold(),
-    italic_style: Style = Style.empty.italic(),
-    bold_italic_style: Style = Style.empty.bold().italic(),
-    strikethrough_style: Style = Style.empty.strike(),
-    link_style: Style = Style.empty.fg(Color.bright_blue).underline(),
-    code_block_style: Style = Style.empty.foreground(Color.default).dim(),
-    syntax_theme: SyntaxTheme = SyntaxTheme.default,
-    list_number_style: Style = Style.empty.fg(Color.bright_yellow),
-    list_bullet_style: Style = Style.empty.fg(Color.bright_cyan),
-    list_bullet_char: []const u8 = "\u{2022}",
-    list_indent: usize = 3,
-    task_unchecked_char: []const u8 = "\u{2610}",
-    task_checked_char: []const u8 = "\u{2611}",
-    task_unchecked_style: Style = Style.empty.fg(Color.bright_black),
-    task_checked_style: Style = Style.empty.fg(Color.bright_green),
-    blockquote_style: Style = Style.empty.fg(Color.bright_black).italic(),
-    blockquote_border_style: Style = Style.empty.fg(Color.bright_cyan),
-    blockquote_border_char: []const u8 = "\u{2502}",
-    blockquote_indent: usize = 2,
-    inline_code_style: Style = Style.empty.fg(Color.bright_yellow).dim(),
-    image_style: Style = Style.empty.fg(Color.bright_black).italic(),
-    image_prefix: []const u8 = "[Image: ",
-    image_suffix: []const u8 = "]",
-    rule_style: Style = Style.empty.fg(Color.bright_black),
-    rule_char: []const u8 = "\u{2500}",
-    table_header_style: Style = Style.empty.bold().fg(Color.bright_cyan),
-    table_border_style: Style = Style.empty.fg(Color.bright_black),
-    table_box_style: BoxStyle = BoxStyle.rounded,
-
-    pub const default: MarkdownTheme = .{};
-
-    pub fn styleForLevel(self: MarkdownTheme, level: HeaderLevel) Style {
-        return switch (level) {
-            .h1 => self.h1_style,
-            .h2 => self.h2_style,
-            .h3 => self.h3_style,
-            .h4 => self.h4_style,
-            .h5 => self.h5_style,
-            .h6 => self.h6_style,
-        };
-    }
-
-    pub fn underlineForLevel(self: MarkdownTheme, level: HeaderLevel) ?[]const u8 {
-        return switch (level) {
-            .h1 => self.h1_underline,
-            .h2 => self.h2_underline,
-            else => null,
-        };
-    }
-};
-
-pub const Header = struct {
-    text: []const u8,
-    level: HeaderLevel,
-    theme: MarkdownTheme = .default,
-    width: ?usize = null,
-
-    pub fn init(text: []const u8, level: HeaderLevel) Header {
-        return .{ .text = text, .level = level };
-    }
-
-    pub fn h1(text: []const u8) Header {
-        return init(text, .h1);
-    }
-
-    pub fn h2(text: []const u8) Header {
-        return init(text, .h2);
-    }
-
-    pub fn h3(text: []const u8) Header {
-        return init(text, .h3);
-    }
-
-    pub fn h4(text: []const u8) Header {
-        return init(text, .h4);
-    }
-
-    pub fn h5(text: []const u8) Header {
-        return init(text, .h5);
-    }
-
-    pub fn h6(text: []const u8) Header {
-        return init(text, .h6);
-    }
-
-    pub fn withTheme(self: Header, theme: MarkdownTheme) Header {
-        var h = self;
-        h.theme = theme;
-        return h;
-    }
-
-    pub fn withWidth(self: Header, w: usize) Header {
-        var h = self;
-        h.width = w;
-        return h;
-    }
-
-    pub fn render(self: Header, max_width: usize, allocator: std.mem.Allocator) ![]Segment {
-        var segments: std.ArrayList(Segment) = .empty;
-
-        const style = self.theme.styleForLevel(self.level);
-        const text_width = cells.cellLen(self.text);
-        const effective_width = self.width orelse max_width;
-
-        try segments.append(allocator, Segment.styled(self.text, style));
-        try segments.append(allocator, Segment.line());
-
-        if (self.theme.underlineForLevel(self.level)) |underline_char| {
-            const underline_len = @min(text_width, effective_width);
-            const char_width = cells.cellLen(underline_char);
-
-            if (char_width > 0) {
-                const repeat_count = underline_len / char_width;
-                for (0..repeat_count) |_| {
-                    try segments.append(allocator, Segment.styled(underline_char, style));
-                }
-            }
-            try segments.append(allocator, Segment.line());
-        }
-
-        return segments.toOwnedSlice(allocator);
-    }
-};
-
-pub const CodeBlock = struct {
-    code: []const u8,
-    language: ?[]const u8 = null,
-    theme: MarkdownTheme = .default,
-
-    pub fn init(code: []const u8) CodeBlock {
-        return .{ .code = code };
-    }
-
-    pub fn withLanguage(self: CodeBlock, lang: []const u8) CodeBlock {
-        var cb = self;
-        cb.language = lang;
-        return cb;
-    }
-
-    pub fn withTheme(self: CodeBlock, theme: MarkdownTheme) CodeBlock {
-        var cb = self;
-        cb.theme = theme;
-        return cb;
-    }
-
-    fn detectLanguage(self: CodeBlock) Language {
-        const lang = self.language orelse return .plain;
-        if (lang.len == 0) return .plain;
-
-        if (std.mem.eql(u8, lang, "zig")) return .zig;
-        if (std.mem.eql(u8, lang, "json")) return .json;
-        if (std.mem.eql(u8, lang, "md") or std.mem.eql(u8, lang, "markdown")) return .markdown;
-
-        return .plain;
-    }
-
-    pub fn render(self: CodeBlock, max_width: usize, allocator: std.mem.Allocator) ![]Segment {
-        const detected_lang = self.detectLanguage();
-
-        if (detected_lang != .plain) {
-            const syntax = Syntax.init(allocator, self.code)
-                .withLanguage(detected_lang)
-                .withTheme(self.theme.syntax_theme);
-            return syntax.renderDuped(max_width, allocator);
-        }
-
-        var segments: std.ArrayList(Segment) = .empty;
-        var lines = std.mem.splitScalar(u8, self.code, '\n');
-
-        while (lines.next()) |line| {
-            if (line.len > 0) {
-                const duped = try allocator.dupe(u8, line);
-                try segments.append(allocator, Segment.styled(duped, self.theme.code_block_style));
-            }
-            try segments.append(allocator, Segment.line());
-        }
-
-        return segments.toOwnedSlice(allocator);
-    }
-};
+const theme_mod = @import("theme.zig");
+const HeaderLevel = theme_mod.HeaderLevel;
+const MarkdownTheme = theme_mod.MarkdownTheme;
+const elements_mod = @import("elements.zig");
+const Header = elements_mod.Header;
+const CodeBlock = elements_mod.CodeBlock;
 
 pub const Markdown = struct {
     source: []const u8,
@@ -1020,53 +812,6 @@ pub const Markdown = struct {
     }
 };
 
-// Tests
-test "HeaderLevel.fromCount" {
-    try std.testing.expectEqual(HeaderLevel.h1, HeaderLevel.fromCount(1).?);
-    try std.testing.expectEqual(HeaderLevel.h6, HeaderLevel.fromCount(6).?);
-    try std.testing.expect(HeaderLevel.fromCount(0) == null);
-    try std.testing.expect(HeaderLevel.fromCount(7) == null);
-}
-
-test "Header.h1 creates correct level" {
-    const header = Header.h1("Title");
-    try std.testing.expectEqual(HeaderLevel.h1, header.level);
-    try std.testing.expectEqualStrings("Title", header.text);
-}
-
-test "Header.render h1 with underline" {
-    const allocator = std.testing.allocator;
-    const header = Header.h1("Title");
-    const segments = try header.render(80, allocator);
-    defer allocator.free(segments);
-
-    try std.testing.expect(segments.len >= 2);
-    try std.testing.expectEqualStrings("Title", segments[0].text);
-    try std.testing.expect(segments[0].style != null);
-    try std.testing.expect(segments[0].style.?.hasAttribute(.bold));
-}
-
-test "Header.render h3 no underline" {
-    const allocator = std.testing.allocator;
-    const header = Header.h3("Section");
-    const segments = try header.render(80, allocator);
-    defer allocator.free(segments);
-
-    try std.testing.expectEqual(@as(usize, 2), segments.len);
-    try std.testing.expectEqualStrings("Section", segments[0].text);
-    try std.testing.expectEqualStrings("\n", segments[1].text);
-}
-
-test "MarkdownTheme.styleForLevel returns distinct styles" {
-    const theme = MarkdownTheme.default;
-    const h1_style = theme.styleForLevel(.h1);
-    const h6_style = theme.styleForLevel(.h6);
-
-    try std.testing.expect(h1_style.hasAttribute(.bold));
-    try std.testing.expect(h6_style.hasAttribute(.bold));
-    try std.testing.expect(!h1_style.eql(h6_style));
-}
-
 test "Markdown.parseHeader valid headers" {
     const h1 = Markdown.parseHeader("# Title");
     try std.testing.expect(h1 != null);
@@ -1116,21 +861,6 @@ test "Markdown.render parses headers" {
     }
     try std.testing.expect(found_main);
     try std.testing.expect(found_subtitle);
-}
-
-test "Header all levels" {
-    const allocator = std.testing.allocator;
-    const levels = [_]HeaderLevel{ .h1, .h2, .h3, .h4, .h5, .h6 };
-
-    for (levels) |level| {
-        const header = Header.init("Test", level);
-        const segments = try header.render(80, allocator);
-        defer allocator.free(segments);
-
-        try std.testing.expect(segments.len >= 2);
-        try std.testing.expect(segments[0].style != null);
-        try std.testing.expect(segments[0].style.?.hasAttribute(.bold));
-    }
 }
 
 test "parseInlineStyles plain text" {
@@ -1407,72 +1137,6 @@ test "parseFenceClose detects closing fence" {
     try std.testing.expect(Markdown.parseFenceClose("```  "));
     try std.testing.expect(!Markdown.parseFenceClose("``"));
     try std.testing.expect(!Markdown.parseFenceClose("```zig"));
-}
-
-test "CodeBlock.init" {
-    const cb = CodeBlock.init("const x = 1;");
-    try std.testing.expectEqualStrings("const x = 1;", cb.code);
-    try std.testing.expect(cb.language == null);
-}
-
-test "CodeBlock.withLanguage" {
-    const cb = CodeBlock.init("code").withLanguage("zig");
-    try std.testing.expectEqualStrings("zig", cb.language.?);
-}
-
-test "CodeBlock.detectLanguage" {
-    const plain = CodeBlock.init("code");
-    try std.testing.expectEqual(Language.plain, plain.detectLanguage());
-
-    const zig = CodeBlock.init("code").withLanguage("zig");
-    try std.testing.expectEqual(Language.zig, zig.detectLanguage());
-
-    const json = CodeBlock.init("code").withLanguage("json");
-    try std.testing.expectEqual(Language.json, json.detectLanguage());
-
-    const md = CodeBlock.init("code").withLanguage("markdown");
-    try std.testing.expectEqual(Language.markdown, md.detectLanguage());
-
-    const unknown = CodeBlock.init("code").withLanguage("python");
-    try std.testing.expectEqual(Language.plain, unknown.detectLanguage());
-}
-
-test "CodeBlock.render plain" {
-    const allocator = std.testing.allocator;
-    var arena = std.heap.ArenaAllocator.init(allocator);
-    defer arena.deinit();
-
-    const cb = CodeBlock.init("line1\nline2");
-    const segments = try cb.render(80, arena.allocator());
-
-    try std.testing.expect(segments.len >= 2);
-    var found_line1 = false;
-    var found_line2 = false;
-    for (segments) |seg| {
-        if (std.mem.eql(u8, seg.text, "line1")) found_line1 = true;
-        if (std.mem.eql(u8, seg.text, "line2")) found_line2 = true;
-    }
-    try std.testing.expect(found_line1);
-    try std.testing.expect(found_line2);
-}
-
-test "CodeBlock.render zig syntax" {
-    const allocator = std.testing.allocator;
-    var arena = std.heap.ArenaAllocator.init(allocator);
-    defer arena.deinit();
-
-    const cb = CodeBlock.init("const x = 1;").withLanguage("zig");
-    const segments = try cb.render(80, arena.allocator());
-
-    try std.testing.expect(segments.len > 0);
-    var found_const = false;
-    for (segments) |seg| {
-        if (std.mem.eql(u8, seg.text, "const")) {
-            found_const = true;
-            try std.testing.expect(seg.style != null);
-        }
-    }
-    try std.testing.expect(found_const);
 }
 
 test "Markdown.render fenced code block plain" {

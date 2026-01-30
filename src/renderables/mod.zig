@@ -3,7 +3,7 @@ pub const Panel = panel.Panel;
 pub const Alignment = panel.Alignment;
 pub const VOverflow = panel.VOverflow;
 
-pub const table = @import("table.zig");
+pub const table = @import("table/mod.zig");
 pub const Table = table.Table;
 pub const Column = table.Column;
 pub const JustifyMethod = table.JustifyMethod;
@@ -13,7 +13,7 @@ pub const AlternatingStyles = table.AlternatingStyles;
 pub const rule = @import("rule.zig");
 pub const Rule = rule.Rule;
 
-pub const progress = @import("progress.zig");
+pub const progress = @import("progress/mod.zig");
 pub const ProgressBar = progress.ProgressBar;
 pub const Spinner = progress.Spinner;
 pub const SpeedUnit = progress.SpeedUnit;
@@ -53,16 +53,17 @@ pub const json = @import("json.zig");
 pub const Json = json.Json;
 pub const JsonTheme = json.JsonTheme;
 
-pub const syntax = @import("syntax.zig");
+pub const syntax = @import("syntax/mod.zig");
 pub const Syntax = syntax.Syntax;
 pub const SyntaxTheme = syntax.SyntaxTheme;
 pub const SyntaxLanguage = syntax.Language;
 
-pub const markdown = @import("markdown.zig");
+pub const markdown = @import("markdown/mod.zig");
 pub const Markdown = markdown.Markdown;
 pub const MarkdownTheme = markdown.MarkdownTheme;
 pub const Header = markdown.Header;
 pub const HeaderLevel = markdown.HeaderLevel;
+pub const CodeBlock = markdown.CodeBlock;
 
 pub const ProgressGroup = progress.ProgressGroup;
 pub const ProgressDisplay = progress.ProgressDisplay;
@@ -75,9 +76,9 @@ pub const SplitterConfig = layout.SplitterConfig;
 
 test {
     _ = @import("panel.zig");
-    _ = @import("table.zig");
+    _ = @import("table/mod.zig");
     _ = @import("rule.zig");
-    _ = @import("progress.zig");
+    _ = @import("progress/mod.zig");
     _ = @import("tree.zig");
     _ = @import("padding.zig");
     _ = @import("align.zig");
@@ -85,6 +86,6 @@ test {
     _ = @import("live.zig");
     _ = @import("layout.zig");
     _ = @import("json.zig");
-    _ = @import("syntax.zig");
-    _ = @import("markdown.zig");
+    _ = @import("syntax/mod.zig");
+    _ = @import("markdown/mod.zig");
 }

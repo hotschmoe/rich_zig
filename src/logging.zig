@@ -6,9 +6,9 @@ const terminal = @import("terminal.zig");
 const Segment = @import("segment.zig").Segment;
 const box = @import("box.zig");
 const Panel = @import("renderables/panel.zig").Panel;
-const Syntax = @import("renderables/syntax.zig").Syntax;
-const SyntaxTheme = @import("renderables/syntax.zig").SyntaxTheme;
-const Language = @import("renderables/syntax.zig").Language;
+const Syntax = @import("renderables/syntax/mod.zig").Syntax;
+const SyntaxTheme = @import("renderables/syntax/mod.zig").SyntaxTheme;
+const Language = @import("renderables/syntax/mod.zig").Language;
 
 /// Log level matching std.log.Level for compatibility
 pub const Level = enum {
