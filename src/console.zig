@@ -398,7 +398,7 @@ pub const Console = struct {
                 try writer.writeAll("\">");
             }
 
-            try writeHtmlEscaped(seg.text, writer);
+            try writeXmlEscaped(seg.text, writer);
 
             if (has_style) {
                 try writer.writeAll("</span>");
@@ -414,71 +414,44 @@ pub const Console = struct {
         var needs_sep = false;
 
         if (style.color) |c| {
-            if (c.triplet) |t| {
+            if (c.getTriplet()) |t| {
                 try writer.print("color: rgb({d},{d},{d})", .{ t.r, t.g, t.b });
-                needs_sep = true;
-            } else if (c.number) |n| {
-                const rgb = Color.paletteToRgb(n);
-                try writer.print("color: rgb({d},{d},{d})", .{ rgb.r, rgb.g, rgb.b });
                 needs_sep = true;
             }
         }
 
         if (style.bgcolor) |c| {
-            if (needs_sep) try writer.writeAll("; ");
-            if (c.triplet) |t| {
+            if (c.getTriplet()) |t| {
+                if (needs_sep) try writer.writeAll("; ");
                 try writer.print("background-color: rgb({d},{d},{d})", .{ t.r, t.g, t.b });
-                needs_sep = true;
-            } else if (c.number) |n| {
-                const rgb = Color.paletteToRgb(n);
-                try writer.print("background-color: rgb({d},{d},{d})", .{ rgb.r, rgb.g, rgb.b });
                 needs_sep = true;
             }
         }
 
-        if (style.hasAttribute(.bold)) {
-            if (needs_sep) try writer.writeAll("; ");
-            try writer.writeAll("font-weight: bold");
-            needs_sep = true;
-        }
-
-        if (style.hasAttribute(.dim)) {
-            if (needs_sep) try writer.writeAll("; ");
-            try writer.writeAll("opacity: 0.5");
-            needs_sep = true;
-        }
-
-        if (style.hasAttribute(.italic)) {
-            if (needs_sep) try writer.writeAll("; ");
-            try writer.writeAll("font-style: italic");
-            needs_sep = true;
-        }
-
-        if (style.hasAttribute(.underline)) {
-            if (needs_sep) try writer.writeAll("; ");
-            try writer.writeAll("text-decoration: underline");
-            needs_sep = true;
-        }
-
-        if (style.hasAttribute(.strike)) {
-            if (needs_sep) try writer.writeAll("; ");
-            try writer.writeAll("text-decoration: line-through");
-            needs_sep = true;
-        }
-
-        if (style.hasAttribute(.overline)) {
-            if (needs_sep) try writer.writeAll("; ");
-            try writer.writeAll("text-decoration: overline");
+        inline for (.{
+            .{ .bold, "font-weight: bold" },
+            .{ .dim, "opacity: 0.5" },
+            .{ .italic, "font-style: italic" },
+            .{ .underline, "text-decoration: underline" },
+            .{ .strike, "text-decoration: line-through" },
+            .{ .overline, "text-decoration: overline" },
+        }) |pair| {
+            if (style.hasAttribute(pair[0])) {
+                if (needs_sep) try writer.writeAll("; ");
+                try writer.writeAll(pair[1]);
+                needs_sep = true;
+            }
         }
     }
 
-    fn writeHtmlEscaped(text: []const u8, writer: anytype) !void {
+    fn writeXmlEscaped(text: []const u8, writer: anytype) !void {
         for (text) |c| {
             switch (c) {
                 '<' => try writer.writeAll("&lt;"),
                 '>' => try writer.writeAll("&gt;"),
                 '&' => try writer.writeAll("&amp;"),
                 '"' => try writer.writeAll("&quot;"),
+                '\'' => try writer.writeAll("&apos;"),
                 else => try writer.writeByte(c),
             }
         }
@@ -648,62 +621,28 @@ pub const Console = struct {
         var needs_sep = false;
 
         if (style.color) |c| {
-            const triplet = c.getTriplet();
-            if (triplet) |t| {
+            if (c.getTriplet()) |t| {
                 try writer.print("fill:rgb({d},{d},{d})", .{ t.r, t.g, t.b });
                 needs_sep = true;
             }
         }
 
-        if (style.hasAttribute(.bold)) {
-            if (needs_sep) try writer.writeByte(';');
-            try writer.writeAll("font-weight:bold");
-            needs_sep = true;
-        }
-
-        if (style.hasAttribute(.dim)) {
-            if (needs_sep) try writer.writeByte(';');
-            try writer.writeAll("opacity:0.5");
-            needs_sep = true;
-        }
-
-        if (style.hasAttribute(.italic)) {
-            if (needs_sep) try writer.writeByte(';');
-            try writer.writeAll("font-style:italic");
-            needs_sep = true;
-        }
-
-        if (style.hasAttribute(.underline)) {
-            if (needs_sep) try writer.writeByte(';');
-            try writer.writeAll("text-decoration:underline");
-            needs_sep = true;
-        }
-
-        if (style.hasAttribute(.strike)) {
-            if (needs_sep) try writer.writeByte(';');
-            try writer.writeAll("text-decoration:line-through");
-            needs_sep = true;
-        }
-
-        if (style.hasAttribute(.overline)) {
-            if (needs_sep) try writer.writeByte(';');
-            try writer.writeAll("text-decoration:overline");
+        inline for (.{
+            .{ .bold, "font-weight:bold" },
+            .{ .dim, "opacity:0.5" },
+            .{ .italic, "font-style:italic" },
+            .{ .underline, "text-decoration:underline" },
+            .{ .strike, "text-decoration:line-through" },
+            .{ .overline, "text-decoration:overline" },
+        }) |pair| {
+            if (style.hasAttribute(pair[0])) {
+                if (needs_sep) try writer.writeByte(';');
+                try writer.writeAll(pair[1]);
+                needs_sep = true;
+            }
         }
 
         try writer.writeByte('"');
-    }
-
-    fn writeXmlEscaped(text: []const u8, writer: anytype) !void {
-        for (text) |c| {
-            switch (c) {
-                '<' => try writer.writeAll("&lt;"),
-                '>' => try writer.writeAll("&gt;"),
-                '&' => try writer.writeAll("&amp;"),
-                '"' => try writer.writeAll("&quot;"),
-                '\'' => try writer.writeAll("&apos;"),
-                else => try writer.writeByte(c),
-            }
-        }
     }
 };
 
