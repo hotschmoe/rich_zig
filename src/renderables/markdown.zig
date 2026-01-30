@@ -52,6 +52,7 @@ pub const MarkdownTheme = struct {
     blockquote_border_style: Style = Style.empty.fg(Color.bright_cyan),
     blockquote_border_char: []const u8 = "\u{2502}",
     blockquote_indent: usize = 2,
+    inline_code_style: Style = Style.empty.fg(Color.bright_yellow).dim(),
 
     pub const default: MarkdownTheme = .{};
 
@@ -506,6 +507,7 @@ pub const Markdown = struct {
             italic,
             bold_italic,
             link,
+            code,
         };
     };
 
@@ -520,6 +522,15 @@ pub const Markdown = struct {
                     .text = result.link_text,
                     .style_type = .link,
                     .link_url = result.url,
+                });
+                pos = result.end_pos;
+                continue;
+            }
+
+            if (tryParseInlineCode(text, pos)) |result| {
+                try spans.append(allocator, .{
+                    .text = result.content,
+                    .style_type = .code,
                 });
                 pos = result.end_pos;
                 continue;
@@ -636,9 +647,59 @@ pub const Markdown = struct {
         return true;
     }
 
+    const InlineCodeResult = struct {
+        content: []const u8,
+        end_pos: usize,
+    };
+
+    fn tryParseInlineCode(text: []const u8, pos: usize) ?InlineCodeResult {
+        if (pos >= text.len or text[pos] != '`') return null;
+
+        // Count opening backticks
+        var backtick_count: usize = 0;
+        var p = pos;
+        while (p < text.len and text[p] == '`') : (p += 1) {
+            backtick_count += 1;
+        }
+
+        // Don't match opening of fenced code block (3+ backticks at line start typically)
+        // For inline, we support 1 or 2 backticks
+        if (backtick_count > 2) return null;
+
+        const content_start = pos + backtick_count;
+        if (content_start >= text.len) return null;
+
+        // Find matching closing backticks
+        var search_pos = content_start;
+        while (search_pos + backtick_count <= text.len) : (search_pos += 1) {
+            // Check for exact backtick match
+            var match = true;
+            for (0..backtick_count) |i| {
+                if (text[search_pos + i] != '`') {
+                    match = false;
+                    break;
+                }
+            }
+
+            if (!match) continue;
+
+            // Make sure we don't have more backticks after
+            const after_pos = search_pos + backtick_count;
+            if (after_pos < text.len and text[after_pos] == '`') continue;
+
+            // Found the closing delimiter
+            return .{
+                .content = text[content_start..search_pos],
+                .end_pos = search_pos + backtick_count,
+            };
+        }
+
+        return null;
+    }
+
     fn advanceToNextDelimiter(text: []const u8, start: usize) usize {
         var pos = start;
-        while (pos < text.len and text[pos] != '*' and text[pos] != '_' and text[pos] != '[') {
+        while (pos < text.len and text[pos] != '*' and text[pos] != '_' and text[pos] != '[' and text[pos] != '`') {
             pos += 1;
         }
         return pos;
@@ -679,6 +740,7 @@ pub const Markdown = struct {
                 .bold => self.theme.bold_style,
                 .italic => self.theme.italic_style,
                 .bold_italic => self.theme.bold_italic_style,
+                .code => self.theme.inline_code_style,
                 .link => blk: {
                     var link_style = self.theme.link_style;
                     if (span.link_url) |url| {
@@ -1895,4 +1957,238 @@ test "MarkdownTheme has blockquote styles" {
     try std.testing.expect(theme.blockquote_border_style.color != null);
     try std.testing.expectEqualStrings("\u{2502}", theme.blockquote_border_char);
     try std.testing.expectEqual(@as(usize, 2), theme.blockquote_indent);
+}
+
+test "tryParseInlineCode basic" {
+    const result = Markdown.tryParseInlineCode("`code`", 0);
+    try std.testing.expect(result != null);
+    try std.testing.expectEqualStrings("code", result.?.content);
+    try std.testing.expectEqual(@as(usize, 6), result.?.end_pos);
+}
+
+test "tryParseInlineCode double backticks" {
+    const result = Markdown.tryParseInlineCode("``code with `backtick` inside``", 0);
+    try std.testing.expect(result != null);
+    try std.testing.expectEqualStrings("code with `backtick` inside", result.?.content);
+    try std.testing.expectEqual(@as(usize, 31), result.?.end_pos);
+}
+
+test "tryParseInlineCode with offset" {
+    const text = "text `code` more";
+    const result = Markdown.tryParseInlineCode(text, 5);
+    try std.testing.expect(result != null);
+    try std.testing.expectEqualStrings("code", result.?.content);
+    try std.testing.expectEqual(@as(usize, 11), result.?.end_pos);
+}
+
+test "tryParseInlineCode unclosed" {
+    try std.testing.expect(Markdown.tryParseInlineCode("`unclosed", 0) == null);
+    try std.testing.expect(Markdown.tryParseInlineCode("``unclosed`", 0) == null);
+}
+
+test "tryParseInlineCode not at backtick" {
+    try std.testing.expect(Markdown.tryParseInlineCode("text", 0) == null);
+    try std.testing.expect(Markdown.tryParseInlineCode("", 0) == null);
+}
+
+test "tryParseInlineCode triple backticks ignored" {
+    try std.testing.expect(Markdown.tryParseInlineCode("```code```", 0) == null);
+}
+
+test "parseInlineStyles with inline code" {
+    const allocator = std.testing.allocator;
+    const spans = try Markdown.parseInlineStyles("Use `code` here", allocator);
+    defer allocator.free(spans);
+
+    try std.testing.expectEqual(@as(usize, 3), spans.len);
+    try std.testing.expectEqualStrings("Use ", spans[0].text);
+    try std.testing.expectEqual(Markdown.InlineSpan.StyleType.plain, spans[0].style_type);
+    try std.testing.expectEqualStrings("code", spans[1].text);
+    try std.testing.expectEqual(Markdown.InlineSpan.StyleType.code, spans[1].style_type);
+    try std.testing.expectEqualStrings(" here", spans[2].text);
+    try std.testing.expectEqual(Markdown.InlineSpan.StyleType.plain, spans[2].style_type);
+}
+
+test "parseInlineStyles inline code at start" {
+    const allocator = std.testing.allocator;
+    const spans = try Markdown.parseInlineStyles("`start` of text", allocator);
+    defer allocator.free(spans);
+
+    try std.testing.expectEqual(@as(usize, 2), spans.len);
+    try std.testing.expectEqualStrings("start", spans[0].text);
+    try std.testing.expectEqual(Markdown.InlineSpan.StyleType.code, spans[0].style_type);
+}
+
+test "parseInlineStyles inline code at end" {
+    const allocator = std.testing.allocator;
+    const spans = try Markdown.parseInlineStyles("end with `code`", allocator);
+    defer allocator.free(spans);
+
+    try std.testing.expectEqual(@as(usize, 2), spans.len);
+    try std.testing.expectEqualStrings("code", spans[1].text);
+    try std.testing.expectEqual(Markdown.InlineSpan.StyleType.code, spans[1].style_type);
+}
+
+test "parseInlineStyles multiple inline codes" {
+    const allocator = std.testing.allocator;
+    const spans = try Markdown.parseInlineStyles("`one` and `two`", allocator);
+    defer allocator.free(spans);
+
+    try std.testing.expectEqual(@as(usize, 3), spans.len);
+    try std.testing.expectEqualStrings("one", spans[0].text);
+    try std.testing.expectEqual(Markdown.InlineSpan.StyleType.code, spans[0].style_type);
+    try std.testing.expectEqualStrings(" and ", spans[1].text);
+    try std.testing.expectEqual(Markdown.InlineSpan.StyleType.plain, spans[1].style_type);
+    try std.testing.expectEqualStrings("two", spans[2].text);
+    try std.testing.expectEqual(Markdown.InlineSpan.StyleType.code, spans[2].style_type);
+}
+
+test "parseInlineStyles code with bold" {
+    const allocator = std.testing.allocator;
+    const spans = try Markdown.parseInlineStyles("Use `code` with **bold**", allocator);
+    defer allocator.free(spans);
+
+    try std.testing.expectEqual(@as(usize, 4), spans.len);
+    try std.testing.expectEqual(Markdown.InlineSpan.StyleType.code, spans[1].style_type);
+    try std.testing.expectEqual(Markdown.InlineSpan.StyleType.bold, spans[3].style_type);
+}
+
+test "Markdown.render with inline code" {
+    const allocator = std.testing.allocator;
+    const md = Markdown.init("Use `variable` in your code");
+    const segments = try md.render(80, allocator);
+    defer allocator.free(segments);
+
+    var found_code = false;
+    for (segments) |seg| {
+        if (std.mem.eql(u8, seg.text, "variable")) {
+            found_code = true;
+            try std.testing.expect(seg.style != null);
+            try std.testing.expect(seg.style.?.hasAttribute(.dim));
+        }
+    }
+    try std.testing.expect(found_code);
+}
+
+test "Markdown.render inline code at start" {
+    const allocator = std.testing.allocator;
+    const md = Markdown.init("`code` at start");
+    const segments = try md.render(80, allocator);
+    defer allocator.free(segments);
+
+    try std.testing.expect(segments.len >= 2);
+    try std.testing.expectEqualStrings("code", segments[0].text);
+    try std.testing.expect(segments[0].style != null);
+}
+
+test "Markdown.render inline code at end" {
+    const allocator = std.testing.allocator;
+    const md = Markdown.init("end with `code`");
+    const segments = try md.render(80, allocator);
+    defer allocator.free(segments);
+
+    var found_code = false;
+    for (segments) |seg| {
+        if (std.mem.eql(u8, seg.text, "code")) {
+            found_code = true;
+            try std.testing.expect(seg.style != null);
+        }
+    }
+    try std.testing.expect(found_code);
+}
+
+test "Markdown.render multiple inline codes" {
+    const allocator = std.testing.allocator;
+    const md = Markdown.init("Use `foo` and `bar`");
+    const segments = try md.render(80, allocator);
+    defer allocator.free(segments);
+
+    var found_foo = false;
+    var found_bar = false;
+    for (segments) |seg| {
+        if (std.mem.eql(u8, seg.text, "foo")) {
+            found_foo = true;
+            try std.testing.expect(seg.style != null);
+        }
+        if (std.mem.eql(u8, seg.text, "bar")) {
+            found_bar = true;
+            try std.testing.expect(seg.style != null);
+        }
+    }
+    try std.testing.expect(found_foo);
+    try std.testing.expect(found_bar);
+}
+
+test "Markdown.render inline code with other styles" {
+    const allocator = std.testing.allocator;
+    const md = Markdown.init("Use `code` with **bold** and *italic*");
+    const segments = try md.render(80, allocator);
+    defer allocator.free(segments);
+
+    var found_code = false;
+    var found_bold = false;
+    var found_italic = false;
+
+    for (segments) |seg| {
+        if (std.mem.eql(u8, seg.text, "code")) {
+            found_code = true;
+            try std.testing.expect(seg.style != null);
+        }
+        if (std.mem.eql(u8, seg.text, "bold")) {
+            found_bold = true;
+            try std.testing.expect(seg.style != null);
+            try std.testing.expect(seg.style.?.hasAttribute(.bold));
+        }
+        if (std.mem.eql(u8, seg.text, "italic")) {
+            found_italic = true;
+            try std.testing.expect(seg.style != null);
+            try std.testing.expect(seg.style.?.hasAttribute(.italic));
+        }
+    }
+
+    try std.testing.expect(found_code);
+    try std.testing.expect(found_bold);
+    try std.testing.expect(found_italic);
+}
+
+test "Markdown.render inline code in list item" {
+    const allocator = std.testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+
+    const md = Markdown.init("- Use `code` here");
+    const segments = try md.render(80, arena.allocator());
+
+    var found_code = false;
+    for (segments) |seg| {
+        if (std.mem.eql(u8, seg.text, "code")) {
+            found_code = true;
+            try std.testing.expect(seg.style != null);
+        }
+    }
+    try std.testing.expect(found_code);
+}
+
+test "Markdown.render inline code in blockquote" {
+    const allocator = std.testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+
+    const md = Markdown.init("> Use `code` here");
+    const segments = try md.render(80, arena.allocator());
+
+    var found_code = false;
+    for (segments) |seg| {
+        if (std.mem.eql(u8, seg.text, "code")) {
+            found_code = true;
+            try std.testing.expect(seg.style != null);
+        }
+    }
+    try std.testing.expect(found_code);
+}
+
+test "MarkdownTheme has inline code style" {
+    const theme = MarkdownTheme.default;
+    try std.testing.expect(theme.inline_code_style.color != null);
+    try std.testing.expect(theme.inline_code_style.hasAttribute(.dim));
 }
