@@ -356,6 +356,7 @@ pub const SyntaxTheme = struct {
     type_style: Style = Style.empty.foreground(Color.blue),
     function_style: Style = Style.empty.foreground(Color.cyan),
     line_number_style: Style = Style.empty.foreground(Color.default).dim(),
+    indent_guide_style: Style = Style.empty.foreground(Color.default).dim(),
     default_style: Style = Style.empty,
     background_color: ?Color = null,
 
@@ -572,6 +573,8 @@ pub const Syntax = struct {
     start_line: usize = 1,
     word_wrap: bool = false,
     tab_size: u8 = 4,
+    indent_guides: bool = false,
+    indent_guide_char: []const u8 = "|",
     allocator: std.mem.Allocator,
     owns_code: bool = false,
 
@@ -668,6 +671,18 @@ pub const Syntax = struct {
         return s;
     }
 
+    pub fn withIndentGuides(self: Syntax) Syntax {
+        var s = self;
+        s.indent_guides = true;
+        return s;
+    }
+
+    pub fn withIndentGuideChar(self: Syntax, char: []const u8) Syntax {
+        var s = self;
+        s.indent_guide_char = char;
+        return s;
+    }
+
     pub fn render(self: Syntax, max_width: usize, allocator: std.mem.Allocator) ![]Segment {
         var segments: std.ArrayList(Segment) = .empty;
 
@@ -719,6 +734,12 @@ pub const Syntax = struct {
     fn highlightLine(self: Syntax, segments: *std.ArrayList(Segment), allocator: std.mem.Allocator, line: []const u8) !void {
         const expanded = try self.expandTabs(line, allocator);
 
+        // Apply indent guides if enabled
+        if (self.indent_guides) {
+            try self.renderWithIndentGuides(segments, allocator, expanded);
+            return;
+        }
+
         switch (self.language) {
             .zig => try self.highlightZig(segments, allocator, expanded),
             .json => try self.highlightJson(segments, allocator, expanded),
@@ -740,6 +761,73 @@ pub const Syntax = struct {
             .sql,
             .plain,
             => try segments.append(allocator, self.defaultSegment(expanded)),
+        }
+    }
+
+    /// Render a line with indent guides at each tab stop in the leading whitespace.
+    fn renderWithIndentGuides(self: Syntax, segments: *std.ArrayList(Segment), allocator: std.mem.Allocator, line: []const u8) !void {
+        // Find the extent of leading whitespace
+        var indent_end: usize = 0;
+        while (indent_end < line.len and line[indent_end] == ' ') : (indent_end += 1) {}
+
+        // Render indent guides for each tab stop in the leading whitespace
+        if (indent_end > 0) {
+            const tab_size_usize: usize = @intCast(self.tab_size);
+            var col: usize = 0;
+
+            while (col < indent_end) {
+                const next_tab_stop = ((col / tab_size_usize) + 1) * tab_size_usize;
+                const remaining_indent = indent_end - col;
+
+                if (next_tab_stop <= indent_end and remaining_indent >= tab_size_usize) {
+                    // We have a full indent level - render guide character + spaces
+                    try segments.append(allocator, self.styledSegment(
+                        self.indent_guide_char,
+                        self.theme.indent_guide_style,
+                    ));
+                    // Fill remaining spaces in this tab stop
+                    const spaces_after_guide = tab_size_usize - self.indent_guide_char.len;
+                    if (spaces_after_guide > 0) {
+                        const space_fill = try allocator.alloc(u8, spaces_after_guide);
+                        @memset(space_fill, ' ');
+                        try segments.append(allocator, self.defaultSegment(space_fill));
+                    }
+                    col = next_tab_stop;
+                } else {
+                    // Partial indent or end of indentation - just spaces
+                    const spaces_to_end = indent_end - col;
+                    const space_fill = try allocator.alloc(u8, spaces_to_end);
+                    @memset(space_fill, ' ');
+                    try segments.append(allocator, self.defaultSegment(space_fill));
+                    col = indent_end;
+                }
+            }
+        }
+
+        // Render the rest of the line (after indentation) with syntax highlighting
+        const content = line[indent_end..];
+        if (content.len > 0) {
+            switch (self.language) {
+                .zig => try self.highlightZig(segments, allocator, content),
+                .json => try self.highlightJson(segments, allocator, content),
+                .markdown => try self.highlightMarkdown(segments, allocator, content),
+                .python,
+                .javascript,
+                .typescript,
+                .rust,
+                .go,
+                .c,
+                .cpp,
+                .bash,
+                .yaml,
+                .toml,
+                .xml,
+                .html,
+                .css,
+                .sql,
+                .plain,
+                => try segments.append(allocator, self.defaultSegment(content)),
+            }
         }
     }
 
@@ -1794,4 +1882,194 @@ test "Syntax.render expands tabs" {
             break;
         }
     }
+}
+
+test "Syntax.withIndentGuides" {
+    const allocator = std.testing.allocator;
+    const syntax = Syntax.init(allocator, "code").withIndentGuides();
+    try std.testing.expect(syntax.indent_guides);
+}
+
+test "Syntax.withIndentGuideChar" {
+    const allocator = std.testing.allocator;
+    const syntax = Syntax.init(allocator, "code").withIndentGuideChar(":");
+    try std.testing.expectEqualStrings(":", syntax.indent_guide_char);
+}
+
+test "Syntax.render with indent guides - no indentation" {
+    const allocator = std.testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+
+    const code = "no indent";
+    const syntax = Syntax.init(arena.allocator(), code)
+        .withLanguage(.plain)
+        .withIndentGuides();
+
+    const segments = try syntax.render(80, arena.allocator());
+
+    // Should render without guide characters since there's no indentation
+    var has_guide = false;
+    for (segments) |seg| {
+        if (std.mem.eql(u8, seg.text, "|")) {
+            has_guide = true;
+            break;
+        }
+    }
+    try std.testing.expect(!has_guide);
+}
+
+test "Syntax.render with indent guides - single level" {
+    const allocator = std.testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+
+    // 4 spaces = 1 indent level
+    const code = "    indented";
+    const syntax = Syntax.init(arena.allocator(), code)
+        .withLanguage(.plain)
+        .withTabSize(4)
+        .withIndentGuides();
+
+    const segments = try syntax.render(80, arena.allocator());
+
+    // Should have one guide character
+    var guide_count: usize = 0;
+    for (segments) |seg| {
+        if (std.mem.eql(u8, seg.text, "|")) {
+            guide_count += 1;
+        }
+    }
+    try std.testing.expectEqual(@as(usize, 1), guide_count);
+}
+
+test "Syntax.render with indent guides - multiple levels" {
+    const allocator = std.testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+
+    // 8 spaces = 2 indent levels with tab_size 4
+    const code = "        double indent";
+    const syntax = Syntax.init(arena.allocator(), code)
+        .withLanguage(.plain)
+        .withTabSize(4)
+        .withIndentGuides();
+
+    const segments = try syntax.render(80, arena.allocator());
+
+    // Should have two guide characters
+    var guide_count: usize = 0;
+    for (segments) |seg| {
+        if (std.mem.eql(u8, seg.text, "|")) {
+            guide_count += 1;
+        }
+    }
+    try std.testing.expectEqual(@as(usize, 2), guide_count);
+}
+
+test "Syntax.render with indent guides - custom char" {
+    const allocator = std.testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+
+    const code = "    indented";
+    const syntax = Syntax.init(arena.allocator(), code)
+        .withLanguage(.plain)
+        .withTabSize(4)
+        .withIndentGuides()
+        .withIndentGuideChar(":");
+
+    const segments = try syntax.render(80, arena.allocator());
+
+    // Should have custom guide character
+    var found_colon = false;
+    for (segments) |seg| {
+        if (std.mem.eql(u8, seg.text, ":")) {
+            found_colon = true;
+            break;
+        }
+    }
+    try std.testing.expect(found_colon);
+}
+
+test "Syntax.render with indent guides preserves syntax highlighting" {
+    const allocator = std.testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+
+    const code = "    const x = 1;";
+    const syntax = Syntax.init(arena.allocator(), code)
+        .withLanguage(.zig)
+        .withTabSize(4)
+        .withIndentGuides();
+
+    const segments = try syntax.render(80, arena.allocator());
+
+    // Should have both guide and styled content
+    var has_guide = false;
+    var has_styled = false;
+    for (segments) |seg| {
+        if (std.mem.eql(u8, seg.text, "|")) {
+            has_guide = true;
+        }
+        if (seg.style) |style| {
+            if (style.color != null) {
+                has_styled = true;
+            }
+        }
+    }
+    try std.testing.expect(has_guide);
+    try std.testing.expect(has_styled);
+}
+
+test "Syntax.render with indent guides - partial indent" {
+    const allocator = std.testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+
+    // 6 spaces = 1 full level + 2 spaces partial with tab_size 4
+    const code = "      partial";
+    const syntax = Syntax.init(arena.allocator(), code)
+        .withLanguage(.plain)
+        .withTabSize(4)
+        .withIndentGuides();
+
+    const segments = try syntax.render(80, arena.allocator());
+
+    // Should have one guide character (for the full level)
+    var guide_count: usize = 0;
+    for (segments) |seg| {
+        if (std.mem.eql(u8, seg.text, "|")) {
+            guide_count += 1;
+        }
+    }
+    try std.testing.expectEqual(@as(usize, 1), guide_count);
+}
+
+test "Syntax.render with indent guides - multiline" {
+    const allocator = std.testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+
+    const code =
+        \\fn foo() void {
+        \\    const x = 1;
+        \\        const y = 2;
+        \\}
+    ;
+    const syntax = Syntax.init(arena.allocator(), code)
+        .withLanguage(.zig)
+        .withTabSize(4)
+        .withIndentGuides();
+
+    const segments = try syntax.render(80, arena.allocator());
+
+    // Count guide characters - should be 3 total (1 for line 2, 2 for line 3)
+    var guide_count: usize = 0;
+    for (segments) |seg| {
+        if (std.mem.eql(u8, seg.text, "|")) {
+            guide_count += 1;
+        }
+    }
+    try std.testing.expectEqual(@as(usize, 3), guide_count);
 }
