@@ -100,6 +100,10 @@ pub const KV = renderables.KV;
 pub const CellContent = renderables.CellContent;
 pub const SplitContent = renderables.SplitContent;
 pub const SplitterConfig = renderables.SplitterConfig;
+pub const Markdown = renderables.Markdown;
+pub const MarkdownTheme = renderables.MarkdownTheme;
+pub const Header = renderables.Header;
+pub const HeaderLevel = renderables.HeaderLevel;
 
 // Emoji support
 pub const emoji = @import("emoji.zig");

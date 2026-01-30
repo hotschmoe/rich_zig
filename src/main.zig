@@ -14,8 +14,8 @@ pub fn main() !void {
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
-    try stdout.writeAll("rich_zig v0.9.1 - Full Demo\n");
-    try stdout.writeAll("===========================\n\n");
+    try stdout.writeAll("rich_zig v0.10.0 - Full Demo\n");
+    try stdout.writeAll("============================\n\n");
 
     // Phase 1: Color, Style, Segment
     try stdout.writeAll("Phase 1: Core Foundation\n");
@@ -479,6 +479,46 @@ pub fn main() !void {
         try seg.render(stdout, .truecolor);
     }
     try stdout.writeAll("\n");
+
+    // v0.10.0 Features
+    try stdout.writeAll("\nv0.10.0 New Features\n");
+    try stdout.writeAll("--------------------\n");
+
+    // Markdown with headers
+    try stdout.writeAll("\nMarkdown headers:\n");
+    const md_headers = rich.Markdown.init("# Heading 1\n## Heading 2\n### Heading 3");
+    const md_header_segs = try md_headers.render(60, allocator);
+    defer allocator.free(md_header_segs);
+    for (md_header_segs) |seg| {
+        try seg.render(stdout, .truecolor);
+    }
+
+    // Markdown with bold and italic inline styles
+    try stdout.writeAll("\nMarkdown inline styles:\n");
+    const md_styles = rich.Markdown.init("This has **bold**, *italic*, and ***bold italic*** text.");
+    const md_style_segs = try md_styles.render(80, allocator);
+    defer allocator.free(md_style_segs);
+    for (md_style_segs) |seg| {
+        try seg.render(stdout, .truecolor);
+    }
+
+    // Markdown with underscore syntax
+    try stdout.writeAll("\nMarkdown underscore syntax:\n");
+    const md_under = rich.Markdown.init("Also works with __bold__ and _italic_ using underscores.");
+    const md_under_segs = try md_under.render(80, allocator);
+    defer allocator.free(md_under_segs);
+    for (md_under_segs) |seg| {
+        try seg.render(stdout, .truecolor);
+    }
+
+    // Combined: header with inline styles
+    try stdout.writeAll("\nMarkdown combined:\n");
+    const md_combined = rich.Markdown.init("## Features\n\nSupports **bold** and *italic* in paragraphs.");
+    const md_combined_segs = try md_combined.render(60, allocator);
+    defer allocator.free(md_combined_segs);
+    for (md_combined_segs) |seg| {
+        try seg.render(stdout, .truecolor);
+    }
 
     try stdout.writeAll("\nAll phases complete!\n");
     try stdout.flush();

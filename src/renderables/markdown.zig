@@ -215,66 +215,23 @@ pub const Markdown = struct {
         var pos: usize = 0;
 
         while (pos < text.len) {
-            // Check for bold+italic (*** or ___)
-            if (pos + 2 < text.len and
-                ((text[pos] == '*' and text[pos + 1] == '*' and text[pos + 2] == '*') or
-                    (text[pos] == '_' and text[pos + 1] == '_' and text[pos + 2] == '_')))
-            {
-                const delimiter = text[pos];
-                const start = pos + 3;
-                if (findClosingDelimiter(text, start, delimiter, 3)) |end| {
-                    try spans.append(allocator, .{
-                        .text = text[start..end],
-                        .style_type = .bold_italic,
-                    });
-                    pos = end + 3;
-                    continue;
-                }
-            }
-
-            // Check for bold (** or __)
-            if (pos + 1 < text.len and
-                ((text[pos] == '*' and text[pos + 1] == '*') or
-                    (text[pos] == '_' and text[pos + 1] == '_')))
-            {
-                const delimiter = text[pos];
-                const start = pos + 2;
-                if (findClosingDelimiter(text, start, delimiter, 2)) |end| {
-                    try spans.append(allocator, .{
-                        .text = text[start..end],
-                        .style_type = .bold,
-                    });
-                    pos = end + 2;
-                    continue;
-                }
-            }
-
-            // Check for italic (* or _)
-            if (text[pos] == '*' or text[pos] == '_') {
-                const delimiter = text[pos];
-                const start = pos + 1;
-                if (findClosingDelimiter(text, start, delimiter, 1)) |end| {
-                    try spans.append(allocator, .{
-                        .text = text[start..end],
-                        .style_type = .italic,
-                    });
-                    pos = end + 1;
-                    continue;
-                }
+            if (tryParseStyledSpan(text, pos)) |result| {
+                try spans.append(allocator, .{
+                    .text = result.content,
+                    .style_type = result.style_type,
+                });
+                pos = result.end_pos;
+                continue;
             }
 
             // Plain text - find next potential delimiter or end
             const plain_start = pos;
-            while (pos < text.len and text[pos] != '*' and text[pos] != '_') {
-                pos += 1;
-            }
+            pos = advanceToNextDelimiter(text, pos);
 
-            // If no delimiter found at pos, include it as plain text
+            // If we hit an unmatched delimiter, skip it and continue
             if (pos < text.len and plain_start == pos) {
                 pos += 1;
-                while (pos < text.len and text[pos] != '*' and text[pos] != '_') {
-                    pos += 1;
-                }
+                pos = advanceToNextDelimiter(text, pos);
             }
 
             if (pos > plain_start) {
@@ -288,27 +245,67 @@ pub const Markdown = struct {
         return spans.toOwnedSlice(allocator);
     }
 
+    const ParseResult = struct {
+        content: []const u8,
+        style_type: InlineSpan.StyleType,
+        end_pos: usize,
+    };
+
+    fn tryParseStyledSpan(text: []const u8, pos: usize) ?ParseResult {
+        const c = text[pos];
+        if (c != '*' and c != '_') return null;
+
+        // Try longest match first (bold+italic: 3, bold: 2, italic: 1)
+        const patterns = [_]struct { count: usize, style: InlineSpan.StyleType }{
+            .{ .count = 3, .style = .bold_italic },
+            .{ .count = 2, .style = .bold },
+            .{ .count = 1, .style = .italic },
+        };
+
+        for (patterns) |p| {
+            if (pos + p.count > text.len) continue;
+            if (!isRepeatedChar(text[pos..][0..p.count], c)) continue;
+            if (findClosingDelimiter(text, pos + p.count, c, p.count)) |end| {
+                return .{
+                    .content = text[pos + p.count .. end],
+                    .style_type = p.style,
+                    .end_pos = end + p.count,
+                };
+            }
+        }
+        return null;
+    }
+
+    fn isRepeatedChar(slice: []const u8, char: u8) bool {
+        for (slice) |c| {
+            if (c != char) return false;
+        }
+        return true;
+    }
+
+    fn advanceToNextDelimiter(text: []const u8, start: usize) usize {
+        var pos = start;
+        while (pos < text.len and text[pos] != '*' and text[pos] != '_') {
+            pos += 1;
+        }
+        return pos;
+    }
+
     fn findClosingDelimiter(text: []const u8, start: usize, delimiter: u8, count: usize) ?usize {
         if (start >= text.len) return null;
 
         var pos = start;
-        while (pos + count <= text.len) {
-            var match = true;
-            for (0..count) |i| {
-                if (text[pos + i] != delimiter) {
-                    match = false;
-                    break;
-                }
-            }
-            if (match) {
-                // Make sure it's not part of a longer delimiter sequence
-                const before_ok = pos == start or text[pos - 1] != delimiter;
-                const after_ok = pos + count >= text.len or text[pos + count] != delimiter;
-                if (before_ok and after_ok) {
-                    return pos;
-                }
-            }
-            pos += 1;
+        while (pos + count <= text.len) : (pos += 1) {
+            const slice = text[pos..][0..count];
+            const all_match = for (slice) |c| {
+                if (c != delimiter) break false;
+            } else true;
+
+            if (!all_match) continue;
+
+            const before_ok = pos == start or text[pos - 1] != delimiter;
+            const after_ok = pos + count >= text.len or text[pos + count] != delimiter;
+            if (before_ok and after_ok) return pos;
         }
         return null;
     }
@@ -324,14 +321,19 @@ pub const Markdown = struct {
         defer allocator.free(spans);
 
         for (spans) |span| {
-            const span_style = switch (span.style_type) {
-                .plain => base_style,
-                .bold => if (base_style) |bs| bs.combine(self.theme.bold_style) else self.theme.bold_style,
-                .italic => if (base_style) |bs| bs.combine(self.theme.italic_style) else self.theme.italic_style,
-                .bold_italic => if (base_style) |bs| bs.combine(self.theme.bold_italic_style) else self.theme.bold_italic_style,
+            const inline_style: ?Style = switch (span.style_type) {
+                .plain => null,
+                .bold => self.theme.bold_style,
+                .italic => self.theme.italic_style,
+                .bold_italic => self.theme.bold_italic_style,
             };
 
-            if (span_style) |s| {
+            const final_style: ?Style = if (inline_style) |is|
+                if (base_style) |bs| bs.combine(is) else is
+            else
+                base_style;
+
+            if (final_style) |s| {
                 try segments.append(allocator, Segment.styled(span.text, s));
             } else {
                 try segments.append(allocator, Segment.plain(span.text));
