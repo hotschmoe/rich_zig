@@ -320,30 +320,20 @@ pub const Markdown = struct {
     };
 
     fn parseOrderedListItem(line: []const u8) ?OrderedListItem {
-        // Count leading spaces for indentation
         var indent: usize = 0;
-        while (indent < line.len and line[indent] == ' ') {
-            indent += 1;
-        }
+        while (indent < line.len and line[indent] == ' ') : (indent += 1) {}
 
-        const indent_level = indent / 2; // 2 spaces per indent level
         const rest = line[indent..];
-
         if (rest.len == 0) return null;
 
-        // Look for number followed by . or )
         var num_end: usize = 0;
-        while (num_end < rest.len and rest[num_end] >= '0' and rest[num_end] <= '9') {
-            num_end += 1;
-        }
+        while (num_end < rest.len and std.ascii.isDigit(rest[num_end])) : (num_end += 1) {}
 
-        if (num_end == 0) return null; // No digits
-        if (num_end >= rest.len) return null; // No delimiter after number
+        if (num_end == 0 or num_end >= rest.len) return null;
 
         const delimiter = rest[num_end];
         if (delimiter != '.' and delimiter != ')') return null;
 
-        // Must have space after delimiter
         const after_delim = num_end + 1;
         if (after_delim >= rest.len or rest[after_delim] != ' ') return null;
 
@@ -353,7 +343,7 @@ pub const Markdown = struct {
         return .{
             .number = number,
             .text = text,
-            .indent_level = indent_level,
+            .indent_level = indent / 2,
         };
     }
 
@@ -363,21 +353,16 @@ pub const Markdown = struct {
         segments: *std.ArrayList(Segment),
         allocator: std.mem.Allocator,
     ) !void {
-        // Calculate indentation based on level
         const base_indent = item.indent_level * self.theme.list_indent;
-
-        // Add leading indent spaces
         if (base_indent > 0) {
             const indent_str = try allocator.alloc(u8, base_indent);
             @memset(indent_str, ' ');
             try segments.append(allocator, Segment.plain(indent_str));
         }
 
-        // Format the number with a period and space
         const number_str = try std.fmt.allocPrint(allocator, "{d}. ", .{item.number});
         try segments.append(allocator, Segment.styled(number_str, self.theme.list_number_style));
 
-        // Render the item text with inline formatting
         try self.renderInlineText(item.text, null, segments, allocator);
     }
 
