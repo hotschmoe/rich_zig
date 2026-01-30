@@ -571,6 +571,7 @@ pub const Syntax = struct {
     show_line_numbers: bool = false,
     start_line: usize = 1,
     word_wrap: bool = false,
+    tab_size: u8 = 4,
     allocator: std.mem.Allocator,
     owns_code: bool = false,
 
@@ -661,6 +662,12 @@ pub const Syntax = struct {
         return s;
     }
 
+    pub fn withTabSize(self: Syntax, size: u8) Syntax {
+        var s = self;
+        s.tab_size = size;
+        return s;
+    }
+
     pub fn render(self: Syntax, max_width: usize, allocator: std.mem.Allocator) ![]Segment {
         var segments: std.ArrayList(Segment) = .empty;
 
@@ -710,10 +717,15 @@ pub const Syntax = struct {
     }
 
     fn highlightLine(self: Syntax, segments: *std.ArrayList(Segment), allocator: std.mem.Allocator, line: []const u8) !void {
+        // Expand tabs before highlighting
+        // Note: expanded text is not freed because segments hold slices into it.
+        // The caller (render) uses an arena allocator for segments, so this is fine.
+        const expanded = try self.expandTabs(line, allocator);
+
         switch (self.language) {
-            .zig => try self.highlightZig(segments, allocator, line),
-            .json => try self.highlightJson(segments, allocator, line),
-            .markdown => try self.highlightMarkdown(segments, allocator, line),
+            .zig => try self.highlightZig(segments, allocator, expanded),
+            .json => try self.highlightJson(segments, allocator, expanded),
+            .markdown => try self.highlightMarkdown(segments, allocator, expanded),
             // Languages without dedicated highlighters fall back to plain text
             .python,
             .javascript,
@@ -730,8 +742,47 @@ pub const Syntax = struct {
             .css,
             .sql,
             .plain,
-            => try segments.append(allocator, self.defaultSegment(line)),
+            => try segments.append(allocator, self.defaultSegment(expanded)),
         }
+    }
+
+    /// Expand tabs to spaces based on tab_size setting.
+    /// Returns the original slice if no tabs are present (no allocation).
+    fn expandTabs(self: Syntax, line: []const u8, allocator: std.mem.Allocator) ![]const u8 {
+        // Fast path: no tabs in line
+        if (std.mem.indexOfScalar(u8, line, '\t') == null) {
+            return line;
+        }
+
+        // Count tabs to pre-allocate
+        var tab_count: usize = 0;
+        for (line) |c| {
+            if (c == '\t') tab_count += 1;
+        }
+
+        // Calculate result size (each tab expands to tab_size spaces)
+        const result_len = line.len - tab_count + tab_count * self.tab_size;
+        var result = try allocator.alloc(u8, result_len);
+
+        var src_pos: usize = 0;
+        var dst_pos: usize = 0;
+        var column: usize = 0;
+
+        while (src_pos < line.len) : (src_pos += 1) {
+            if (line[src_pos] == '\t') {
+                // Calculate spaces to next tab stop
+                const spaces_to_tab_stop = self.tab_size - @as(u8, @intCast(column % self.tab_size));
+                @memset(result[dst_pos..][0..spaces_to_tab_stop], ' ');
+                dst_pos += spaces_to_tab_stop;
+                column += spaces_to_tab_stop;
+            } else {
+                result[dst_pos] = line[src_pos];
+                dst_pos += 1;
+                column += 1;
+            }
+        }
+
+        return result[0..dst_pos];
     }
 
     fn defaultSegment(self: Syntax, text: []const u8) Segment {
@@ -1635,4 +1686,123 @@ test "Syntax.loadFile renders correctly" {
     // Should render successfully
     const segments = try syntax.render(80, arena.allocator());
     try std.testing.expect(segments.len > 0);
+}
+
+test "Syntax.withTabSize" {
+    const allocator = std.testing.allocator;
+    const syntax = Syntax.init(allocator, "code").withTabSize(2);
+    try std.testing.expectEqual(@as(u8, 2), syntax.tab_size);
+}
+
+test "Syntax.withTabSize default is 4" {
+    const allocator = std.testing.allocator;
+    const syntax = Syntax.init(allocator, "code");
+    try std.testing.expectEqual(@as(u8, 4), syntax.tab_size);
+}
+
+test "Syntax.expandTabs no tabs returns original" {
+    const allocator = std.testing.allocator;
+    const syntax = Syntax.init(allocator, "");
+
+    const line = "no tabs here";
+    const result = try syntax.expandTabs(line, allocator);
+
+    // Should return same pointer (no allocation)
+    try std.testing.expectEqual(line.ptr, result.ptr);
+}
+
+test "Syntax.expandTabs single tab at start" {
+    const allocator = std.testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+
+    const syntax = Syntax.init(arena.allocator(), "").withTabSize(4);
+    const result = try syntax.expandTabs("\tcode", arena.allocator());
+
+    try std.testing.expectEqualStrings("    code", result);
+}
+
+test "Syntax.expandTabs multiple tabs" {
+    const allocator = std.testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+
+    const syntax = Syntax.init(arena.allocator(), "").withTabSize(4);
+    const result = try syntax.expandTabs("\t\tindented", arena.allocator());
+
+    try std.testing.expectEqualStrings("        indented", result);
+}
+
+test "Syntax.expandTabs tab in middle aligns to tab stop" {
+    const allocator = std.testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+
+    const syntax = Syntax.init(arena.allocator(), "").withTabSize(4);
+    // "ab" is 2 chars, tab should add 2 spaces to reach column 4
+    const result = try syntax.expandTabs("ab\tc", arena.allocator());
+
+    try std.testing.expectEqualStrings("ab  c", result);
+}
+
+test "Syntax.expandTabs tab at tab stop adds full tab" {
+    const allocator = std.testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+
+    const syntax = Syntax.init(arena.allocator(), "").withTabSize(4);
+    // "abcd" is 4 chars (at column 4), tab should add 4 spaces to reach column 8
+    const result = try syntax.expandTabs("abcd\te", arena.allocator());
+
+    try std.testing.expectEqualStrings("abcd    e", result);
+}
+
+test "Syntax.expandTabs custom tab size 2" {
+    const allocator = std.testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+
+    const syntax = Syntax.init(arena.allocator(), "").withTabSize(2);
+    const result = try syntax.expandTabs("\tcode", arena.allocator());
+
+    try std.testing.expectEqualStrings("  code", result);
+}
+
+test "Syntax.expandTabs custom tab size 8" {
+    const allocator = std.testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+
+    const syntax = Syntax.init(arena.allocator(), "").withTabSize(8);
+    const result = try syntax.expandTabs("\tcode", arena.allocator());
+
+    try std.testing.expectEqualStrings("        code", result);
+}
+
+test "Syntax.render expands tabs" {
+    const allocator = std.testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+
+    // Use plain language for simpler output to verify
+    const code = "\thello";
+    const syntax = Syntax.init(arena.allocator(), code)
+        .withLanguage(.plain)
+        .withTabSize(4);
+
+    const segments = try syntax.render(80, arena.allocator());
+
+    // For plain language, there should be at least 1 segment
+    try std.testing.expect(segments.len >= 1);
+
+    // Check the first non-newline segment for tab expansion
+    for (segments) |seg| {
+        if (!std.mem.eql(u8, seg.text, "\n") and seg.text.len > 0) {
+            // No tabs in the text
+            try std.testing.expect(std.mem.indexOfScalar(u8, seg.text, '\t') == null);
+            // The expanded text should be "    hello" (4 spaces + hello)
+            try std.testing.expectEqualStrings("    hello", seg.text);
+            break;
+        }
+    }
 }
