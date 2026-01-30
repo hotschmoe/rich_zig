@@ -47,6 +47,7 @@ pub const MarkdownTheme = struct {
     bold_style: Style = Style.empty.bold(),
     italic_style: Style = Style.empty.italic(),
     bold_italic_style: Style = Style.empty.bold().italic(),
+    strikethrough_style: Style = Style.empty.strike(),
     link_style: Style = Style.empty.fg(Color.bright_blue).underline(),
     code_block_style: Style = Style.empty.foreground(Color.default).dim(),
     syntax_theme: SyntaxTheme = SyntaxTheme.default,
@@ -709,6 +710,7 @@ pub const Markdown = struct {
             bold,
             italic,
             bold_italic,
+            strikethrough,
             link,
             code,
             image,
@@ -746,6 +748,15 @@ pub const Markdown = struct {
                 try spans.append(allocator, .{
                     .text = result.content,
                     .style_type = .code,
+                });
+                pos = result.end_pos;
+                continue;
+            }
+
+            if (tryParseStrikethrough(text, pos)) |result| {
+                try spans.append(allocator, .{
+                    .text = result.content,
+                    .style_type = result.style_type,
                 });
                 pos = result.end_pos;
                 continue;
@@ -908,9 +919,28 @@ pub const Markdown = struct {
         return null;
     }
 
+    fn tryParseStrikethrough(text: []const u8, pos: usize) ?ParseResult {
+        // Strikethrough uses ~~ (GFM extension)
+        if (pos + 2 > text.len) return null;
+        if (text[pos] != '~' or text[pos + 1] != '~') return null;
+
+        const content_start = pos + 2;
+        if (content_start >= text.len) return null;
+
+        // Find closing ~~
+        if (findClosingDelimiter(text, content_start, '~', 2)) |end| {
+            return .{
+                .content = text[content_start..end],
+                .style_type = .strikethrough,
+                .end_pos = end + 2,
+            };
+        }
+        return null;
+    }
+
     fn advanceToNextDelimiter(text: []const u8, start: usize) usize {
         var pos = start;
-        while (pos < text.len and text[pos] != '*' and text[pos] != '_' and text[pos] != '[' and text[pos] != '`' and text[pos] != '!') {
+        while (pos < text.len and text[pos] != '*' and text[pos] != '_' and text[pos] != '[' and text[pos] != '`' and text[pos] != '!' and text[pos] != '~') {
             pos += 1;
         }
         return pos;
@@ -971,6 +1001,7 @@ pub const Markdown = struct {
                 .bold => self.theme.bold_style,
                 .italic => self.theme.italic_style,
                 .bold_italic => self.theme.bold_italic_style,
+                .strikethrough => self.theme.strikethrough_style,
                 .code => self.theme.inline_code_style,
                 .link => blk: {
                     var link_style = self.theme.link_style;
@@ -1183,6 +1214,60 @@ test "parseInlineStyles triple underscore bold italic" {
     try std.testing.expectEqual(Markdown.InlineSpan.StyleType.bold_italic, spans[1].style_type);
 }
 
+test "parseInlineStyles strikethrough" {
+    const allocator = std.testing.allocator;
+    const spans = try Markdown.parseInlineStyles("Hello ~~deleted~~ world", allocator);
+    defer allocator.free(spans);
+
+    try std.testing.expectEqual(@as(usize, 3), spans.len);
+    try std.testing.expectEqualStrings("deleted", spans[1].text);
+    try std.testing.expectEqual(Markdown.InlineSpan.StyleType.strikethrough, spans[1].style_type);
+}
+
+test "parseInlineStyles strikethrough at start" {
+    const allocator = std.testing.allocator;
+    const spans = try Markdown.parseInlineStyles("~~strike~~ at start", allocator);
+    defer allocator.free(spans);
+
+    try std.testing.expectEqual(@as(usize, 2), spans.len);
+    try std.testing.expectEqualStrings("strike", spans[0].text);
+    try std.testing.expectEqual(Markdown.InlineSpan.StyleType.strikethrough, spans[0].style_type);
+}
+
+test "parseInlineStyles strikethrough at end" {
+    const allocator = std.testing.allocator;
+    const spans = try Markdown.parseInlineStyles("end with ~~strike~~", allocator);
+    defer allocator.free(spans);
+
+    try std.testing.expectEqual(@as(usize, 2), spans.len);
+    try std.testing.expectEqualStrings("strike", spans[1].text);
+    try std.testing.expectEqual(Markdown.InlineSpan.StyleType.strikethrough, spans[1].style_type);
+}
+
+test "parseInlineStyles strikethrough with bold" {
+    const allocator = std.testing.allocator;
+    const spans = try Markdown.parseInlineStyles("~~strike~~ and **bold**", allocator);
+    defer allocator.free(spans);
+
+    try std.testing.expectEqual(@as(usize, 3), spans.len);
+    try std.testing.expectEqual(Markdown.InlineSpan.StyleType.strikethrough, spans[0].style_type);
+    try std.testing.expectEqualStrings("strike", spans[0].text);
+    try std.testing.expectEqual(Markdown.InlineSpan.StyleType.bold, spans[2].style_type);
+    try std.testing.expectEqualStrings("bold", spans[2].text);
+}
+
+test "parseInlineStyles unclosed strikethrough treated as plain" {
+    const allocator = std.testing.allocator;
+    const spans = try Markdown.parseInlineStyles("Hello ~~unclosed", allocator);
+    defer allocator.free(spans);
+
+    // All text becomes plain since ~~ is not closed
+    try std.testing.expect(spans.len >= 1);
+    for (spans) |span| {
+        try std.testing.expectEqual(Markdown.InlineSpan.StyleType.plain, span.style_type);
+    }
+}
+
 test "parseInlineStyles multiple styles in one line" {
     const allocator = std.testing.allocator;
     const spans = try Markdown.parseInlineStyles("*italic* and **bold**", allocator);
@@ -1285,12 +1370,34 @@ test "Markdown.render with bold italic text" {
     try std.testing.expect(found_bold_italic);
 }
 
+test "Markdown.render with strikethrough text" {
+    const allocator = std.testing.allocator;
+    const md = Markdown.init("This is ~~deleted~~ text");
+    const segments = try md.render(80, allocator);
+    defer allocator.free(segments);
+
+    var found_strike = false;
+    for (segments) |seg| {
+        if (std.mem.eql(u8, seg.text, "deleted")) {
+            found_strike = true;
+            try std.testing.expect(seg.style != null);
+            try std.testing.expect(seg.style.?.hasAttribute(.strike));
+        }
+    }
+    try std.testing.expect(found_strike);
+}
+
 test "MarkdownTheme has bold and italic styles" {
     const theme = MarkdownTheme.default;
     try std.testing.expect(theme.bold_style.hasAttribute(.bold));
     try std.testing.expect(theme.italic_style.hasAttribute(.italic));
     try std.testing.expect(theme.bold_italic_style.hasAttribute(.bold));
     try std.testing.expect(theme.bold_italic_style.hasAttribute(.italic));
+}
+
+test "MarkdownTheme has strikethrough style" {
+    const theme = MarkdownTheme.default;
+    try std.testing.expect(theme.strikethrough_style.hasAttribute(.strike));
 }
 
 test "parseFenceOpen detects code fence" {
