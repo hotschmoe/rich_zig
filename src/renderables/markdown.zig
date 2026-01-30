@@ -396,44 +396,35 @@ pub const Markdown = struct {
         end_pos: usize,
     };
 
+    /// Scans for a matching closing delimiter, respecting nesting.
+    /// Returns the position of the closing delimiter, or null if not found.
+    fn findMatchingDelimiter(text: []const u8, start: usize, open: u8, close: u8) ?usize {
+        var depth: usize = 1;
+        var pos: usize = start;
+
+        while (pos < text.len and depth > 0) {
+            if (text[pos] == open) {
+                depth += 1;
+            } else if (text[pos] == close) {
+                depth -= 1;
+            }
+            if (depth > 0) pos += 1;
+        }
+
+        return if (depth == 0) pos else null;
+    }
+
     fn tryParseLink(text: []const u8, pos: usize) ?LinkResult {
         if (pos >= text.len or text[pos] != '[') return null;
 
-        // Find closing bracket
         const text_start = pos + 1;
-        var bracket_depth: usize = 1;
-        var text_end: usize = text_start;
+        const text_end = findMatchingDelimiter(text, text_start, '[', ']') orelse return null;
 
-        while (text_end < text.len and bracket_depth > 0) {
-            if (text[text_end] == '[') {
-                bracket_depth += 1;
-            } else if (text[text_end] == ']') {
-                bracket_depth -= 1;
-            }
-            if (bracket_depth > 0) text_end += 1;
-        }
-
-        if (bracket_depth != 0) return null;
-
-        // Check for opening paren immediately after
         const paren_start = text_end + 1;
         if (paren_start >= text.len or text[paren_start] != '(') return null;
 
-        // Find closing paren
         const url_start = paren_start + 1;
-        var paren_depth: usize = 1;
-        var url_end: usize = url_start;
-
-        while (url_end < text.len and paren_depth > 0) {
-            if (text[url_end] == '(') {
-                paren_depth += 1;
-            } else if (text[url_end] == ')') {
-                paren_depth -= 1;
-            }
-            if (paren_depth > 0) url_end += 1;
-        }
-
-        if (paren_depth != 0) return null;
+        const url_end = findMatchingDelimiter(text, url_start, '(', ')') orelse return null;
 
         return .{
             .link_text = text[text_start..text_end],
