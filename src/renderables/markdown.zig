@@ -543,21 +543,19 @@ pub const Markdown = struct {
         // Check for task list syntax: [ ] or [x] or [X]
         if (after_bullet.len >= 3 and after_bullet[0] == '[' and after_bullet[2] == ']') {
             const checkbox_char = after_bullet[1];
-            if (checkbox_char == ' ') {
-                // Unchecked: - [ ] text
+            const checkbox: ?TaskCheckbox = if (checkbox_char == ' ')
+                .unchecked
+            else if (checkbox_char == 'x' or checkbox_char == 'X')
+                .checked
+            else
+                null;
+
+            if (checkbox) |cb| {
                 const text_start: usize = if (after_bullet.len > 3 and after_bullet[3] == ' ') 4 else 3;
                 return .{
                     .text = std.mem.trim(u8, after_bullet[text_start..], " \t"),
                     .indent_level = indent / 2,
-                    .checkbox = .unchecked,
-                };
-            } else if (checkbox_char == 'x' or checkbox_char == 'X') {
-                // Checked: - [x] text or - [X] text
-                const text_start: usize = if (after_bullet.len > 3 and after_bullet[3] == ' ') 4 else 3;
-                return .{
-                    .text = std.mem.trim(u8, after_bullet[text_start..], " \t"),
-                    .indent_level = indent / 2,
-                    .checkbox = .checked,
+                    .checkbox = cb,
                 };
             }
         }
@@ -612,21 +610,13 @@ pub const Markdown = struct {
     ) !void {
         try self.renderListIndent(item.indent_level, segments, allocator);
 
-        if (item.checkbox) |checkbox| {
-            const checkbox_char = switch (checkbox) {
-                .unchecked => self.theme.task_unchecked_char,
-                .checked => self.theme.task_checked_char,
-            };
-            const checkbox_style = switch (checkbox) {
-                .unchecked => self.theme.task_unchecked_style,
-                .checked => self.theme.task_checked_style,
-            };
-            const checkbox_with_space = try std.fmt.allocPrint(allocator, "{s} ", .{checkbox_char});
-            try segments.append(allocator, Segment.styled(checkbox_with_space, checkbox_style));
-        } else {
-            const bullet_with_space = try std.fmt.allocPrint(allocator, "{s} ", .{self.theme.list_bullet_char});
-            try segments.append(allocator, Segment.styled(bullet_with_space, self.theme.list_bullet_style));
-        }
+        const marker_char, const marker_style = if (item.checkbox) |checkbox| switch (checkbox) {
+            .unchecked => .{ self.theme.task_unchecked_char, self.theme.task_unchecked_style },
+            .checked => .{ self.theme.task_checked_char, self.theme.task_checked_style },
+        } else .{ self.theme.list_bullet_char, self.theme.list_bullet_style };
+
+        const marker_with_space = try std.fmt.allocPrint(allocator, "{s} ", .{marker_char});
+        try segments.append(allocator, Segment.styled(marker_with_space, marker_style));
 
         try self.renderInlineText(item.text, null, segments, allocator);
     }
