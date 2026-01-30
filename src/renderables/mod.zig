@@ -52,6 +52,12 @@ pub const Syntax = syntax.Syntax;
 pub const SyntaxTheme = syntax.SyntaxTheme;
 pub const SyntaxLanguage = syntax.Language;
 
+pub const markdown = @import("markdown.zig");
+pub const Markdown = markdown.Markdown;
+pub const MarkdownTheme = markdown.MarkdownTheme;
+pub const Header = markdown.Header;
+pub const HeaderLevel = markdown.HeaderLevel;
+
 pub const ProgressGroup = progress.ProgressGroup;
 pub const ProgressDisplay = progress.ProgressDisplay;
 pub const LabelContent = tree.LabelContent;
@@ -73,4 +79,5 @@ test {
     _ = @import("layout.zig");
     _ = @import("json.zig");
     _ = @import("syntax.zig");
+    _ = @import("markdown.zig");
 }
