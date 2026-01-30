@@ -241,7 +241,7 @@ We aim to implement all features from the Rich library that are feasible in Zig 
 | Transfer speed | Y | Y | [x] | bytes/sec |
 | Spinner | Y | Y | [x] | Animated |
 | Multiple spinners | Y | Y | [x] | Various styles |
-| Custom columns | Y | Y | [ ] | User-defined |
+| Custom columns | Y | Y | [x] | User-defined |
 | Multiple tasks | Y | Y | [x] | Concurrent bars |
 | Task completion | Y | Y | [x] | Done state |
 | Indeterminate mode | Y | Y | [x] | Unknown total |
@@ -337,7 +337,7 @@ We aim to implement all features from the Rich library that are feasible in Zig 
 | Tab size | Y | Y | [ ] | Tab expansion |
 | Indent guides | Y | Y | [ ] | Visual guides |
 | Highlight lines | Y | Y | [ ] | Specific lines |
-| Code from file | Y | Y | [ ] | Load and display |
+| Code from file | Y | Y | [x] | Load and display |
 
 **Note**: Uses keyword-based tokenization for Zig, JSON, Markdown. No external dependencies.
 
@@ -387,8 +387,8 @@ We aim to implement all features from the Rich library that are feasible in Zig 
 | Feature | Rich | rich_rust | rich_zig | Notes |
 |---------|------|-----------|----------|-------|
 | Rich handler | Y | Y | [x] | Styled logs |
-| Tracebacks | Y | Y | [ ] | Formatted errors |
-| Syntax in tracebacks | Y | Y | [ ] | Code context |
+| Tracebacks | Y | Y | [x] | Formatted errors |
+| Syntax in tracebacks | Y | Y | [x] | Code context |
 | Local variables | Y | Y | [ ] | Show locals |
 
 ---
