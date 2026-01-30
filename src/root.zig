@@ -114,6 +114,14 @@ pub const RichHandler = logging.RichHandler;
 pub const LogRecord = logging.LogRecord;
 pub const LevelStyles = logging.LevelStyles;
 
+// Traceback support
+pub const Traceback = logging.Traceback;
+pub const StackFrame = logging.StackFrame;
+pub const TracebackTheme = logging.TracebackTheme;
+pub const TracebackOptions = logging.TracebackOptions;
+pub const traceHere = logging.traceHere;
+pub const traceError = logging.traceError;
+
 // Re-export tests from all modules
 test {
     // Phase 1

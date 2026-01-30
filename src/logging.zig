@@ -3,6 +3,9 @@ const Style = @import("style.zig").Style;
 const Color = @import("color.zig").Color;
 const ColorSystem = @import("color.zig").ColorSystem;
 const terminal = @import("terminal.zig");
+const Segment = @import("segment.zig").Segment;
+const box = @import("box.zig");
+const Panel = @import("renderables/panel.zig").Panel;
 
 /// Log level matching std.log.Level for compatibility
 pub const Level = enum {
@@ -437,4 +440,704 @@ test "scopedLog creates scoped logger" {
     const log = scopedLog(.mymodule);
     // Just verify it compiles - actual output goes to stderr
     _ = log;
+}
+
+// ============================================================================
+// Traceback Support - Formatted stack traces with syntax highlighting
+// ============================================================================
+
+/// A single frame in a stack trace
+pub const StackFrame = struct {
+    /// Source file path (may be null for built-in functions)
+    file: ?[]const u8 = null,
+    /// Line number (0 means unknown)
+    line: u32 = 0,
+    /// Column number (0 means unknown)
+    column: u32 = 0,
+    /// Function or symbol name
+    function: ?[]const u8 = null,
+    /// Address of the frame
+    address: ?usize = null,
+
+    pub fn format(self: StackFrame, allocator: std.mem.Allocator) ![]u8 {
+        var result: std.ArrayList(u8) = .empty;
+        var writer = result.writer(allocator);
+
+        if (self.function) |func| {
+            try writer.writeAll(func);
+        } else {
+            try writer.writeAll("<unknown>");
+        }
+
+        if (self.file) |file| {
+            try writer.print(" at {s}", .{file});
+            if (self.line > 0) {
+                try writer.print(":{d}", .{self.line});
+                if (self.column > 0) {
+                    try writer.print(":{d}", .{self.column});
+                }
+            }
+        }
+
+        if (self.address) |addr| {
+            try writer.print(" (0x{x})", .{addr});
+        }
+
+        return result.toOwnedSlice(allocator);
+    }
+};
+
+/// Styling configuration for traceback rendering
+pub const TracebackTheme = struct {
+    /// Style for the error header (e.g., "error: ...")
+    error_style: Style = Style.empty.foreground(Color.red).bold(),
+    /// Style for the "Traceback" title
+    title_style: Style = Style.empty.bold(),
+    /// Style for file paths
+    file_style: Style = Style.empty.foreground(Color.cyan),
+    /// Style for line numbers
+    line_number_style: Style = Style.empty.foreground(Color.yellow),
+    /// Style for function names
+    function_style: Style = Style.empty.foreground(Color.green),
+    /// Style for the highlighted source line
+    highlight_style: Style = Style.empty.foreground(Color.red),
+    /// Style for frame index numbers
+    frame_index_style: Style = Style.empty.dim(),
+    /// Style for context lines (non-highlighted source)
+    context_style: Style = Style.empty.dim(),
+    /// Style for the error message
+    message_style: Style = Style.empty.foreground(Color.red),
+    /// Style for address/pointer values
+    address_style: Style = Style.empty.dim(),
+
+    pub const default: TracebackTheme = .{};
+
+    pub const minimal: TracebackTheme = .{
+        .error_style = Style.empty.foreground(Color.red),
+        .title_style = Style.empty,
+        .file_style = Style.empty,
+        .line_number_style = Style.empty,
+        .function_style = Style.empty,
+        .highlight_style = Style.empty.bold(),
+        .frame_index_style = Style.empty,
+        .context_style = Style.empty,
+        .message_style = Style.empty.foreground(Color.red),
+        .address_style = Style.empty,
+    };
+};
+
+/// Options for traceback rendering
+pub const TracebackOptions = struct {
+    /// Number of source lines to show before the error line
+    context_before: u8 = 2,
+    /// Number of source lines to show after the error line
+    context_after: u8 = 2,
+    /// Whether to show line numbers in source context
+    show_line_numbers: bool = true,
+    /// Whether to show frame addresses
+    show_addresses: bool = false,
+    /// Whether to show a decorative box around the traceback
+    show_box: bool = true,
+    /// Maximum number of frames to display (0 = unlimited)
+    max_frames: u8 = 0,
+    /// Whether to suppress frames from std library
+    suppress_std: bool = false,
+    /// Whether to attempt to read and display source code
+    show_source: bool = true,
+    /// Theme for styling
+    theme: TracebackTheme = TracebackTheme.default,
+};
+
+/// A formatted traceback with stack frames and optional source context
+pub const Traceback = struct {
+    allocator: std.mem.Allocator,
+    /// The error or exception message
+    message: ?[]const u8 = null,
+    /// The error name/type
+    error_name: ?[]const u8 = null,
+    /// Stack frames (most recent first)
+    frames: std.ArrayList(StackFrame),
+    /// Rendering options
+    options: TracebackOptions = .{},
+    /// Cached source lines (file path -> lines)
+    source_cache: std.StringHashMap([]const []const u8),
+
+    pub fn init(allocator: std.mem.Allocator) Traceback {
+        return .{
+            .allocator = allocator,
+            .frames = std.ArrayList(StackFrame).empty,
+            .source_cache = std.StringHashMap([]const []const u8).init(allocator),
+        };
+    }
+
+    pub fn deinit(self: *Traceback) void {
+        // Free cached source lines
+        var it = self.source_cache.iterator();
+        while (it.next()) |entry| {
+            for (entry.value_ptr.*) |line| {
+                self.allocator.free(line);
+            }
+            self.allocator.free(entry.value_ptr.*);
+            self.allocator.free(entry.key_ptr.*);
+        }
+        self.source_cache.deinit();
+        self.frames.deinit(self.allocator);
+    }
+
+    pub fn withMessage(self: Traceback, msg: []const u8) Traceback {
+        var t = self;
+        t.message = msg;
+        return t;
+    }
+
+    pub fn withErrorName(self: Traceback, name: []const u8) Traceback {
+        var t = self;
+        t.error_name = name;
+        return t;
+    }
+
+    pub fn withOptions(self: Traceback, opts: TracebackOptions) Traceback {
+        var t = self;
+        t.options = opts;
+        return t;
+    }
+
+    /// Add a stack frame
+    pub fn addFrame(self: *Traceback, frame: StackFrame) !void {
+        try self.frames.append(self.allocator, frame);
+    }
+
+    /// Capture the current stack trace from this call site
+    pub fn captureCurrentTrace(self: *Traceback, skip_frames: usize) !void {
+        var stack_trace = std.builtin.StackTrace{
+            .instruction_addresses = undefined,
+            .index = 0,
+        };
+        var addresses: [32]usize = undefined;
+        stack_trace.instruction_addresses = &addresses;
+
+        std.debug.captureStackTrace(@returnAddress(), &stack_trace);
+
+        const debug_info = std.debug.getSelfDebugInfo() catch return;
+
+        var frame_idx: usize = 0;
+        for (stack_trace.instruction_addresses[0..stack_trace.index]) |addr| {
+            if (addr == 0) break;
+
+            // Skip requested frames
+            if (frame_idx < skip_frames) {
+                frame_idx += 1;
+                continue;
+            }
+
+            var frame = StackFrame{ .address = addr };
+
+            // Try to get symbol information
+            if (debug_info.getSymbolAtAddress(self.allocator, addr)) |symbol| {
+                if (symbol.symbol_name) |name| {
+                    frame.function = name;
+                }
+                if (symbol.source_location) |loc| {
+                    frame.file = loc.file_name;
+                    frame.line = @intCast(loc.line);
+                    frame.column = @intCast(loc.column);
+                }
+            } else |_| {}
+
+            try self.addFrame(frame);
+            frame_idx += 1;
+        }
+    }
+
+    /// Parse a Zig stack trace string into frames
+    pub fn parseZigTrace(self: *Traceback, trace_str: []const u8) !void {
+        var lines = std.mem.splitScalar(u8, trace_str, '\n');
+
+        while (lines.next()) |line| {
+            const trimmed = std.mem.trim(u8, line, " \t\r");
+            if (trimmed.len == 0) continue;
+
+            // Try to parse different Zig trace formats
+            if (self.parseZigFrameLine(trimmed)) |frame| {
+                try self.addFrame(frame);
+            }
+        }
+    }
+
+    fn parseZigFrameLine(_: *Traceback, line: []const u8) ?StackFrame {
+        // Format 1: "file.zig:line:col: 0xaddr in function_name"
+        // Format 2: "file.zig:line:col"
+        // Format 3: "0xaddr in function_name (file.zig)"
+
+        var frame = StackFrame{};
+
+        // Check for address prefix (0x...)
+        if (std.mem.startsWith(u8, line, "0x")) {
+            const space_idx = std.mem.indexOfScalar(u8, line, ' ') orelse return null;
+            frame.address = std.fmt.parseInt(usize, line[2..space_idx], 16) catch null;
+
+            const rest = line[space_idx + 1 ..];
+            if (std.mem.startsWith(u8, rest, "in ")) {
+                const func_start = rest[3..];
+                const paren_idx = std.mem.indexOfScalar(u8, func_start, '(');
+                if (paren_idx) |idx| {
+                    frame.function = std.mem.trim(u8, func_start[0..idx], " ");
+                    // Parse file from parentheses
+                    const file_part = func_start[idx + 1 ..];
+                    const close_paren = std.mem.indexOfScalar(u8, file_part, ')') orelse file_part.len;
+                    const file_info = file_part[0..close_paren];
+                    parseFileLocation(file_info, &frame);
+                } else {
+                    frame.function = func_start;
+                }
+            }
+            return frame;
+        }
+
+        // Try parsing as "file:line:col" format
+        parseFileLocation(line, &frame);
+        if (frame.file != null) {
+            // Look for function after the location
+            const in_idx = std.mem.indexOf(u8, line, " in ");
+            if (in_idx) |idx| {
+                frame.function = std.mem.trim(u8, line[idx + 4 ..], " ");
+            }
+            return frame;
+        }
+
+        return null;
+    }
+
+    fn parseFileLocation(text: []const u8, frame: *StackFrame) void {
+        // Parse "file.zig:line:col" or "file.zig:line"
+        var parts = std.mem.splitScalar(u8, text, ':');
+        const file_part = parts.next() orelse return;
+
+        // Validate it looks like a file path
+        if (std.mem.indexOf(u8, file_part, ".") == null) return;
+
+        frame.file = file_part;
+
+        if (parts.next()) |line_str| {
+            frame.line = std.fmt.parseInt(u32, line_str, 10) catch 0;
+
+            if (parts.next()) |col_str| {
+                frame.column = std.fmt.parseInt(u32, col_str, 10) catch 0;
+            }
+        }
+    }
+
+    /// Read source lines for a file and cache them
+    fn getSourceLines(self: *Traceback, file_path: []const u8) ?[]const []const u8 {
+        // Check cache first
+        if (self.source_cache.get(file_path)) |lines| {
+            return lines;
+        }
+
+        // Try to read the file
+        const file = std.fs.cwd().openFile(file_path, .{}) catch return null;
+        defer file.close();
+
+        const content = file.readToEndAlloc(self.allocator, 1024 * 1024) catch return null;
+        defer self.allocator.free(content);
+
+        // Split into lines
+        var line_list: std.ArrayList([]const u8) = .empty;
+        var iter = std.mem.splitScalar(u8, content, '\n');
+        while (iter.next()) |line| {
+            const duped = self.allocator.dupe(u8, line) catch return null;
+            line_list.append(self.allocator, duped) catch {
+                self.allocator.free(duped);
+                return null;
+            };
+        }
+
+        const lines = line_list.toOwnedSlice(self.allocator) catch return null;
+
+        // Cache with duped key
+        const key_copy = self.allocator.dupe(u8, file_path) catch {
+            for (lines) |line| {
+                self.allocator.free(line);
+            }
+            self.allocator.free(lines);
+            return null;
+        };
+        self.source_cache.put(key_copy, lines) catch {
+            self.allocator.free(key_copy);
+            for (lines) |line| {
+                self.allocator.free(line);
+            }
+            self.allocator.free(lines);
+            return null;
+        };
+
+        return lines;
+    }
+
+    /// Render the traceback to segments
+    pub fn render(self: *Traceback, max_width: usize, allocator: std.mem.Allocator) ![]Segment {
+        var segments: std.ArrayList(Segment) = .empty;
+        const theme = self.options.theme;
+
+        const inner_width = if (self.options.show_box and max_width > 4) max_width - 4 else max_width;
+
+        // Title line
+        const title = "Traceback (most recent call last):";
+        const title_copy = try allocator.dupe(u8, title);
+        try segments.append(allocator, Segment.styled(title_copy, theme.title_style));
+        try segments.append(allocator, Segment.line());
+
+        // Determine frames to display
+        var frames_to_show = self.frames.items;
+        if (self.options.max_frames > 0 and frames_to_show.len > self.options.max_frames) {
+            frames_to_show = frames_to_show[0..self.options.max_frames];
+        }
+
+        // Render each frame (in reverse order - most recent last for Python-style)
+        var frame_idx: usize = frames_to_show.len;
+        while (frame_idx > 0) {
+            frame_idx -= 1;
+            const frame = frames_to_show[frame_idx];
+
+            // Skip std library frames if requested
+            if (self.options.suppress_std) {
+                if (frame.file) |file| {
+                    if (std.mem.indexOf(u8, file, "std/") != null) continue;
+                }
+            }
+
+            try self.renderFrame(&segments, allocator, frame, frames_to_show.len - 1 - frame_idx, inner_width);
+        }
+
+        // Error message
+        if (self.error_name != null or self.message != null) {
+            try segments.append(allocator, Segment.line());
+
+            if (self.error_name) |name| {
+                const name_copy = try allocator.dupe(u8, name);
+                try segments.append(allocator, Segment.styled(name_copy, theme.error_style));
+            }
+
+            if (self.error_name != null and self.message != null) {
+                const sep = try allocator.dupe(u8, ": ");
+                try segments.append(allocator, Segment.styled(sep, theme.error_style));
+            }
+
+            if (self.message) |msg| {
+                const msg_copy = try allocator.dupe(u8, msg);
+                try segments.append(allocator, Segment.styled(msg_copy, theme.message_style));
+            }
+            try segments.append(allocator, Segment.line());
+        }
+
+        // Wrap in a box if requested
+        if (self.options.show_box) {
+            const frame_segments = try segments.toOwnedSlice(allocator);
+
+            var panel = Panel.fromSegments(allocator, frame_segments)
+                .withBorderStyle(theme.error_style)
+                .withTitle("Error")
+                .withTitleStyle(theme.error_style);
+            panel.box_style = box.BoxStyle.rounded;
+
+            return panel.render(max_width, allocator);
+        }
+
+        return segments.toOwnedSlice(allocator);
+    }
+
+    fn renderFrame(
+        self: *Traceback,
+        segments: *std.ArrayList(Segment),
+        allocator: std.mem.Allocator,
+        frame: StackFrame,
+        index: usize,
+        _: usize,
+    ) !void {
+        const theme = self.options.theme;
+
+        // Frame index
+        var idx_buf: [16]u8 = undefined;
+        const idx_str = std.fmt.bufPrint(&idx_buf, "  #{d} ", .{index}) catch "  #? ";
+        const idx_copy = try allocator.dupe(u8, idx_str);
+        try segments.append(allocator, Segment.styled(idx_copy, theme.frame_index_style));
+
+        // Function name
+        if (frame.function) |func| {
+            const func_copy = try allocator.dupe(u8, func);
+            try segments.append(allocator, Segment.styled(func_copy, theme.function_style));
+        } else {
+            const unknown = try allocator.dupe(u8, "<unknown>");
+            try segments.append(allocator, Segment.styled(unknown, theme.function_style));
+        }
+
+        try segments.append(allocator, Segment.line());
+
+        // File location
+        if (frame.file) |file| {
+            const indent = try allocator.dupe(u8, "     ");
+            try segments.append(allocator, Segment.plain(indent));
+
+            const file_copy = try allocator.dupe(u8, file);
+            try segments.append(allocator, Segment.styled(file_copy, theme.file_style));
+
+            if (frame.line > 0) {
+                const colon = try allocator.dupe(u8, ":");
+                try segments.append(allocator, Segment.plain(colon));
+
+                var line_buf: [16]u8 = undefined;
+                const line_str = std.fmt.bufPrint(&line_buf, "{d}", .{frame.line}) catch "?";
+                const line_copy = try allocator.dupe(u8, line_str);
+                try segments.append(allocator, Segment.styled(line_copy, theme.line_number_style));
+
+                if (frame.column > 0) {
+                    const colon2 = try allocator.dupe(u8, ":");
+                    try segments.append(allocator, Segment.plain(colon2));
+
+                    var col_buf: [16]u8 = undefined;
+                    const col_str = std.fmt.bufPrint(&col_buf, "{d}", .{frame.column}) catch "?";
+                    const col_copy = try allocator.dupe(u8, col_str);
+                    try segments.append(allocator, Segment.styled(col_copy, theme.line_number_style));
+                }
+            }
+
+            // Address
+            if (self.options.show_addresses) {
+                if (frame.address) |addr| {
+                    var addr_buf: [32]u8 = undefined;
+                    const addr_str = std.fmt.bufPrint(&addr_buf, " (0x{x})", .{addr}) catch "";
+                    const addr_copy = try allocator.dupe(u8, addr_str);
+                    try segments.append(allocator, Segment.styled(addr_copy, theme.address_style));
+                }
+            }
+
+            try segments.append(allocator, Segment.line());
+
+            // Source context
+            if (self.options.show_source and frame.line > 0) {
+                try self.renderSourceContext(segments, allocator, frame);
+            }
+        }
+    }
+
+    fn renderSourceContext(
+        self: *Traceback,
+        segments: *std.ArrayList(Segment),
+        allocator: std.mem.Allocator,
+        frame: StackFrame,
+    ) !void {
+        const theme = self.options.theme;
+
+        const file_path = frame.file orelse return;
+        const source_lines = self.getSourceLines(file_path) orelse return;
+
+        const target_line = frame.line;
+        if (target_line == 0 or target_line > source_lines.len) return;
+
+        const start_line = if (target_line > self.options.context_before)
+            target_line - self.options.context_before
+        else
+            1;
+        const end_line = @min(target_line + self.options.context_after, @as(u32, @intCast(source_lines.len)));
+
+        // Determine max line number width for alignment
+        var max_line_num = end_line;
+        var line_num_width: u8 = 1;
+        while (max_line_num >= 10) {
+            max_line_num /= 10;
+            line_num_width += 1;
+        }
+
+        var line_num = start_line;
+        while (line_num <= end_line) : (line_num += 1) {
+            const line_content = source_lines[line_num - 1];
+            const is_target = (line_num == target_line);
+
+            // Gutter with line number
+            const marker: []const u8 = if (is_target) " > " else "   ";
+            const marker_copy = try allocator.dupe(u8, marker);
+            const marker_style = if (is_target) theme.highlight_style else theme.context_style;
+            try segments.append(allocator, Segment.styled(marker_copy, marker_style));
+
+            if (self.options.show_line_numbers) {
+                var line_buf: [16]u8 = undefined;
+                const line_str = std.fmt.bufPrint(&line_buf, "{d:>4} | ", .{line_num}) catch "   ? | ";
+                const line_copy = try allocator.dupe(u8, line_str);
+                try segments.append(allocator, Segment.styled(line_copy, theme.line_number_style));
+            }
+
+            // Source line content
+            const line_copy = try allocator.dupe(u8, line_content);
+            const content_style = if (is_target) theme.highlight_style else theme.context_style;
+            try segments.append(allocator, Segment.styled(line_copy, content_style));
+            try segments.append(allocator, Segment.line());
+
+            // Column indicator for target line
+            if (is_target and frame.column > 0) {
+                const prefix_len: usize = 3 + (if (self.options.show_line_numbers) @as(usize, 8) else 0);
+                const total_indent = prefix_len + frame.column - 1;
+
+                const indent_str = try allocator.alloc(u8, total_indent);
+                @memset(indent_str, ' ');
+                try segments.append(allocator, Segment.plain(indent_str));
+
+                const caret = try allocator.dupe(u8, "^");
+                try segments.append(allocator, Segment.styled(caret, theme.highlight_style));
+                try segments.append(allocator, Segment.line());
+            }
+        }
+    }
+};
+
+/// Create a traceback from the current location
+pub fn traceHere(allocator: std.mem.Allocator) !Traceback {
+    var tb = Traceback.init(allocator);
+    try tb.captureCurrentTrace(1); // Skip this function
+    return tb;
+}
+
+/// Create a traceback from an error
+pub fn traceError(allocator: std.mem.Allocator, err: anyerror) !Traceback {
+    var tb = Traceback.init(allocator);
+    tb.error_name = @errorName(err);
+    try tb.captureCurrentTrace(1);
+    return tb;
+}
+
+// Traceback tests
+test "StackFrame.format basic" {
+    const allocator = std.testing.allocator;
+    const frame = StackFrame{
+        .file = "test.zig",
+        .line = 42,
+        .column = 5,
+        .function = "testFunc",
+    };
+
+    const formatted = try frame.format(allocator);
+    defer allocator.free(formatted);
+
+    try std.testing.expect(std.mem.indexOf(u8, formatted, "testFunc") != null);
+    try std.testing.expect(std.mem.indexOf(u8, formatted, "test.zig") != null);
+    try std.testing.expect(std.mem.indexOf(u8, formatted, "42") != null);
+}
+
+test "StackFrame.format with address" {
+    const allocator = std.testing.allocator;
+    const frame = StackFrame{
+        .function = "main",
+        .address = 0x12345,
+    };
+
+    const formatted = try frame.format(allocator);
+    defer allocator.free(formatted);
+
+    try std.testing.expect(std.mem.indexOf(u8, formatted, "main") != null);
+    try std.testing.expect(std.mem.indexOf(u8, formatted, "0x12345") != null);
+}
+
+test "StackFrame.format unknown function" {
+    const allocator = std.testing.allocator;
+    const frame = StackFrame{};
+
+    const formatted = try frame.format(allocator);
+    defer allocator.free(formatted);
+
+    try std.testing.expect(std.mem.indexOf(u8, formatted, "<unknown>") != null);
+}
+
+test "Traceback.init and deinit" {
+    const allocator = std.testing.allocator;
+    var tb = Traceback.init(allocator);
+    defer tb.deinit();
+
+    try tb.addFrame(.{ .function = "test", .line = 1 });
+    try std.testing.expectEqual(@as(usize, 1), tb.frames.items.len);
+}
+
+test "Traceback.withMessage" {
+    const allocator = std.testing.allocator;
+    var tb = Traceback.init(allocator).withMessage("Something went wrong");
+    defer tb.deinit();
+
+    try std.testing.expectEqualStrings("Something went wrong", tb.message.?);
+}
+
+test "Traceback.withErrorName" {
+    const allocator = std.testing.allocator;
+    var tb = Traceback.init(allocator).withErrorName("OutOfMemory");
+    defer tb.deinit();
+
+    try std.testing.expectEqualStrings("OutOfMemory", tb.error_name.?);
+}
+
+test "Traceback.parseZigTrace basic" {
+    const allocator = std.testing.allocator;
+    var tb = Traceback.init(allocator);
+    defer tb.deinit();
+
+    const trace =
+        \\src/main.zig:42:5
+        \\src/lib.zig:100:10
+    ;
+
+    try tb.parseZigTrace(trace);
+
+    try std.testing.expect(tb.frames.items.len >= 2);
+    try std.testing.expectEqualStrings("src/main.zig", tb.frames.items[0].file.?);
+    try std.testing.expectEqual(@as(u32, 42), tb.frames.items[0].line);
+}
+
+test "TracebackTheme.default" {
+    const theme = TracebackTheme.default;
+    try std.testing.expect(theme.error_style.hasAttribute(.bold));
+    try std.testing.expect(theme.title_style.hasAttribute(.bold));
+}
+
+test "TracebackTheme.minimal" {
+    const theme = TracebackTheme.minimal;
+    try std.testing.expect(!theme.title_style.hasAttribute(.bold));
+    try std.testing.expect(theme.highlight_style.hasAttribute(.bold));
+}
+
+test "TracebackOptions defaults" {
+    const opts = TracebackOptions{};
+    try std.testing.expectEqual(@as(u8, 2), opts.context_before);
+    try std.testing.expectEqual(@as(u8, 2), opts.context_after);
+    try std.testing.expect(opts.show_line_numbers);
+    try std.testing.expect(opts.show_box);
+}
+
+test "Traceback.render basic" {
+    const allocator = std.testing.allocator;
+    var tb = Traceback.init(allocator);
+    defer tb.deinit();
+
+    tb = tb.withMessage("Test error").withErrorName("TestError");
+    tb.options.show_box = false;
+    tb.options.show_source = false;
+
+    try tb.addFrame(.{ .function = "main", .file = "main.zig", .line = 10 });
+
+    const segments = try tb.render(80, allocator);
+    defer {
+        for (segments) |seg| {
+            if (seg.text.len > 0 and !std.mem.eql(u8, seg.text, "\n")) {
+                allocator.free(seg.text);
+            }
+        }
+        allocator.free(segments);
+    }
+
+    try std.testing.expect(segments.len > 0);
+
+    // Verify we have some content
+    var found_traceback = false;
+    var found_error = false;
+    for (segments) |seg| {
+        if (std.mem.indexOf(u8, seg.text, "Traceback") != null) found_traceback = true;
+        if (std.mem.indexOf(u8, seg.text, "TestError") != null) found_error = true;
+    }
+    try std.testing.expect(found_traceback);
+    try std.testing.expect(found_error);
 }
