@@ -612,10 +612,14 @@ pub fn main() !void {
     try renderSegments(wrap_segs, stdout);
 
     // Console input prompts (API documentation - interactive features)
-    try stdout.writeAll("\nConsole input prompts (API available):\n");
-    try stdout.writeAll("  console.input(\"Enter name: \")     -> Read line of text\n");
-    try stdout.writeAll("  console.prompt(\"[bold]Name:[/] \") -> Styled prompt\n");
-    try stdout.writeAll("  rich.Prompt, IntPrompt, FloatPrompt, Confirm\n");
+    try stdout.writeAll(
+        \\
+        \\Console input prompts (API available):
+        \\  console.input("Enter name: ")     -> Read line of text
+        \\  console.prompt("[bold]Name:[/] ") -> Styled prompt
+        \\  rich.Prompt, IntPrompt, FloatPrompt, Confirm
+        \\
+    );
 
     try stdout.writeAll("\nAll phases complete!\n");
     try stdout.flush();
