@@ -513,16 +513,16 @@ pub const Markdown = struct {
         const trimmed = std.mem.trim(u8, line, " \t");
         if (trimmed.len < 3) return false;
 
-        const first_char = trimmed[0];
-        if (first_char != '-' and first_char != '*' and first_char != '_') return false;
-
-        for (trimmed) |c| {
-            if (c != first_char and c != ' ') return false;
-        }
+        const rule_char = trimmed[0];
+        if (rule_char != '-' and rule_char != '*' and rule_char != '_') return false;
 
         var char_count: usize = 0;
         for (trimmed) |c| {
-            if (c == first_char) char_count += 1;
+            if (c == rule_char) {
+                char_count += 1;
+            } else if (c != ' ') {
+                return false;
+            }
         }
 
         return char_count >= 3;
