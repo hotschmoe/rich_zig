@@ -655,42 +655,28 @@ pub const Markdown = struct {
     fn tryParseInlineCode(text: []const u8, pos: usize) ?InlineCodeResult {
         if (pos >= text.len or text[pos] != '`') return null;
 
-        // Count opening backticks
+        // Count opening backticks (inline code uses 1-2, not 3+ like fenced blocks)
         var backtick_count: usize = 0;
         var p = pos;
         while (p < text.len and text[p] == '`') : (p += 1) {
             backtick_count += 1;
         }
-
-        // Don't match opening of fenced code block (3+ backticks at line start typically)
-        // For inline, we support 1 or 2 backticks
         if (backtick_count > 2) return null;
 
         const content_start = pos + backtick_count;
         if (content_start >= text.len) return null;
 
-        // Find matching closing backticks
+        // Find matching closing backticks (exact count, no trailing backticks)
         var search_pos = content_start;
         while (search_pos + backtick_count <= text.len) : (search_pos += 1) {
-            // Check for exact backtick match
-            var match = true;
-            for (0..backtick_count) |i| {
-                if (text[search_pos + i] != '`') {
-                    match = false;
-                    break;
-                }
-            }
+            if (!isRepeatedChar(text[search_pos..][0..backtick_count], '`')) continue;
 
-            if (!match) continue;
-
-            // Make sure we don't have more backticks after
             const after_pos = search_pos + backtick_count;
             if (after_pos < text.len and text[after_pos] == '`') continue;
 
-            // Found the closing delimiter
             return .{
                 .content = text[content_start..search_pos],
-                .end_pos = search_pos + backtick_count,
+                .end_pos = after_pos,
             };
         }
 
