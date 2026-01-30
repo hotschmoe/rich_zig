@@ -14,7 +14,7 @@ pub fn main() !void {
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
-    try stdout.writeAll("rich_zig v0.10.0 - Full Demo\n");
+    try stdout.writeAll("rich_zig v0.11.0 - Full Demo\n");
     try stdout.writeAll("============================\n\n");
 
     // Phase 1: Color, Style, Segment
@@ -519,6 +519,108 @@ pub fn main() !void {
     for (md_combined_segs) |seg| {
         try seg.render(stdout, .truecolor);
     }
+
+    // Markdown lists (uses arena due to internal allocations)
+    try stdout.writeAll("\nMarkdown lists:\n");
+    {
+        var arena = std.heap.ArenaAllocator.init(allocator);
+        defer arena.deinit();
+        const md_lists = rich.Markdown.init("- First item\n- Second item\n- Third item\n\n1. Numbered one\n2. Numbered two");
+        const md_lists_segs = try md_lists.render(60, arena.allocator());
+        for (md_lists_segs) |seg| {
+            try seg.render(stdout, .truecolor);
+        }
+    }
+
+    // Markdown blockquotes (uses arena due to internal allocations)
+    try stdout.writeAll("\nMarkdown blockquotes:\n");
+    {
+        var arena = std.heap.ArenaAllocator.init(allocator);
+        defer arena.deinit();
+        const md_quote = rich.Markdown.init("> This is a quote\n> with multiple lines\n>> Nested quote");
+        const md_quote_segs = try md_quote.render(60, arena.allocator());
+        for (md_quote_segs) |seg| {
+            try seg.render(stdout, .truecolor);
+        }
+    }
+
+    // Markdown inline code
+    try stdout.writeAll("\nMarkdown inline code:\n");
+    const md_code = rich.Markdown.init("Use `std.debug.print` for debugging.");
+    const md_code_segs = try md_code.render(60, allocator);
+    defer allocator.free(md_code_segs);
+    for (md_code_segs) |seg| {
+        try seg.render(stdout, .truecolor);
+    }
+
+    // Markdown links
+    try stdout.writeAll("\nMarkdown links:\n");
+    const md_link = rich.Markdown.init("Check out [rich_zig](https://github.com/example/rich_zig) for more.");
+    const md_link_segs = try md_link.render(70, allocator);
+    defer allocator.free(md_link_segs);
+    for (md_link_segs) |seg| {
+        try seg.render(stdout, .truecolor);
+    }
+
+    // Markdown horizontal rule
+    try stdout.writeAll("\nMarkdown horizontal rule:\n");
+    const md_hr = rich.Markdown.init("Above the line\n\n---\n\nBelow the line");
+    const md_hr_segs = try md_hr.render(40, allocator);
+    defer allocator.free(md_hr_segs);
+    for (md_hr_segs) |seg| {
+        try seg.render(stdout, .truecolor);
+    }
+
+    // Markdown fenced code block (uses arena due to renderDuped allocations)
+    try stdout.writeAll("\nMarkdown fenced code block:\n");
+    {
+        var arena = std.heap.ArenaAllocator.init(allocator);
+        defer arena.deinit();
+        const md_fenced = rich.Markdown.init("```zig\nconst x: u32 = 42;\nstd.debug.print(\"{}\", .{x});\n```");
+        const md_fenced_segs = try md_fenced.render(60, arena.allocator());
+        for (md_fenced_segs) |seg| {
+            try seg.render(stdout, .truecolor);
+        }
+    }
+
+    // v0.11.0 Features
+    try stdout.writeAll("\nv0.11.0 New Features\n");
+    try stdout.writeAll("--------------------\n");
+
+    // Syntax highlighting
+    try stdout.writeAll("\nSyntax highlighting (Zig):\n");
+    const zig_code =
+        \\const std = @import("std");
+        \\pub fn main() void {
+        \\    const x: u32 = 42;
+        \\    std.debug.print("{}\n", .{x});
+        \\}
+    ;
+    const syntax = rich.Syntax.init(allocator, zig_code).withLanguage(.zig);
+    const syntax_segs = try syntax.render(60, allocator);
+    defer allocator.free(syntax_segs);
+    for (syntax_segs) |seg| {
+        try seg.render(stdout, .truecolor);
+    }
+
+    // Syntax auto-detection
+    try stdout.writeAll("\nSyntax auto-detection (from extension):\n");
+    const detected_lang = rich.SyntaxLanguage.fromExtension(".py");
+    try stdout.print("  .py -> {s}\n", .{@tagName(detected_lang)});
+    const detected_lang2 = rich.SyntaxLanguage.fromExtension(".rs");
+    try stdout.print("  .rs -> {s}\n", .{@tagName(detected_lang2)});
+    const detected_lang3 = rich.SyntaxLanguage.fromExtension(".zig");
+    try stdout.print("  .zig -> {s}\n", .{@tagName(detected_lang3)});
+
+    // Logging module
+    try stdout.writeAll("\nLogging module (RichHandler):\n");
+    try stdout.flush();
+    var log_handler = rich.logging.RichHandler.init(allocator);
+    defer log_handler.deinit();
+    try log_handler.emit(rich.logging.LogRecord.init(.debug, "Debug level message"));
+    try log_handler.emit(rich.logging.LogRecord.init(.info, "Info level message"));
+    try log_handler.emit(rich.logging.LogRecord.init(.warn, "Warning level message"));
+    try log_handler.emit(rich.logging.LogRecord.init(.err, "Error level message"));
 
     try stdout.writeAll("\nAll phases complete!\n");
     try stdout.flush();

@@ -142,9 +142,9 @@ We aim to implement all features from the Rich library that are feasible in Zig 
 | Rule (horizontal line) | Y | Y | [x] | With optional title |
 | Capture mode | Y | Y | [x] | Buffer output |
 | Export to HTML | Y | Y | [x] | ANSI -> HTML |
-| Export to SVG | Y | Y | [ ] | Terminal screenshot |
+| Export to SVG | Y | Y | [x] | Terminal screenshot |
 | Export to text | Y | Y | [x] | Strip ANSI |
-| Pager support | Y | Y | [ ] | Less-like paging |
+| Pager support | Y | Y | [x] | Less-like paging |
 | Input prompts | Y | Y | [ ] | User input |
 | Status/spinner | Y | Y | [x] | Transient message |
 | Log method | Y | Y | [x] | With timestamp |
@@ -326,7 +326,7 @@ We aim to implement all features from the Rich library that are feasible in Zig 
 
 | Feature | Rich | rich_rust | rich_zig | Notes |
 |---------|------|-----------|----------|-------|
-| Language detection | Y | Y | [ ] | Auto-detect |
+| Language detection | Y | Y | [x] | Auto-detect |
 | Explicit language | Y | Y | [x] | User-specified |
 | Line numbers | Y | Y | [x] | Left margin |
 | Line range | Y | Y | [x] | Partial display |
@@ -345,16 +345,16 @@ We aim to implement all features from the Rich library that are feasible in Zig 
 
 | Feature | Rich | rich_rust | rich_zig | Notes |
 |---------|------|-----------|----------|-------|
-| Headers (h1-h6) | Y | Y | [ ] | Styled headings |
-| Bold/italic | Y | Y | [ ] | Inline styles |
-| Code (inline) | Y | Y | [ ] | Backtick code |
-| Code blocks | Y | Y | [ ] | Fenced blocks |
-| Links | Y | Y | [ ] | Hyperlinks |
+| Headers (h1-h6) | Y | Y | [x] | Styled headings |
+| Bold/italic | Y | Y | [x] | Inline styles |
+| Code (inline) | Y | Y | [x] | Backtick code |
+| Code blocks | Y | Y | [x] | Fenced blocks |
+| Links | Y | Y | [x] | Hyperlinks |
 | Images (alt text) | Y | Y | [ ] | Show alt text |
-| Lists (ordered) | Y | Y | [ ] | Numbered |
-| Lists (unordered) | Y | Y | [ ] | Bullet points |
-| Blockquotes | Y | Y | [ ] | Indented |
-| Horizontal rules | Y | Y | [ ] | Dividers |
+| Lists (ordered) | Y | Y | [x] | Numbered |
+| Lists (unordered) | Y | Y | [x] | Bullet points |
+| Blockquotes | Y | Y | [x] | Indented |
+| Horizontal rules | Y | Y | [x] | Dividers |
 | Tables | Y | Y | [ ] | GFM tables |
 | Task lists | Y | Y | [ ] | Checkboxes |
 | Strikethrough | Y | Y | [ ] | GFM extension |
@@ -386,7 +386,7 @@ We aim to implement all features from the Rich library that are feasible in Zig 
 
 | Feature | Rich | rich_rust | rich_zig | Notes |
 |---------|------|-----------|----------|-------|
-| Rich handler | Y | Y | [ ] | Styled logs |
+| Rich handler | Y | Y | [x] | Styled logs |
 | Tracebacks | Y | Y | [ ] | Formatted errors |
 | Syntax in tracebacks | Y | Y | [ ] | Code context |
 | Local variables | Y | Y | [ ] | Show locals |
@@ -437,7 +437,7 @@ Track weekly:
 |--------|--------|---------|
 | P0 Features Implemented | 100% | 100% |
 | P1 Features Implemented | 100% | 100% |
-| P2 Features Implemented | 80%+ | ~65% |
+| P2 Features Implemented | 80%+ | ~85% |
 | Test Coverage | >85% | ~90% |
 | Documentation Coverage | 100% | 25% |
 
