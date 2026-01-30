@@ -637,7 +637,6 @@ pub const Syntax = struct {
             }
 
             if (self.word_wrap and code_width > 0) {
-                // Highlight into a temporary buffer, then wrap
                 var line_segments: std.ArrayList(Segment) = .empty;
                 try self.highlightLine(&line_segments, allocator, line);
                 const highlighted = try line_segments.toOwnedSlice(allocator);
@@ -646,21 +645,15 @@ pub const Syntax = struct {
                 const wrapped = try wrapSegments(highlighted, code_width, allocator);
                 defer allocator.free(wrapped);
 
-                // Add wrapped segments, handling continuation lines
-                var is_continuation = false;
+                var after_wrap_newline = false;
                 for (wrapped) |seg| {
-                    if (std.mem.eql(u8, seg.text, "\n")) {
-                        try segments.append(allocator, seg);
-                        is_continuation = true;
-                    } else {
-                        // Add continuation indent for wrapped lines
-                        if (is_continuation and self.show_line_numbers) {
-                            const indent = try allocator.dupe(u8, "     "); // Same width as line numbers
-                            try segments.append(allocator, Segment.styled(indent, self.theme.line_number_style));
-                            is_continuation = false;
-                        }
-                        try segments.append(allocator, seg);
+                    const is_newline = std.mem.eql(u8, seg.text, "\n");
+                    if (after_wrap_newline and self.show_line_numbers and !is_newline) {
+                        const indent = try allocator.dupe(u8, "     ");
+                        try segments.append(allocator, Segment.styled(indent, self.theme.line_number_style));
                     }
+                    try segments.append(allocator, seg);
+                    after_wrap_newline = is_newline;
                 }
             } else {
                 try self.highlightLine(&segments, allocator, line);
@@ -965,7 +958,6 @@ pub const Syntax = struct {
     }
 
     /// Wrap styled segments to fit within max_width, preserving styles across wrapped lines.
-    /// Returns wrapped lines as segments with newlines inserted at wrap points.
     fn wrapSegments(line_segments: []const Segment, max_width: usize, allocator: std.mem.Allocator) ![]Segment {
         if (max_width == 0) {
             return allocator.dupe(Segment, line_segments);
@@ -977,44 +969,35 @@ pub const Syntax = struct {
         for (line_segments) |seg| {
             const seg_width = seg.cellLength();
 
-            // If this segment fits entirely on the current line
             if (current_width + seg_width <= max_width) {
                 try result.append(allocator, seg);
                 current_width += seg_width;
                 continue;
             }
 
-            // Need to wrap - split the segment across lines
             var remaining_text = seg.text;
-            var remaining_width = seg_width;
 
-            while (remaining_width > 0) {
-                const available = max_width - current_width;
-
-                if (available == 0) {
-                    // Start a new line
+            while (remaining_text.len > 0) {
+                if (current_width >= max_width) {
                     try result.append(allocator, Segment.line());
                     current_width = 0;
-                    continue;
                 }
 
+                const remaining_width = cells.cellLen(remaining_text);
+                const available = max_width - current_width;
+
                 if (remaining_width <= available) {
-                    // Rest of segment fits on this line
                     try result.append(allocator, Segment.styledOptional(remaining_text, seg.style));
                     current_width += remaining_width;
                     break;
                 }
 
-                // Split segment at available width
                 const byte_pos = cells.cellToByteIndex(remaining_text, available);
                 if (byte_pos > 0) {
                     try result.append(allocator, Segment.styledOptional(remaining_text[0..byte_pos], seg.style));
                 }
-
-                // Start new line and continue with remainder
                 try result.append(allocator, Segment.line());
                 remaining_text = remaining_text[byte_pos..];
-                remaining_width = cells.cellLen(remaining_text);
                 current_width = 0;
             }
         }
