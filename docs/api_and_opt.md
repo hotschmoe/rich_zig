@@ -13,28 +13,113 @@ Post-v1.0.0 roadmap for developer experience, documentation, and codebase optimi
 - Inconsistent API patterns in places
 - Several large monolithic files (markdown: 3.2K, syntax: 2.5K, table: 1.7K)
 
+**Design Philosophy:**
+
+rich_zig is not a wrapper or direct port - it's a **Zig-native terminal library** that provides familiar ergonomics for developers who've used Rich-style libraries. We leverage Zig's unique strengths:
+
+- **Comptime**: Zero-cost abstractions, compile-time validation, generated builders
+- **Explicit Allocators**: Clear ownership, no hidden allocations, arena-friendly
+- **Error Unions**: Semantic errors that can be handled precisely
+- **Value Semantics**: Immutable builders that are predictable and thread-safe
+
+The API should feel intuitive to developers familiar with terminal styling libraries while being idiomatically Zig.
+
 **Goals:**
 1. Create comprehensive API documentation (manual + auto-generated)
 2. Update README with v1.0.0 installation details
 3. Refactor large files into smaller, focused modules
 4. Leverage Zig's comptime and type reflection for better DX
+5. Standardize API patterns across all modules
 
 ---
 
 ## Table of Contents
 
-1. [API Documentation Strategy](#1-api-documentation-strategy)
-2. [README Updates](#2-readme-updates)
-3. [File & Directory Optimization](#3-file--directory-optimization)
-4. [Developer Experience Improvements](#4-developer-experience-improvements)
-5. [Leveraging Zig's Strengths](#5-leveraging-zigs-strengths)
-6. [Implementation Roadmap](#6-implementation-roadmap)
+1. [API Design Principles](#1-api-design-principles)
+2. [API Documentation Strategy](#2-api-documentation-strategy)
+3. [README Updates](#3-readme-updates)
+4. [File & Directory Optimization](#4-file--directory-optimization)
+5. [Developer Experience Improvements](#5-developer-experience-improvements)
+6. [Leveraging Zig's Strengths](#6-leveraging-zigs-strengths)
+7. [Implementation Roadmap](#7-implementation-roadmap)
 
 ---
 
-## 1. API Documentation Strategy
+## 1. API Design Principles
 
-### 1.1 Manual API Documentation (api.md)
+### 1.1 The rich_zig Way
+
+These principles guide all API decisions:
+
+**Explicit over Implicit**
+```zig
+// Zig way: allocator is explicit, ownership is clear
+var console = Console.init(allocator);
+defer console.deinit();
+
+// NOT: hidden global state or implicit allocation
+```
+
+**Predictable Value Semantics**
+```zig
+// Builders return new values - no hidden mutation
+const panel = Panel.fromText(allocator, "content")
+    .withTitle("Title")      // Returns new Panel
+    .withWidth(40)           // Returns new Panel
+    .rounded();              // Returns new Panel
+
+// Original is unchanged, chain is predictable
+```
+
+**Errors Are Values**
+```zig
+// Handle specific errors, not catch-all exceptions
+const result = console.print(user_input) catch |err| switch (err) {
+    error.UnmatchedTag => fallback_print(user_input),
+    error.InvalidColor => log_warning("bad color"),
+    else => return err,
+};
+```
+
+**Comptime When Possible**
+```zig
+// Catch mistakes at compile time, not runtime
+const style = Style.parse("bold red") catch unreachable;  // Comptime-known string
+const color = Color.fromName("purple") orelse @compileError("unknown color");
+```
+
+### 1.2 Familiar Patterns, Zig Implementation
+
+| Pattern | Why It's Familiar | Zig Advantage |
+|---------|-------------------|---------------|
+| `console.print("[bold]text[/]")` | BBCode-like markup | Comptime parsing possible |
+| `.withTitle().withWidth()` | Fluent builders | Value semantics, no mutation |
+| `Panel`, `Table`, `Tree` | Rich-style components | Zero-cost renderables |
+| `render(width) ![]Segment` | Lazy rendering | Caller controls allocation |
+
+### 1.3 Memory Model
+
+```
+Construction           Rendering              Output
+     |                     |                    |
+     v                     v                    v
+  [Panel]  ------>  render(width)  ------>  []Segment
+     |                     |                    |
+  stores              uses stored           caller owns
+  allocator           allocator             returned slice
+```
+
+**Rules:**
+1. Allocator passed at construction, stored in struct
+2. `render()` uses stored allocator, returns owned slice
+3. Caller must free returned segments (or use arena)
+4. Content strings are borrowed, not copied (caller manages lifetime)
+
+---
+
+## 2. API Documentation Strategy
+
+### 2.1 Manual API Documentation (api.md)
 
 Create `docs/api.md` organized by architectural phase:
 
@@ -92,7 +177,7 @@ try console.printRenderable(panel);
 ```
 ```
 
-### 1.2 Auto-Generated Documentation (Stretch Goal)
+### 2.2 Auto-Generated Documentation (Stretch Goal)
 
 **Approach: Zig Comptime Reflection**
 
@@ -158,7 +243,7 @@ fn generateTypeDoc(writer: anytype, comptime T: type, name: []const u8) !void {
 
 **Recommendation:** Use comptime to generate a type catalog with links to source, then manually document key types.
 
-### 1.3 Documentation Structure
+### 2.3 Documentation Structure
 
 ```
 docs/
@@ -178,9 +263,9 @@ docs/
 
 ---
 
-## 2. README Updates
+## 3. README Updates
 
-### 2.1 Installation Section Improvements
+### 3.1 Installation Section Improvements
 
 Current installation is good but missing v1.0.0 specifics:
 
@@ -258,7 +343,7 @@ pub fn main() !void {
 ```
 ```
 
-### 2.2 Quick Reference Card
+### 3.2 Quick Reference Card
 
 Add a quick reference section for common operations:
 
@@ -279,9 +364,9 @@ Add a quick reference section for common operations:
 
 ---
 
-## 3. File & Directory Optimization
+## 4. File & Directory Optimization
 
-### 3.1 Current Large Files Analysis
+### 4.1 Current Large Files Analysis
 
 | File | Lines | Complexity | Priority |
 |------|-------|------------|----------|
@@ -293,7 +378,7 @@ Add a quick reference section for common operations:
 | `console.zig` | 1,283 | Medium (I/O + capture + export) | P2 |
 | `text.zig` | 1,030 | Low (spans + wrapping) | P3 |
 
-### 3.2 Refactoring Strategy: markdown.zig (3,186 lines)
+### 4.2 Refactoring Strategy: markdown.zig (3,186 lines)
 
 **Current Structure:**
 - Inline parser (block + inline elements)
@@ -326,7 +411,7 @@ src/renderables/markdown/
 5. Update `mod.zig` to re-export public API
 6. Update imports in `root.zig`
 
-### 3.3 Refactoring Strategy: syntax.zig (2,518 lines)
+### 4.3 Refactoring Strategy: syntax.zig (2,518 lines)
 
 **Current Structure:**
 - Language definitions (zig, json, python, etc.)
@@ -380,7 +465,7 @@ pub const Language = enum {
 };
 ```
 
-### 3.4 Refactoring Strategy: table.zig (1,659 lines)
+### 4.4 Refactoring Strategy: table.zig (1,659 lines)
 
 **Proposed Split:**
 
@@ -393,7 +478,7 @@ src/renderables/table/
   |-- style.zig         # Table theming (~200 lines)
 ```
 
-### 3.5 Directory Structure After Optimization
+### 4.5 Directory Structure After Optimization
 
 ```
 src/
@@ -461,68 +546,139 @@ src/
 
 ---
 
-## 4. Developer Experience Improvements
+## 5. Developer Experience Improvements
 
-### 4.1 API Consistency Fixes
+### 5.1 API Consistency: Standardize on Value Semantics
 
-**Issue 1: Table returns `*Table`, Panel returns `Panel`**
-
+**Current State (Inconsistent):**
 ```zig
-// Current (inconsistent)
-pub fn withTitle(self: *Table, title: []const u8) *Table  // Table
-pub fn withTitle(self: Panel, title: []const u8) Panel    // Panel
+// Table: reference-based, mutates in place
+_ = table.addColumn("A");         // Returns *Table
+
+// Panel: value-based, returns new copy
+const panel = panel.withTitle("T"); // Returns Panel
 ```
 
-**Recommendation:** Standardize on value-returning builders where struct size is reasonable (<256 bytes).
+**Target State (Consistent Value Semantics):**
+```zig
+// ALL builders return values - predictable, thread-safe, composable
+const table = Table.init(allocator)
+    .addColumn(Column.header("Name").style(Style.empty.bold()))
+    .addColumn(Column.header("Value").justify(.right));
 
-**Issue 2: Allocator passed at construction AND render**
+const panel = Panel.fromText(allocator, "content")
+    .withTitle("Title")
+    .rounded();
+```
+
+**Why Value Semantics for Zig:**
+- No hidden mutation - easier to reason about
+- Thread-safe by default - can pass between threads
+- Comptime-friendly - more optimization opportunities
+- Matches Zig's philosophy of explicitness
+
+**Exception: Data Population Phase**
+
+For adding rows to tables (often in loops), mutation is appropriate:
 
 ```zig
-// Current (redundant)
+// Configuration phase: value semantics (fluent)
+var table = Table.init(allocator)
+    .addColumn(Column.header("Name"))
+    .addColumn(Column.header("Value"));
+
+// Data phase: mutation (practical for loops)
+for (items) |item| {
+    try table.addRow(.{ item.name, item.value });  // Mutates
+}
+```
+
+### 5.2 Allocator Pattern: Store Once
+
+**Current (Redundant):**
+```zig
 const panel = Panel.fromText(allocator, "text");
 const segs = try panel.render(80, allocator);  // Why pass again?
 ```
 
-**Recommendation:** Store allocator in struct, use stored allocator in render:
+**Target (Store at Construction):**
+```zig
+pub const Panel = struct {
+    allocator: Allocator,
+    content: Content,
+    // ...
+
+    pub fn render(self: Panel, max_width: usize) ![]Segment {
+        // Uses self.allocator internally
+        return try renderInternal(self.allocator, self.content, max_width);
+    }
+};
+
+// Usage becomes cleaner
+const segs = try panel.render(80);
+defer panel.allocator.free(segs);
+```
+
+**When to Pass Allocator Explicitly:**
+- Arena allocation for batch operations (Live displays)
+- Cross-allocator scenarios (rare)
 
 ```zig
-// Improved
-pub fn render(self: Panel, max_width: usize) ![]Segment {
-    // Uses self.allocator
+// Live rendering with arena - explicit allocator override
+pub fn renderWith(self: Panel, max_width: usize, arena: Allocator) ![]Segment {
+    return try renderInternal(arena, self.content, max_width);
 }
 ```
 
-### 4.2 Error Type Improvements
+### 5.3 Semantic Error Types
 
-Add semantic error sets:
+Leverage Zig's error unions for precise error handling:
 
 ```zig
-// src/errors.zig (NEW)
+// src/errors.zig
+pub const MarkupError = error{
+    UnmatchedTag,           // [bold without closing [/]
+    InvalidColorName,       // [unknown_color]
+    InvalidStyleAttribute,  // [notareal]
+    NestedTagMismatch,      // [bold][italic][/bold]
+};
+
 pub const RenderError = error{
     OutOfMemory,
-    InvalidDimensions,
-    ContentTooLarge,
+    InvalidWidth,           // Width too small for content
+    ContentTooLarge,        // Exceeds max dimensions
 };
 
-pub const MarkupError = error{
-    UnmatchedTag,
-    InvalidColorName,
-    InvalidAttribute,
-};
-
-pub const ParseError = error{
-    UnexpectedToken,
-    InvalidSyntax,
-    UnsupportedFeature,
+pub const TableError = error{
+    ColumnCountMismatch,    // Row has wrong number of cells
+    InvalidSpan,            // Colspan/rowspan out of bounds
+    OutOfMemory,
 };
 ```
 
-### 4.3 Convenience Constructors
+**Usage enables precise handling:**
+```zig
+const result = markup.parse(user_input) catch |err| switch (err) {
+    error.UnmatchedTag => {
+        // Show helpful error with position
+        try console.print("[red]Error:[/] Unmatched tag at position {d}", .{pos});
+        return;
+    },
+    error.InvalidColorName => {
+        // Fall back to unstyled
+        try console.print(stripMarkup(user_input));
+        return;
+    },
+    else => return err,
+};
+```
 
-Add shorthand constructors for common patterns:
+### 5.4 Convenience Constructors
+
+Common patterns should be one-liners:
 
 ```zig
-// Panel shortcuts
+// Panel semantic constructors
 pub fn info(allocator: Allocator, text: []const u8) Panel {
     return fromText(allocator, text)
         .withBorderStyle(Style.empty.fg(Color.blue))
@@ -536,100 +692,191 @@ pub fn warning(allocator: Allocator, text: []const u8) Panel {
         .rounded();
 }
 
-pub fn errorPanel(allocator: Allocator, text: []const u8) Panel {
+pub fn err(allocator: Allocator, text: []const u8) Panel {
     return fromText(allocator, text)
         .withBorderStyle(Style.empty.fg(Color.red))
         .withTitle("Error")
         .rounded();
 }
+
+pub fn success(allocator: Allocator, text: []const u8) Panel {
+    return fromText(allocator, text)
+        .withBorderStyle(Style.empty.fg(Color.green))
+        .withTitle("Success")
+        .rounded();
+}
 ```
 
-### 4.4 Type Discovery
+**Usage:**
+```zig
+try console.printRenderable(Panel.err(allocator, "File not found"));
+try console.printRenderable(Panel.success(allocator, "Build complete"));
+```
 
-Add a "prelude" for common imports:
+### 5.5 Prelude Module for Quick Start
 
 ```zig
-// src/prelude.zig
+// src/prelude.zig - Common imports for rapid prototyping
 pub const Console = @import("console.zig").Console;
 pub const Panel = @import("renderables/panel.zig").Panel;
 pub const Table = @import("renderables/table.zig").Table;
+pub const Tree = @import("renderables/tree.zig").Tree;
 pub const Rule = @import("renderables/rule.zig").Rule;
+pub const Progress = @import("renderables/progress.zig");
 pub const Style = @import("style.zig").Style;
 pub const Color = @import("color.zig").Color;
+pub const Text = @import("text.zig").Text;
 
-// Common style shortcuts
+// Style shortcuts
 pub const bold = Style.empty.bold();
 pub const italic = Style.empty.italic();
-pub const red = Style.empty.fg(Color.red);
-pub const green = Style.empty.fg(Color.green);
-pub const blue = Style.empty.fg(Color.blue);
+pub const dim = Style.empty.dim();
+pub const underline = Style.empty.underline();
 ```
 
-Usage:
+**Usage:**
 ```zig
 const rich = @import("rich_zig").prelude;
 
-var console = rich.Console.init(allocator);
-try console.print(rich.bold.render("Hello"));
+pub fn main() !void {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    const allocator = gpa.allocator();
+
+    var console = rich.Console.init(allocator);
+    defer console.deinit();
+
+    try console.print("[bold green]Hello, rich_zig![/]");
+    try console.printRenderable(rich.Panel.info(allocator, "Welcome"));
+}
+```
+
+### 5.6 Renderable Protocol
+
+All renderables implement a consistent interface:
+
+```zig
+// The Renderable Protocol
+// Any type with this signature can be rendered to console:
+pub fn render(self: Self, max_width: usize) ![]Segment
+
+// Built-in renderables: Panel, Table, Tree, Rule, Progress, Markdown, Syntax, etc.
+```
+
+**Creating Custom Renderables:**
+```zig
+const Counter = struct {
+    allocator: Allocator,
+    label: []const u8,
+    value: u32,
+
+    pub fn init(allocator: Allocator, label: []const u8, value: u32) Counter {
+        return .{ .allocator = allocator, .label = label, .value = value };
+    }
+
+    pub fn render(self: Counter, max_width: usize) ![]Segment {
+        _ = max_width;
+        var segments = std.ArrayList(Segment).init(self.allocator);
+
+        try segments.append(.{
+            .text = self.label,
+            .style = Style.empty.bold(),
+        });
+
+        var buf: [20]u8 = undefined;
+        const num_str = try std.fmt.bufPrint(&buf, ": {d}", .{self.value});
+        try segments.append(.{
+            .text = try self.allocator.dupe(u8, num_str),
+            .style = Style.empty.fg(Color.cyan),
+        });
+
+        return segments.toOwnedSlice();
+    }
+};
+
+// Usage
+const counter = Counter.init(allocator, "Items", 42);
+try console.printRenderable(counter);
 ```
 
 ---
 
-## 5. Leveraging Zig's Strengths
+## 6. Leveraging Zig's Strengths
 
-### 5.1 Comptime Type Generation
+These are the features that make rich_zig better than a simple port - they're only possible in Zig.
 
-**Builder Method Generation:**
+### 6.1 Comptime Builder Generation
 
-Instead of 60+ handwritten builder methods, use comptime:
+Instead of 60+ handwritten builder methods, generate them at compile time:
 
 ```zig
-fn BuilderMixin(comptime Self: type, comptime fields: []const struct { name: []const u8, type: type }) type {
+fn BuilderMixin(comptime Self: type, comptime fields: anytype) type {
     return struct {
-        inline for (fields) |field| {
-            pub fn @("with" ++ capitalize(field.name))(self: Self, value: field.type) Self {
-                var copy = self;
-                @field(copy, field.name) = value;
-                return copy;
+        pub usingnamespace blk: {
+            var decls = struct {};
+            inline for (fields) |field| {
+                const name = "with" ++ capitalize(field.name);
+                decls = @Type(.{ .@"struct" = .{
+                    .decls = decls.decls ++ .{
+                        .{ .name = name, .val = struct {
+                            pub fn f(self: Self, value: field.type) Self {
+                                var copy = self;
+                                @field(copy, field.name) = value;
+                                return copy;
+                            }
+                        }.f },
+                    },
+                }});
             }
-        }
+            break :blk decls;
+        };
     };
 }
 
-// Usage
+// Usage - define once, get all builders free
 pub const Panel = struct {
     title: ?[]const u8 = null,
+    subtitle: ?[]const u8 = null,
     width: ?usize = null,
-    // ...
+    padding: Padding = .{},
+    box_style: BoxStyle = .rounded,
 
     pub usingnamespace BuilderMixin(Panel, .{
         .{ .name = "title", .type = []const u8 },
+        .{ .name = "subtitle", .type = []const u8 },
         .{ .name = "width", .type = usize },
+        .{ .name = "padding", .type = Padding },
+        .{ .name = "box_style", .type = BoxStyle },
     });
+    // Automatically generates: withTitle, withSubtitle, withWidth, withPadding, withBoxStyle
 };
 ```
 
-### 5.2 Comptime Validation
+### 6.2 Comptime Markup Validation
 
-Validate configurations at compile time:
+For static markup strings, validate at compile time:
 
 ```zig
-pub fn initWithOptions(allocator: Allocator, comptime options: Options) Console {
+pub fn comptimeMarkup(comptime markup: []const u8) CompiledMarkup {
     comptime {
-        if (options.width != null and options.width.? < 10) {
-            @compileError("Console width must be >= 10");
-        }
-        if (options.tab_size > 16) {
-            @compileError("Tab size cannot exceed 16");
-        }
+        var parser = MarkupParser.init(markup);
+        const result = parser.parse() catch |err| {
+            @compileError("Invalid markup: " ++ @errorName(err) ++ " in: " ++ markup);
+        };
+        return result;
     }
-    // ...
 }
+
+// Usage - errors caught at compile time, zero runtime cost
+const welcome = comptimeMarkup("[bold green]Welcome![/]");
+try console.printCompiled(welcome);
+
+// This won't compile:
+// const bad = comptimeMarkup("[bold unclosed");  // Compile error!
 ```
 
-### 5.3 Static String Maps for Lookups
+### 6.3 Static String Maps
 
-Replace runtime string matching with comptime maps:
+Replace runtime string matching with O(1) comptime-generated lookups:
 
 ```zig
 // color.zig - Named color lookup
@@ -642,113 +889,259 @@ const named_colors = std.StaticStringMap(Color).initComptime(.{
     .{ "magenta", Color.magenta },
     .{ "cyan", Color.cyan },
     .{ "white", Color.white },
-    // 256-color names...
+    .{ "bright_red", Color.bright_red },
+    .{ "bright_green", Color.bright_green },
+    // ... all 256 color names
 });
 
 pub fn fromName(name: []const u8) ?Color {
-    return named_colors.get(name);
+    return named_colors.get(name);  // O(1) lookup, no allocation
 }
+
+// Language extension mapping for syntax highlighting
+const extension_map = std.StaticStringMap(Language).initComptime(.{
+    .{ ".zig", .zig },
+    .{ ".json", .json },
+    .{ ".py", .python },
+    .{ ".js", .javascript },
+    .{ ".ts", .typescript },
+    .{ ".rs", .rust },
+    .{ ".go", .go },
+    .{ ".c", .c },
+    .{ ".h", .c },
+    .{ ".cpp", .cpp },
+    .{ ".hpp", .cpp },
+});
 ```
 
-### 5.4 Generic Renderable Interface
+### 6.4 Comptime Interface Verification
 
-Use Zig's duck typing for renderables:
+Catch missing methods at compile time, not runtime:
 
 ```zig
 pub fn Renderable(comptime T: type) type {
     // Compile-time interface check
     comptime {
         if (!@hasDecl(T, "render")) {
-            @compileError(@typeName(T) ++ " must have render() method");
+            @compileError(@typeName(T) ++ " must have render(usize) ![]Segment method");
+        }
+
+        const render_fn = @typeInfo(@TypeOf(@field(T, "render"))).@"fn";
+        if (render_fn.params.len != 2) {  // self + max_width
+            @compileError(@typeName(T) ++ ".render must take (self, max_width: usize)");
         }
     }
 
     return struct {
         pub fn renderToConsole(self: T, console: *Console) !void {
-            const segments = try self.render(console.width, console.allocator);
+            const segments = try self.render(console.width);
             defer console.allocator.free(segments);
             try console.writeSegments(segments);
+        }
+
+        pub fn renderToString(self: T, allocator: Allocator, width: usize) ![]u8 {
+            const segments = try self.render(width);
+            defer allocator.free(segments);
+            return try segmentsToString(allocator, segments);
         }
     };
 }
 
-// Auto-add renderToConsole to all renderables
+// Any type with render() automatically gets renderToConsole, renderToString
 pub const Panel = struct {
     // ...
+    pub fn render(self: Panel, max_width: usize) ![]Segment { ... }
     pub usingnamespace Renderable(Panel);
+};
+
+pub const Table = struct {
+    // ...
+    pub fn render(self: Table, max_width: usize) ![]Segment { ... }
+    pub usingnamespace Renderable(Table);
 };
 ```
 
-### 5.5 Segment Pooling with ArenaAllocator
+### 6.5 Arena Allocation for Live Displays
 
-For real-time rendering (Live displays), use arena allocation:
+Real-time rendering benefits from arena allocation - batch free in O(1):
 
 ```zig
 pub const LiveContext = struct {
     arena: std.heap.ArenaAllocator,
+    console: *Console,
 
-    pub fn init(backing: Allocator) LiveContext {
-        return .{ .arena = std.heap.ArenaAllocator.init(backing) };
+    pub fn init(console: *Console) LiveContext {
+        return .{
+            .arena = std.heap.ArenaAllocator.init(console.allocator),
+            .console = console,
+        };
     }
 
-    pub fn render(self: *LiveContext, renderable: anytype) ![]Segment {
-        // All allocations go to arena
-        return renderable.render(self.arena.allocator());
+    pub fn deinit(self: *LiveContext) void {
+        self.arena.deinit();
     }
 
-    pub fn reset(self: *LiveContext) void {
-        // Free all segments at once - O(1)
+    /// Render a frame - all allocations use arena
+    pub fn frame(self: *LiveContext, renderable: anytype) !void {
+        // Reset arena - free all previous frame's allocations in O(1)
         _ = self.arena.reset(.retain_capacity);
+
+        // Render to arena allocator
+        const segments = try renderable.renderWith(
+            self.console.width,
+            self.arena.allocator(),
+        );
+
+        // Write to console (segments valid until next frame() call)
+        try self.console.writeSegments(segments);
+    }
+};
+
+// Usage for progress bars, spinners, live updates
+var live = LiveContext.init(&console);
+defer live.deinit();
+
+for (0..100) |i| {
+    const progress = ProgressBar.init().withCompleted(i).withTotal(100);
+    try live.frame(progress);  // No per-frame allocations!
+    std.time.sleep(50 * std.time.ns_per_ms);
+}
+```
+
+### 6.6 Comptime Language Definitions
+
+Syntax highlighting rules as comptime data - zero runtime parsing:
+
+```zig
+pub const Language = enum {
+    zig, json, python, javascript, rust, go, c, cpp,
+
+    pub fn keywords(self: Language) []const []const u8 {
+        return switch (self) {
+            .zig => comptime &.{
+                "const", "var", "fn", "pub", "if", "else", "while",
+                "for", "switch", "return", "try", "catch", "defer",
+                "comptime", "inline", "struct", "enum", "union",
+            },
+            .python => comptime &.{
+                "def", "class", "import", "from", "if", "else", "elif",
+                "while", "for", "return", "try", "except", "with", "as",
+                "lambda", "yield", "async", "await",
+            },
+            .rust => comptime &.{
+                "fn", "let", "mut", "const", "if", "else", "match",
+                "while", "for", "loop", "return", "struct", "enum",
+                "impl", "trait", "pub", "use", "mod", "async", "await",
+            },
+            // ...
+        };
+    }
+
+    pub fn operators(self: Language) []const []const u8 {
+        return switch (self) {
+            .zig => comptime &.{ "=>", "->", "++", "**", "..", ".*", ".?" },
+            .rust => comptime &.{ "=>", "->", "::", "..", "..=", "?" },
+            // ...
+        };
+    }
+
+    pub fn commentPrefix(self: Language) []const u8 {
+        return switch (self) {
+            .zig, .rust, .go, .c, .cpp, .javascript => "//",
+            .python => "#",
+            .json => "",  // No comments in JSON
+        };
     }
 };
 ```
 
+### 6.7 Compile-Time Style Composition
+
+Styles can be composed at compile time for zero-cost theming:
+
+```zig
+pub const Theme = struct {
+    pub const monokai = struct {
+        pub const keyword = comptime Style.empty.fg(Color.fromHex("#F92672")).bold();
+        pub const string = comptime Style.empty.fg(Color.fromHex("#E6DB74"));
+        pub const comment = comptime Style.empty.fg(Color.fromHex("#75715E")).italic();
+        pub const function = comptime Style.empty.fg(Color.fromHex("#A6E22E"));
+        pub const number = comptime Style.empty.fg(Color.fromHex("#AE81FF"));
+    };
+
+    pub const dracula = struct {
+        pub const keyword = comptime Style.empty.fg(Color.fromHex("#FF79C6")).bold();
+        pub const string = comptime Style.empty.fg(Color.fromHex("#F1FA8C"));
+        pub const comment = comptime Style.empty.fg(Color.fromHex("#6272A4")).italic();
+        pub const function = comptime Style.empty.fg(Color.fromHex("#50FA7B"));
+        pub const number = comptime Style.empty.fg(Color.fromHex("#BD93F9"));
+    };
+};
+
+// Usage - theme selection has zero runtime cost
+const syntax = Syntax.init(allocator, code, .zig)
+    .withTheme(Theme.monokai);  // Comptime theme, no allocation
+```
+
 ---
 
-## 6. Implementation Roadmap
+## 7. Implementation Roadmap
 
-### Phase A: Documentation (Week 1-2)
+### Phase A: Quick Wins (No Breaking Changes)
 
-| Task | Priority | Effort |
-|------|----------|--------|
-| Create docs/api.md skeleton | P0 | 2h |
-| Document Console API | P0 | 3h |
-| Document Panel, Table, Tree | P0 | 4h |
-| Document all renderables | P1 | 6h |
-| Create docs/guide/quickstart.md | P0 | 2h |
-| Update README with v1.0.0 details | P0 | 1h |
-| Add quick reference card | P1 | 1h |
+These can be shipped immediately without affecting existing users:
 
-### Phase B: Large File Refactoring (Week 3-4)
+| Task | Priority | Description |
+|------|----------|-------------|
+| Add prelude module | P0 | Create `src/prelude.zig` with common exports |
+| Add Panel convenience constructors | P0 | `.info()`, `.warning()`, `.err()`, `.success()` |
+| Add semantic error types | P1 | `src/errors.zig` with MarkupError, RenderError, TableError |
+| Document renderable protocol | P1 | How to create custom renderables |
+| Add StaticStringMap for colors | P1 | O(1) color name lookup |
 
-| Task | Priority | Effort |
-|------|----------|--------|
-| Split markdown.zig | P0 | 8h |
-| Split syntax.zig | P0 | 6h |
-| Split table.zig | P1 | 4h |
-| Split progress.zig | P1 | 4h |
-| Update imports in root.zig | P0 | 1h |
-| Verify all tests pass | P0 | 2h |
+### Phase B: API Consistency (Minor Breaking)
 
-### Phase C: API Improvements (Week 5-6)
+These improve the API but may require user code changes:
 
-| Task | Priority | Effort |
-|------|----------|--------|
-| Standardize builder return types | P1 | 4h |
-| Remove redundant allocator params | P1 | 3h |
-| Add semantic error types | P2 | 2h |
-| Add convenience constructors | P2 | 2h |
-| Add prelude module | P2 | 1h |
+| Task | Priority | Description |
+|------|----------|-------------|
+| Store allocator in renderables | P0 | Simplify `render()` signature to just `render(width)` |
+| Standardize builder return types | P0 | All builders return value copies, not `*Self` |
+| Add Column builder for Table | P1 | `Column.header("Name").style(...).justify(...)` |
+| Split Table API: config vs data | P1 | Fluent for columns, mutation for rows |
 
-### Phase D: Comptime Optimizations (Week 7-8)
+### Phase C: Documentation
 
-| Task | Priority | Effort |
-|------|----------|--------|
-| Implement BuilderMixin | P2 | 4h |
-| Add StaticStringMap for colors | P2 | 2h |
-| Add comptime validation | P3 | 2h |
-| Implement segment pooling | P3 | 4h |
-| Create docgen tool (stretch) | P3 | 8h |
+| Task | Priority | Description |
+|------|----------|-------------|
+| Create docs/api.md skeleton | P0 | Type reference organized by phase |
+| Create docs/guide/quickstart.md | P0 | 5-minute getting started |
+| Document Console API | P0 | Print, log, capture, export |
+| Document Panel, Table, Tree | P0 | Core renderables |
+| Document all renderables | P1 | Rule, Progress, Syntax, Markdown, etc. |
+| Update README with v1.0.0 details | P0 | Installation, version pinning |
+| Add quick reference card | P1 | Common operations cheat sheet |
+
+### Phase D: Large File Refactoring
+
+| Task | Priority | Description |
+|------|----------|-------------|
+| Split markdown.zig (3.2K lines) | P0 | parser.zig, renderer.zig, theme.zig, elements.zig |
+| Split syntax.zig (2.5K lines) | P0 | highlighter.zig, theme.zig, tokenizer.zig, languages/ |
+| Split table.zig (1.7K lines) | P1 | column.zig, row.zig, layout.zig, style.zig |
+| Split progress.zig (1.6K lines) | P1 | bar.zig, spinner.zig, group.zig |
+| Update imports in root.zig | P0 | Maintain public API stability |
+| Verify all tests pass | P0 | No regressions |
+
+### Phase E: Comptime Optimizations
+
+| Task | Priority | Description |
+|------|----------|-------------|
+| Implement BuilderMixin | P2 | Comptime-generated builder methods |
+| Add comptime markup validation | P2 | `comptimeMarkup("[bold]text[/]")` |
+| Implement comptime themes | P2 | Zero-cost theme composition |
+| Arena allocation for Live | P2 | O(1) frame reset |
+| Create docgen tool (stretch) | P3 | Comptime type introspection for docs |
 
 ---
 
