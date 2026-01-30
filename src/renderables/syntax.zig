@@ -357,6 +357,7 @@ pub const SyntaxTheme = struct {
     function_style: Style = Style.empty.foreground(Color.cyan),
     line_number_style: Style = Style.empty.foreground(Color.default).dim(),
     default_style: Style = Style.empty,
+    background_color: ?Color = null,
 
     pub const default: SyntaxTheme = .{};
 
@@ -372,6 +373,7 @@ pub const SyntaxTheme = struct {
         .function_style = Style.empty.foreground(Color.fromRgb(166, 226, 46)),
         .line_number_style = Style.empty.foreground(Color.fromRgb(117, 113, 94)),
         .default_style = Style.empty.foreground(Color.fromRgb(248, 248, 242)),
+        .background_color = Color.fromRgb(39, 40, 34),
     };
 
     pub const dracula: SyntaxTheme = .{
@@ -386,7 +388,25 @@ pub const SyntaxTheme = struct {
         .function_style = Style.empty.foreground(Color.fromRgb(80, 250, 123)),
         .line_number_style = Style.empty.foreground(Color.fromRgb(98, 114, 164)),
         .default_style = Style.empty.foreground(Color.fromRgb(248, 248, 242)),
+        .background_color = Color.fromRgb(40, 42, 54),
     };
+
+    /// Apply theme's background color to a style, if the theme has one
+    pub fn applyBackground(self: SyntaxTheme, style: Style) Style {
+        if (self.background_color) |bg| {
+            return style.background(bg);
+        }
+        return style;
+    }
+
+    /// Apply theme's background color to an optional style, if the theme has one
+    pub fn applyBackgroundOpt(self: SyntaxTheme, style: ?Style) ?Style {
+        if (self.background_color) |bg| {
+            const base_style = style orelse Style.empty;
+            return base_style.background(bg);
+        }
+        return style;
+    }
 };
 
 const TokenType = enum {
@@ -656,7 +676,7 @@ pub const Syntax = struct {
                 var buf: [16]u8 = undefined;
                 const line_str = std.fmt.bufPrint(&buf, "{d:>4} ", .{line_num}) catch "???? ";
                 const line_str_copy = try allocator.dupe(u8, line_str);
-                try segments.append(allocator, Segment.styled(line_str_copy, self.theme.line_number_style));
+                try segments.append(allocator, Segment.styled(line_str_copy, self.theme.applyBackground(self.theme.line_number_style)));
             }
 
             if (self.word_wrap and code_width > 0) {
@@ -673,9 +693,10 @@ pub const Syntax = struct {
                     const is_newline = std.mem.eql(u8, seg.text, "\n");
                     if (after_wrap_newline and self.show_line_numbers and !is_newline) {
                         const indent = try allocator.dupe(u8, "     ");
-                        try segments.append(allocator, Segment.styled(indent, self.theme.line_number_style));
+                        try segments.append(allocator, Segment.styled(indent, self.theme.applyBackground(self.theme.line_number_style)));
                     }
-                    try segments.append(allocator, seg);
+                    // Apply background to wrapped segment
+                    try segments.append(allocator, Segment.styledOptional(seg.text, self.theme.applyBackgroundOpt(seg.style)));
                     after_wrap_newline = is_newline;
                 }
             } else {
@@ -715,8 +736,13 @@ pub const Syntax = struct {
     }
 
     fn defaultSegment(self: Syntax, text: []const u8) Segment {
-        const style = if (self.theme.default_style.isEmpty()) null else self.theme.default_style;
+        const base_style = if (self.theme.default_style.isEmpty()) null else self.theme.default_style;
+        const style = self.theme.applyBackgroundOpt(base_style);
         return Segment.styledOptional(text, style);
+    }
+
+    fn styledSegment(self: Syntax, text: []const u8, style: Style) Segment {
+        return Segment.styled(text, self.theme.applyBackground(style));
     }
 
     fn highlightZig(self: Syntax, segments: *std.ArrayList(Segment), allocator: std.mem.Allocator, line: []const u8) !void {
@@ -724,20 +750,20 @@ pub const Syntax = struct {
 
         while (i < line.len) {
             if (std.mem.startsWith(u8, line[i..], "//")) {
-                try segments.append(allocator, Segment.styled(line[i..], self.theme.comment_style));
+                try segments.append(allocator, self.styledSegment(line[i..], self.theme.comment_style));
                 return;
             }
 
             if (line[i] == '"') {
                 const end = self.findStringEnd(line, i);
-                try segments.append(allocator, Segment.styled(line[i..end], self.theme.string_style));
+                try segments.append(allocator, self.styledSegment(line[i..end], self.theme.string_style));
                 i = end;
                 continue;
             }
 
             if (line[i] == '\'') {
                 const end = self.findCharEnd(line, i);
-                try segments.append(allocator, Segment.styled(line[i..end], self.theme.string_style));
+                try segments.append(allocator, self.styledSegment(line[i..end], self.theme.string_style));
                 i = end;
                 continue;
             }
@@ -746,9 +772,9 @@ pub const Syntax = struct {
                 const end = self.findIdentEnd(line, i + 1);
                 const builtin = line[i..end];
                 if (zig_builtins.has(builtin)) {
-                    try segments.append(allocator, Segment.styled(builtin, self.theme.builtin_style));
+                    try segments.append(allocator, self.styledSegment(builtin, self.theme.builtin_style));
                 } else {
-                    try segments.append(allocator, Segment.styled(builtin, self.theme.default_style));
+                    try segments.append(allocator, self.styledSegment(builtin, self.theme.default_style));
                 }
                 i = end;
                 continue;
@@ -756,7 +782,7 @@ pub const Syntax = struct {
 
             if (std.ascii.isDigit(line[i]) or (line[i] == '.' and i + 1 < line.len and std.ascii.isDigit(line[i + 1]))) {
                 const end = self.findNumberEnd(line, i);
-                try segments.append(allocator, Segment.styled(line[i..end], self.theme.number_style));
+                try segments.append(allocator, self.styledSegment(line[i..end], self.theme.number_style));
                 i = end;
                 continue;
             }
@@ -766,11 +792,11 @@ pub const Syntax = struct {
                 const ident = line[i..end];
 
                 if (zig_keywords.has(ident)) {
-                    try segments.append(allocator, Segment.styled(ident, self.theme.keyword_style));
+                    try segments.append(allocator, self.styledSegment(ident, self.theme.keyword_style));
                 } else if (zig_types.has(ident)) {
-                    try segments.append(allocator, Segment.styled(ident, self.theme.type_style));
+                    try segments.append(allocator, self.styledSegment(ident, self.theme.type_style));
                 } else if (end < line.len and line[end] == '(') {
-                    try segments.append(allocator, Segment.styled(ident, self.theme.function_style));
+                    try segments.append(allocator, self.styledSegment(ident, self.theme.function_style));
                 } else {
                     try segments.append(allocator, self.defaultSegment(ident));
                 }
@@ -779,18 +805,18 @@ pub const Syntax = struct {
             }
 
             if (self.isOperator(line[i])) {
-                try segments.append(allocator, Segment.styled(line[i .. i + 1], self.theme.operator_style));
+                try segments.append(allocator, self.styledSegment(line[i .. i + 1], self.theme.operator_style));
                 i += 1;
                 continue;
             }
 
             if (self.isPunctuation(line[i])) {
-                try segments.append(allocator, Segment.styled(line[i .. i + 1], self.theme.punctuation_style));
+                try segments.append(allocator, self.styledSegment(line[i .. i + 1], self.theme.punctuation_style));
                 i += 1;
                 continue;
             }
 
-            try segments.append(allocator, Segment.styled(line[i .. i + 1], self.theme.default_style));
+            try segments.append(allocator, self.styledSegment(line[i .. i + 1], self.theme.default_style));
             i += 1;
         }
     }
@@ -803,9 +829,9 @@ pub const Syntax = struct {
                 const end = self.findStringEnd(line, i);
                 const str_content = line[i..end];
                 if (end < line.len and line[end] == ':') {
-                    try segments.append(allocator, Segment.styled(str_content, self.theme.keyword_style));
+                    try segments.append(allocator, self.styledSegment(str_content, self.theme.keyword_style));
                 } else {
-                    try segments.append(allocator, Segment.styled(str_content, self.theme.string_style));
+                    try segments.append(allocator, self.styledSegment(str_content, self.theme.string_style));
                 }
                 i = end;
                 continue;
@@ -821,25 +847,25 @@ pub const Syntax = struct {
                 null;
 
             if (keyword) |kw| {
-                try segments.append(allocator, Segment.styled(kw, self.theme.keyword_style));
+                try segments.append(allocator, self.styledSegment(kw, self.theme.keyword_style));
                 i += kw.len;
                 continue;
             }
 
             if (std.ascii.isDigit(line[i]) or (line[i] == '-' and i + 1 < line.len and std.ascii.isDigit(line[i + 1]))) {
                 const end = self.findNumberEnd(line, i);
-                try segments.append(allocator, Segment.styled(line[i..end], self.theme.number_style));
+                try segments.append(allocator, self.styledSegment(line[i..end], self.theme.number_style));
                 i = end;
                 continue;
             }
 
             if (self.isPunctuation(line[i])) {
-                try segments.append(allocator, Segment.styled(line[i .. i + 1], self.theme.punctuation_style));
+                try segments.append(allocator, self.styledSegment(line[i .. i + 1], self.theme.punctuation_style));
                 i += 1;
                 continue;
             }
 
-            try segments.append(allocator, Segment.styled(line[i .. i + 1], self.theme.default_style));
+            try segments.append(allocator, self.styledSegment(line[i .. i + 1], self.theme.default_style));
             i += 1;
         }
     }
@@ -848,23 +874,23 @@ pub const Syntax = struct {
         if (line.len == 0) return;
 
         if (std.mem.startsWith(u8, line, "#")) {
-            try segments.append(allocator, Segment.styled(line, self.theme.keyword_style.bold()));
+            try segments.append(allocator, self.styledSegment(line, self.theme.keyword_style.bold()));
             return;
         }
 
         if (std.mem.startsWith(u8, line, "```")) {
-            try segments.append(allocator, Segment.styled(line, self.theme.comment_style));
+            try segments.append(allocator, self.styledSegment(line, self.theme.comment_style));
             return;
         }
 
         if (std.mem.startsWith(u8, line, "- ") or std.mem.startsWith(u8, line, "* ") or std.mem.startsWith(u8, line, "+ ")) {
-            try segments.append(allocator, Segment.styled(line[0..2], self.theme.keyword_style));
+            try segments.append(allocator, self.styledSegment(line[0..2], self.theme.keyword_style));
             try segments.append(allocator, self.defaultSegment(line[2..]));
             return;
         }
 
         if (std.mem.startsWith(u8, line, "> ")) {
-            try segments.append(allocator, Segment.styled(line, self.theme.comment_style.italic()));
+            try segments.append(allocator, self.styledSegment(line, self.theme.comment_style.italic()));
             return;
         }
 
@@ -874,7 +900,7 @@ pub const Syntax = struct {
                 var end = i + 1;
                 while (end < line.len and line[end] != '`') : (end += 1) {}
                 if (end < line.len) {
-                    try segments.append(allocator, Segment.styled(line[i .. end + 1], self.theme.string_style));
+                    try segments.append(allocator, self.styledSegment(line[i .. end + 1], self.theme.string_style));
                     i = end + 1;
                     continue;
                 }
@@ -884,7 +910,7 @@ pub const Syntax = struct {
                 var end = i + 2;
                 while (end + 1 < line.len and !(line[end] == '*' and line[end + 1] == '*')) : (end += 1) {}
                 if (end + 1 < line.len) {
-                    try segments.append(allocator, Segment.styled(line[i .. end + 2], self.theme.keyword_style.bold()));
+                    try segments.append(allocator, self.styledSegment(line[i .. end + 2], self.theme.keyword_style.bold()));
                     i = end + 2;
                     continue;
                 }
@@ -895,7 +921,7 @@ pub const Syntax = struct {
                 var end = i + 1;
                 while (end < line.len and line[end] != marker) : (end += 1) {}
                 if (end < line.len) {
-                    try segments.append(allocator, Segment.styled(line[i .. end + 1], self.theme.default_style.italic()));
+                    try segments.append(allocator, self.styledSegment(line[i .. end + 1], self.theme.default_style.italic()));
                     i = end + 1;
                     continue;
                 }
@@ -908,7 +934,7 @@ pub const Syntax = struct {
                     var paren_end = bracket_end + 2;
                     while (paren_end < line.len and line[paren_end] != ')') : (paren_end += 1) {}
                     if (paren_end < line.len) {
-                        try segments.append(allocator, Segment.styled(line[i .. paren_end + 1], self.theme.builtin_style));
+                        try segments.append(allocator, self.styledSegment(line[i .. paren_end + 1], self.theme.builtin_style));
                         i = paren_end + 1;
                         continue;
                     }
@@ -1045,6 +1071,108 @@ test "Syntax.withTheme" {
     const allocator = std.testing.allocator;
     const syntax = Syntax.init(allocator, "code").withTheme(SyntaxTheme.monokai);
     try std.testing.expect(syntax.theme.keyword_style.color != null);
+}
+
+test "SyntaxTheme.background_color" {
+    // Default theme has no background
+    try std.testing.expect(SyntaxTheme.default.background_color == null);
+
+    // Monokai and Dracula themes have background colors
+    try std.testing.expect(SyntaxTheme.monokai.background_color != null);
+    try std.testing.expect(SyntaxTheme.dracula.background_color != null);
+
+    // Check specific Monokai background (dark gray: #272822)
+    const monokai_bg = SyntaxTheme.monokai.background_color.?;
+    try std.testing.expectEqual(Color.fromRgb(39, 40, 34), monokai_bg);
+
+    // Check specific Dracula background (dark blue-gray: #282a36)
+    const dracula_bg = SyntaxTheme.dracula.background_color.?;
+    try std.testing.expectEqual(Color.fromRgb(40, 42, 54), dracula_bg);
+}
+
+test "SyntaxTheme.applyBackground" {
+    const theme_with_bg = SyntaxTheme.monokai;
+    const theme_no_bg = SyntaxTheme.default;
+
+    const base_style = Style.empty.bold();
+
+    // Theme with background should apply it
+    const styled_with_bg = theme_with_bg.applyBackground(base_style);
+    try std.testing.expect(styled_with_bg.bgcolor != null);
+    try std.testing.expect(styled_with_bg.hasAttribute(.bold));
+
+    // Theme without background should return style unchanged
+    const styled_no_bg = theme_no_bg.applyBackground(base_style);
+    try std.testing.expect(styled_no_bg.bgcolor == null);
+    try std.testing.expect(styled_no_bg.hasAttribute(.bold));
+}
+
+test "SyntaxTheme.applyBackgroundOpt" {
+    const theme_with_bg = SyntaxTheme.monokai;
+    const theme_no_bg = SyntaxTheme.default;
+
+    // Test with non-null style
+    const base_style = Style.empty.italic();
+    const styled_opt = theme_with_bg.applyBackgroundOpt(base_style);
+    try std.testing.expect(styled_opt != null);
+    try std.testing.expect(styled_opt.?.bgcolor != null);
+
+    // Test with null style and theme with background
+    const from_null = theme_with_bg.applyBackgroundOpt(null);
+    try std.testing.expect(from_null != null);
+    try std.testing.expect(from_null.?.bgcolor != null);
+
+    // Test with null style and theme without background
+    const stays_null = theme_no_bg.applyBackgroundOpt(null);
+    try std.testing.expect(stays_null == null);
+}
+
+test "Syntax.render with background color" {
+    const allocator = std.testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+
+    const code = "const x = 42;";
+    const syntax = Syntax.init(arena.allocator(), code)
+        .withLanguage(.zig)
+        .withTheme(SyntaxTheme.monokai);
+
+    const segments = try syntax.render(80, arena.allocator());
+
+    // All non-newline segments should have background color
+    var found_with_bg = false;
+    for (segments) |seg| {
+        if (!std.mem.eql(u8, seg.text, "\n") and seg.text.len > 0) {
+            if (seg.style) |style| {
+                if (style.bgcolor != null) {
+                    found_with_bg = true;
+                    // Verify it's the Monokai background
+                    try std.testing.expectEqual(Color.fromRgb(39, 40, 34), style.bgcolor.?);
+                }
+            }
+        }
+    }
+    try std.testing.expect(found_with_bg);
+}
+
+test "Syntax.render without background color" {
+    const allocator = std.testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+
+    const code = "const x = 42;";
+    const syntax = Syntax.init(arena.allocator(), code)
+        .withLanguage(.zig)
+        .withTheme(SyntaxTheme.default);
+
+    const segments = try syntax.render(80, arena.allocator());
+
+    // Default theme has no background, so no segment should have bgcolor
+    for (segments) |seg| {
+        if (seg.style) |style| {
+            try std.testing.expect(style.bgcolor == null);
+        }
+    }
 }
 
 test "Syntax.withLineNumbers" {
