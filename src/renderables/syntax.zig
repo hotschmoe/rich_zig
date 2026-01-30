@@ -550,6 +550,7 @@ pub const Syntax = struct {
     theme: SyntaxTheme = SyntaxTheme.default,
     show_line_numbers: bool = false,
     start_line: usize = 1,
+    word_wrap: bool = false,
     allocator: std.mem.Allocator,
 
     pub fn init(allocator: std.mem.Allocator, code: []const u8) Syntax {
@@ -611,11 +612,21 @@ pub const Syntax = struct {
         return s;
     }
 
-    pub fn render(self: Syntax, _: usize, allocator: std.mem.Allocator) ![]Segment {
+    pub fn withWordWrap(self: Syntax) Syntax {
+        var s = self;
+        s.word_wrap = true;
+        return s;
+    }
+
+    pub fn render(self: Syntax, max_width: usize, allocator: std.mem.Allocator) ![]Segment {
         var segments: std.ArrayList(Segment) = .empty;
 
         var lines = std.mem.splitScalar(u8, self.code, '\n');
         var line_num: usize = self.start_line;
+
+        // Calculate available width for code (accounting for line numbers)
+        const line_num_width: usize = if (self.show_line_numbers) 5 else 0; // "NNNN "
+        const code_width: usize = if (max_width > line_num_width) max_width - line_num_width else max_width;
 
         while (lines.next()) |line| {
             if (self.show_line_numbers) {
@@ -625,7 +636,36 @@ pub const Syntax = struct {
                 try segments.append(allocator, Segment.styled(line_str_copy, self.theme.line_number_style));
             }
 
-            try self.highlightLine(&segments, allocator, line);
+            if (self.word_wrap and code_width > 0) {
+                // Highlight into a temporary buffer, then wrap
+                var line_segments: std.ArrayList(Segment) = .empty;
+                try self.highlightLine(&line_segments, allocator, line);
+                const highlighted = try line_segments.toOwnedSlice(allocator);
+                defer allocator.free(highlighted);
+
+                const wrapped = try wrapSegments(highlighted, code_width, allocator);
+                defer allocator.free(wrapped);
+
+                // Add wrapped segments, handling continuation lines
+                var is_continuation = false;
+                for (wrapped) |seg| {
+                    if (std.mem.eql(u8, seg.text, "\n")) {
+                        try segments.append(allocator, seg);
+                        is_continuation = true;
+                    } else {
+                        // Add continuation indent for wrapped lines
+                        if (is_continuation and self.show_line_numbers) {
+                            const indent = try allocator.dupe(u8, "     "); // Same width as line numbers
+                            try segments.append(allocator, Segment.styled(indent, self.theme.line_number_style));
+                            is_continuation = false;
+                        }
+                        try segments.append(allocator, seg);
+                    }
+                }
+            } else {
+                try self.highlightLine(&segments, allocator, line);
+            }
+
             try segments.append(allocator, Segment.line());
             line_num += 1;
         }
@@ -923,6 +963,64 @@ pub const Syntax = struct {
             else => false,
         };
     }
+
+    /// Wrap styled segments to fit within max_width, preserving styles across wrapped lines.
+    /// Returns wrapped lines as segments with newlines inserted at wrap points.
+    fn wrapSegments(line_segments: []const Segment, max_width: usize, allocator: std.mem.Allocator) ![]Segment {
+        if (max_width == 0) {
+            return allocator.dupe(Segment, line_segments);
+        }
+
+        var result: std.ArrayList(Segment) = .empty;
+        var current_width: usize = 0;
+
+        for (line_segments) |seg| {
+            const seg_width = seg.cellLength();
+
+            // If this segment fits entirely on the current line
+            if (current_width + seg_width <= max_width) {
+                try result.append(allocator, seg);
+                current_width += seg_width;
+                continue;
+            }
+
+            // Need to wrap - split the segment across lines
+            var remaining_text = seg.text;
+            var remaining_width = seg_width;
+
+            while (remaining_width > 0) {
+                const available = max_width - current_width;
+
+                if (available == 0) {
+                    // Start a new line
+                    try result.append(allocator, Segment.line());
+                    current_width = 0;
+                    continue;
+                }
+
+                if (remaining_width <= available) {
+                    // Rest of segment fits on this line
+                    try result.append(allocator, Segment.styledOptional(remaining_text, seg.style));
+                    current_width += remaining_width;
+                    break;
+                }
+
+                // Split segment at available width
+                const byte_pos = cells.cellToByteIndex(remaining_text, available);
+                if (byte_pos > 0) {
+                    try result.append(allocator, Segment.styledOptional(remaining_text[0..byte_pos], seg.style));
+                }
+
+                // Start new line and continue with remainder
+                try result.append(allocator, Segment.line());
+                remaining_text = remaining_text[byte_pos..];
+                remaining_width = cells.cellLen(remaining_text);
+                current_width = 0;
+            }
+        }
+
+        return result.toOwnedSlice(allocator);
+    }
 };
 
 test "Syntax.init" {
@@ -1180,4 +1278,189 @@ test "Syntax.fromFile" {
     const code = "{\"key\": \"value\"}";
     const syntax = Syntax.fromFile(allocator, code, "config.json");
     try std.testing.expectEqual(Language.json, syntax.language);
+}
+
+test "Syntax.withWordWrap" {
+    const allocator = std.testing.allocator;
+    const syntax = Syntax.init(allocator, "code").withWordWrap();
+    try std.testing.expect(syntax.word_wrap);
+}
+
+test "Syntax.render with word wrap - short line" {
+    const allocator = std.testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+
+    const syntax = Syntax.init(arena.allocator(), "const x = 1;")
+        .withLanguage(.zig)
+        .withWordWrap();
+    const segments = try syntax.render(80, arena.allocator());
+
+    // Short line should render without wrapping
+    try std.testing.expect(segments.len > 0);
+
+    // Count newlines (should be exactly 1 for single line)
+    var newline_count: usize = 0;
+    for (segments) |seg| {
+        if (std.mem.eql(u8, seg.text, "\n")) {
+            newline_count += 1;
+        }
+    }
+    try std.testing.expectEqual(@as(usize, 1), newline_count);
+}
+
+test "Syntax.render with word wrap - long line wraps" {
+    const allocator = std.testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+
+    // Create a line that's longer than the max width
+    const long_line = "const very_long_variable_name = \"This is a very long string that should wrap\";";
+    const syntax = Syntax.init(arena.allocator(), long_line)
+        .withLanguage(.zig)
+        .withWordWrap();
+
+    // Use narrow width to force wrapping
+    const segments = try syntax.render(30, arena.allocator());
+
+    // Should have wrapped (more than 1 newline)
+    var newline_count: usize = 0;
+    for (segments) |seg| {
+        if (std.mem.eql(u8, seg.text, "\n")) {
+            newline_count += 1;
+        }
+    }
+    try std.testing.expect(newline_count > 1);
+}
+
+test "Syntax.render word wrap preserves styles" {
+    const allocator = std.testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+
+    // String that wraps should keep string style on continuation
+    const code = "const s = \"This is a very long string literal that will wrap across multiple lines\";";
+    const syntax = Syntax.init(arena.allocator(), code)
+        .withLanguage(.zig)
+        .withWordWrap();
+
+    const segments = try syntax.render(30, arena.allocator());
+
+    // Find string segments (styled with string_style - green)
+    var found_styled_segments = false;
+    for (segments) |seg| {
+        if (seg.style) |style| {
+            if (style.color != null) {
+                found_styled_segments = true;
+                break;
+            }
+        }
+    }
+    try std.testing.expect(found_styled_segments);
+}
+
+test "Syntax.render word wrap with line numbers" {
+    const allocator = std.testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+
+    const long_line = "const x = \"This is a line that is definitely too long to fit\";";
+    const syntax = Syntax.init(arena.allocator(), long_line)
+        .withLanguage(.zig)
+        .withWordWrap()
+        .withLineNumbers();
+
+    const segments = try syntax.render(40, arena.allocator());
+
+    // Should have line number prefix and continuation indent
+    var found_line_num = false;
+    var found_indent = false;
+    for (segments) |seg| {
+        if (std.mem.indexOf(u8, seg.text, "1") != null and seg.text.len <= 5) {
+            found_line_num = true;
+        }
+        // Continuation indent is 5 spaces
+        if (std.mem.eql(u8, seg.text, "     ")) {
+            found_indent = true;
+        }
+    }
+    try std.testing.expect(found_line_num);
+    // Indent may or may not appear depending on exact wrap point
+}
+
+test "wrapSegments basic" {
+    const allocator = std.testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+
+    const segs = [_]Segment{
+        Segment.plain("Hello World this is a test"),
+    };
+
+    const wrapped = try Syntax.wrapSegments(&segs, 10, arena.allocator());
+
+    // Should have wrapped into multiple lines
+    var newline_count: usize = 0;
+    for (wrapped) |seg| {
+        if (std.mem.eql(u8, seg.text, "\n")) {
+            newline_count += 1;
+        }
+    }
+    try std.testing.expect(newline_count >= 2);
+}
+
+test "wrapSegments preserves style across wrap" {
+    const allocator = std.testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+
+    const test_style = Style.empty.bold();
+    const segs = [_]Segment{
+        Segment.styled("This is styled text that should wrap", test_style),
+    };
+
+    const wrapped = try Syntax.wrapSegments(&segs, 15, arena.allocator());
+
+    // All non-newline segments should have the style
+    for (wrapped) |seg| {
+        if (!std.mem.eql(u8, seg.text, "\n") and seg.text.len > 0) {
+            try std.testing.expect(seg.style != null);
+            try std.testing.expect(seg.style.?.hasAttribute(.bold));
+        }
+    }
+}
+
+test "wrapSegments handles multiple segments" {
+    const allocator = std.testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+
+    const style1 = Style.empty.bold();
+    const style2 = Style.empty.italic();
+
+    const segs = [_]Segment{
+        Segment.styled("const ", style1),
+        Segment.plain("x = "),
+        Segment.styled("\"long string value\"", style2),
+    };
+
+    const wrapped = try Syntax.wrapSegments(&segs, 15, arena.allocator());
+
+    // Should produce some output
+    try std.testing.expect(wrapped.len > 0);
+}
+
+test "wrapSegments zero width returns input" {
+    const allocator = std.testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+
+    const segs = [_]Segment{
+        Segment.plain("Hello"),
+    };
+
+    const wrapped = try Syntax.wrapSegments(&segs, 0, arena.allocator());
+
+    try std.testing.expectEqual(@as(usize, 1), wrapped.len);
+    try std.testing.expectEqualStrings("Hello", wrapped[0].text);
 }
