@@ -517,6 +517,182 @@ pub const Console = struct {
         return Pager.initWithOptions(self.allocator, self, options);
     }
 
+    // Input prompt functionality
+
+    pub const InputOptions = struct {
+        default: ?[]const u8 = null,
+        password: bool = false,
+        show_default: bool = true,
+        validator: ?*const fn ([]const u8) InputValidationResult = null,
+        max_length: ?usize = null,
+    };
+
+    pub const InputValidationResult = union(enum) {
+        valid,
+        invalid: []const u8,
+    };
+
+    pub const InputError = error{
+        ValidationFailed,
+        InputCancelled,
+        EndOfStream,
+        OutOfMemory,
+    };
+
+    pub fn input(self: *Console, prompt_text: []const u8) InputError![]u8 {
+        return self.inputWithOptions(prompt_text, .{});
+    }
+
+    pub fn inputWithOptions(self: *Console, prompt_text: []const u8, options: InputOptions) InputError![]u8 {
+        var writer = self.getWriter();
+
+        // Write the prompt
+        writer.interface.writeAll(prompt_text) catch return InputError.OutOfMemory;
+
+        // Show default value if configured
+        if (options.show_default) {
+            if (options.default) |default| {
+                writer.interface.print(" [{s}]", .{default}) catch return InputError.OutOfMemory;
+            }
+        }
+        writer.interface.writeAll(": ") catch return InputError.OutOfMemory;
+        writer.interface.flush() catch return InputError.OutOfMemory;
+
+        // Read input from stdin
+        const stdin = std.io.getStdIn();
+        var input_buf: [4096]u8 = undefined;
+        const line = stdin.reader().readUntilDelimiterOrEof(&input_buf, '\n') catch |err| {
+            return switch (err) {
+                error.EndOfStream => InputError.EndOfStream,
+                else => InputError.OutOfMemory,
+            };
+        };
+
+        if (line == null) {
+            return InputError.EndOfStream;
+        }
+
+        // Trim carriage return if present (Windows compatibility)
+        var trimmed = line.?;
+        if (trimmed.len > 0 and trimmed[trimmed.len - 1] == '\r') {
+            trimmed = trimmed[0 .. trimmed.len - 1];
+        }
+
+        // Use default if input is empty
+        if (trimmed.len == 0) {
+            if (options.default) |default| {
+                return self.allocator.dupe(u8, default) catch return InputError.OutOfMemory;
+            }
+        }
+
+        // Check max length
+        if (options.max_length) |max_len| {
+            if (trimmed.len > max_len) {
+                trimmed = trimmed[0..max_len];
+            }
+        }
+
+        // Run validation if provided
+        if (options.validator) |validate| {
+            const result = validate(trimmed);
+            switch (result) {
+                .valid => {},
+                .invalid => |msg| {
+                    // Print error message and return error
+                    self.printValidationError(msg) catch {};
+                    return InputError.ValidationFailed;
+                },
+            }
+        }
+
+        return self.allocator.dupe(u8, trimmed) catch return InputError.OutOfMemory;
+    }
+
+    pub fn prompt(self: *Console, prompt_markup: []const u8) InputError![]u8 {
+        return self.promptWithOptions(prompt_markup, .{});
+    }
+
+    pub fn promptWithOptions(self: *Console, prompt_markup: []const u8, options: InputOptions) InputError![]u8 {
+        // Parse and print the styled prompt
+        var txt = Text.fromMarkup(self.allocator, prompt_markup) catch return InputError.OutOfMemory;
+        defer txt.deinit();
+
+        const segments = txt.render(self.allocator) catch return InputError.OutOfMemory;
+        defer self.allocator.free(segments);
+
+        var writer = self.getWriter();
+        for (segments) |seg| {
+            self.printSegment(seg, &writer.interface) catch return InputError.OutOfMemory;
+        }
+
+        // Show default value if configured
+        if (options.show_default) {
+            if (options.default) |default| {
+                writer.interface.print(" [{s}]", .{default}) catch return InputError.OutOfMemory;
+            }
+        }
+        writer.interface.writeAll(": ") catch return InputError.OutOfMemory;
+        writer.interface.flush() catch return InputError.OutOfMemory;
+
+        // Read input from stdin
+        const stdin = std.io.getStdIn();
+        var input_buf: [4096]u8 = undefined;
+        const line = stdin.reader().readUntilDelimiterOrEof(&input_buf, '\n') catch |err| {
+            return switch (err) {
+                error.EndOfStream => InputError.EndOfStream,
+                else => InputError.OutOfMemory,
+            };
+        };
+
+        if (line == null) {
+            return InputError.EndOfStream;
+        }
+
+        // Trim carriage return if present (Windows compatibility)
+        var trimmed = line.?;
+        if (trimmed.len > 0 and trimmed[trimmed.len - 1] == '\r') {
+            trimmed = trimmed[0 .. trimmed.len - 1];
+        }
+
+        // Use default if input is empty
+        if (trimmed.len == 0) {
+            if (options.default) |default| {
+                return self.allocator.dupe(u8, default) catch return InputError.OutOfMemory;
+            }
+        }
+
+        // Check max length
+        if (options.max_length) |max_len| {
+            if (trimmed.len > max_len) {
+                trimmed = trimmed[0..max_len];
+            }
+        }
+
+        // Run validation if provided
+        if (options.validator) |validate| {
+            const result = validate(trimmed);
+            switch (result) {
+                .valid => {},
+                .invalid => |msg| {
+                    self.printValidationError(msg) catch {};
+                    return InputError.ValidationFailed;
+                },
+            }
+        }
+
+        return self.allocator.dupe(u8, trimmed) catch return InputError.OutOfMemory;
+    }
+
+    fn printValidationError(self: *Console, msg: []const u8) !void {
+        var writer = self.getWriter();
+        try self.setStyle(Style.empty.foreground(Color.red), &writer.interface);
+        try writer.interface.writeAll("Error: ");
+        try writer.interface.writeAll(msg);
+        try self.resetStyle(&writer.interface);
+        try writer.interface.writeAll("\n");
+        try writer.interface.flush();
+    }
+
     pub fn printPaged(self: *Console, content: []const u8) !void {
         var p = self.pager();
         try p.page(content);
@@ -1096,4 +1272,69 @@ test "PagerOptions defaults" {
     try std.testing.expectEqualStrings(":", opts.prompt);
     try std.testing.expectEqualStrings("qQ", opts.quit_keys);
     try std.testing.expectEqual(@as(u16, 1), opts.scroll_lines);
+}
+
+test "InputOptions defaults" {
+    const opts = Console.InputOptions{};
+    try std.testing.expectEqual(@as(?[]const u8, null), opts.default);
+    try std.testing.expectEqual(false, opts.password);
+    try std.testing.expectEqual(true, opts.show_default);
+    try std.testing.expectEqual(@as(?*const fn ([]const u8) Console.InputValidationResult, null), opts.validator);
+    try std.testing.expectEqual(@as(?usize, null), opts.max_length);
+}
+
+test "InputValidationResult valid" {
+    const result = Console.InputValidationResult{ .valid = {} };
+    try std.testing.expect(result == .valid);
+}
+
+test "InputValidationResult invalid" {
+    const result = Console.InputValidationResult{ .invalid = "must be non-empty" };
+    switch (result) {
+        .valid => unreachable,
+        .invalid => |msg| {
+            try std.testing.expectEqualStrings("must be non-empty", msg);
+        },
+    }
+}
+
+fn testNonEmptyValidator(input: []const u8) Console.InputValidationResult {
+    if (input.len == 0) {
+        return .{ .invalid = "Input cannot be empty" };
+    }
+    return .valid;
+}
+
+fn testMinLengthValidator(input: []const u8) Console.InputValidationResult {
+    if (input.len < 3) {
+        return .{ .invalid = "Input must be at least 3 characters" };
+    }
+    return .valid;
+}
+
+test "validator function type" {
+    // Test that our validator functions have the correct signature
+    const validator: *const fn ([]const u8) Console.InputValidationResult = &testNonEmptyValidator;
+    const result = validator("test");
+    try std.testing.expect(result == .valid);
+
+    const empty_result = validator("");
+    switch (empty_result) {
+        .valid => unreachable,
+        .invalid => |msg| {
+            try std.testing.expectEqualStrings("Input cannot be empty", msg);
+        },
+    }
+}
+
+test "InputOptions with validator" {
+    const opts = Console.InputOptions{
+        .default = "default_value",
+        .validator = &testMinLengthValidator,
+        .max_length = 100,
+    };
+
+    try std.testing.expectEqualStrings("default_value", opts.default.?);
+    try std.testing.expect(opts.validator != null);
+    try std.testing.expectEqual(@as(usize, 100), opts.max_length.?);
 }
