@@ -94,7 +94,7 @@ pub fn build(b: *std.Build) void {
     // This will evaluate the `run` step rather than the default step.
     // For a top level step to actually do something, it must depend on other
     // steps (e.g. a Run step, as we will see in a moment).
-    const run_step = b.step("run", "Run the demo and all examples");
+    const run_step = b.step("run", "Run all examples");
 
     // This creates a RunArtifact step in the build graph. A RunArtifact step
     // invokes an executable compiled by Zig. Steps will only be executed by the
@@ -155,10 +155,27 @@ pub fn build(b: *std.Build) void {
     // and reading its source code will allow you to master it.
 
     // Examples - each example gets its own build target
-    const examples = [_][]const u8{ "hello", "panel", "table", "progress", "tree", "layout", "json_syntax" };
+    const examples = [_][]const u8{
+        "hello",
+        "panel",
+        "table",
+        "progress",
+        "tree",
+        "layout",
+        "json_syntax",
+        "terminal",
+        "markdown",
+        "split",
+        "traceback",
+        "logging",
+        "advanced_table",
+        "advanced_panel",
+        "advanced_progress",
+        "advanced_syntax",
+    };
 
-    // For chaining all examples in the "run" step
-    var prev_step: *std.Build.Step = &run_cmd.step;
+    // For chaining all examples in the "run" step (examples only, not main demo)
+    var prev_step: *std.Build.Step = b.getInstallStep();
 
     for (examples) |name| {
         const example_exe = b.addExecutable(.{
