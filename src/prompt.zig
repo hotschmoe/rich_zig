@@ -1,12 +1,7 @@
 const std = @import("std");
-const console_mod = @import("console.zig");
-const Console = console_mod.Console;
+const Console = @import("console.zig").Console;
 const Text = @import("text.zig").Text;
 const Style = @import("style.zig").Style;
-const Segment = @import("segment.zig").Segment;
-const color_mod = @import("color.zig");
-const Color = color_mod.Color;
-const ColorSystem = color_mod.ColorSystem;
 
 pub const PromptError = error{
     OutOfMemory,
@@ -22,7 +17,6 @@ pub const ValidationResult = union(enum) {
 
 pub const ValidatorFn = *const fn ([]const u8) ValidationResult;
 
-// Generic prompt for text input with rich features
 pub const Prompt = struct {
     allocator: std.mem.Allocator,
     console: ?*Console = null,
@@ -35,134 +29,114 @@ pub const Prompt = struct {
     password: bool = false,
     validator: ?ValidatorFn = null,
 
-    const Self = @This();
-
-    pub fn init(allocator: std.mem.Allocator, prompt_text: []const u8) Self {
+    pub fn init(allocator: std.mem.Allocator, prompt_text: []const u8) Prompt {
         return .{
             .allocator = allocator,
             .prompt_text = prompt_text,
         };
     }
 
-    pub fn withConsole(self: Self, c: *Console) Self {
+    pub fn withConsole(self: Prompt, c: *Console) Prompt {
         var p = self;
         p.console = c;
         return p;
     }
 
-    pub fn withDefault(self: Self, default: []const u8) Self {
+    pub fn withDefault(self: Prompt, default: []const u8) Prompt {
         var p = self;
         p.default = default;
         return p;
     }
 
-    pub fn withChoices(self: Self, choices: []const []const u8) Self {
+    pub fn withChoices(self: Prompt, choices: []const []const u8) Prompt {
         var p = self;
         p.choices = choices;
         return p;
     }
 
-    pub fn caseSensitive(self: Self, sensitive: bool) Self {
+    pub fn caseSensitive(self: Prompt, sensitive: bool) Prompt {
         var p = self;
         p.case_sensitive = sensitive;
         return p;
     }
 
-    pub fn showDefault(self: Self, show: bool) Self {
+    pub fn showDefault(self: Prompt, show: bool) Prompt {
         var p = self;
         p.show_default = show;
         return p;
     }
 
-    pub fn showChoices(self: Self, show: bool) Self {
+    pub fn showChoices(self: Prompt, show: bool) Prompt {
         var p = self;
         p.show_choices = show;
         return p;
     }
 
-    pub fn asPassword(self: Self, pwd: bool) Self {
+    pub fn asPassword(self: Prompt, pwd: bool) Prompt {
         var p = self;
         p.password = pwd;
         return p;
     }
 
-    pub fn withValidator(self: Self, v: ValidatorFn) Self {
+    pub fn withValidator(self: Prompt, v: ValidatorFn) Prompt {
         var p = self;
         p.validator = v;
         return p;
     }
 
-    pub fn ask(self: Self) PromptError![]u8 {
+    pub fn ask(self: Prompt) PromptError![]u8 {
         const stdout = std.io.getStdOut().writer();
         const stdin = std.io.getStdIn();
 
         while (true) {
-            // Write prompt with markup support
             writeStyledPrompt(stdout, self.allocator, self.prompt_text) catch return PromptError.OutOfMemory;
 
-            // Show choices
-            if (self.show_choices) {
-                if (self.choices) |choices| {
-                    stdout.writeAll(" [") catch return PromptError.OutOfMemory;
-                    for (choices, 0..) |choice, i| {
-                        if (i > 0) stdout.writeAll("/") catch return PromptError.OutOfMemory;
-                        stdout.writeAll(choice) catch return PromptError.OutOfMemory;
-                    }
-                    stdout.writeAll("]") catch return PromptError.OutOfMemory;
+            if (self.show_choices and self.choices != null) {
+                const choices = self.choices.?;
+                stdout.writeAll(" [") catch return PromptError.OutOfMemory;
+                for (choices, 0..) |choice, i| {
+                    if (i > 0) stdout.writeAll("/") catch return PromptError.OutOfMemory;
+                    stdout.writeAll(choice) catch return PromptError.OutOfMemory;
                 }
+                stdout.writeAll("]") catch return PromptError.OutOfMemory;
             }
 
-            // Show default
-            if (self.show_default) {
-                if (self.default) |def| {
-                    stdout.print(" ({s})", .{def}) catch return PromptError.OutOfMemory;
-                }
+            if (self.show_default and self.default != null) {
+                stdout.print(" ({s})", .{self.default.?}) catch return PromptError.OutOfMemory;
             }
 
             stdout.writeAll(": ") catch return PromptError.OutOfMemory;
 
-            // Read input
             var input_buf: [4096]u8 = undefined;
             const line: ?[]u8 = if (self.password)
                 readPassword(&input_buf, stdin) catch return PromptError.OutOfMemory
             else
                 stdin.reader().readUntilDelimiterOrEof(&input_buf, '\n') catch return PromptError.OutOfMemory;
 
-            if (line == null) {
-                return PromptError.EndOfStream;
-            }
+            const raw = line orelse return PromptError.EndOfStream;
+            var trimmed = stripCarriageReturn(raw);
 
-            var trimmed = line.?;
-            // Strip carriage return (Windows)
-            if (trimmed.len > 0 and trimmed[trimmed.len - 1] == '\r') {
-                trimmed = trimmed[0 .. trimmed.len - 1];
-            }
-
-            // Handle empty input with default
             if (trimmed.len == 0) {
                 if (self.default) |def| {
                     return self.allocator.dupe(u8, def) catch return PromptError.OutOfMemory;
                 }
-                // No default, reprompt
                 continue;
             }
 
-            // Validate against choices
             if (self.choices) |choices| {
                 var valid = false;
                 for (choices) |choice| {
-                    if (self.case_sensitive) {
-                        if (std.mem.eql(u8, trimmed, choice)) {
-                            valid = true;
-                            break;
-                        }
-                    } else {
-                        if (std.ascii.eqlIgnoreCase(trimmed, choice)) {
-                            valid = true;
-                            // Use the canonical choice value
+                    const matches = if (self.case_sensitive)
+                        std.mem.eql(u8, trimmed, choice)
+                    else
+                        std.ascii.eqlIgnoreCase(trimmed, choice);
+
+                    if (matches) {
+                        valid = true;
+                        if (!self.case_sensitive) {
                             trimmed = @constCast(choice);
-                            break;
                         }
+                        break;
                     }
                 }
                 if (!valid) {
@@ -171,10 +145,8 @@ pub const Prompt = struct {
                 }
             }
 
-            // Run custom validator
             if (self.validator) |validate| {
-                const result = validate(trimmed);
-                switch (result) {
+                switch (validate(trimmed)) {
                     .valid => {},
                     .invalid => |msg| {
                         printValidationError(stdout, msg) catch {};
@@ -188,7 +160,6 @@ pub const Prompt = struct {
     }
 };
 
-// Integer prompt with bounds validation
 pub const IntPrompt = struct {
     allocator: std.mem.Allocator,
     console: ?*Console = null,
@@ -198,54 +169,50 @@ pub const IntPrompt = struct {
     max: ?i64 = null,
     show_default: bool = true,
 
-    const Self = @This();
-
-    pub fn init(allocator: std.mem.Allocator, prompt_text: []const u8) Self {
+    pub fn init(allocator: std.mem.Allocator, prompt_text: []const u8) IntPrompt {
         return .{
             .allocator = allocator,
             .prompt_text = prompt_text,
         };
     }
 
-    pub fn withConsole(self: Self, c: *Console) Self {
+    pub fn withConsole(self: IntPrompt, c: *Console) IntPrompt {
         var p = self;
         p.console = c;
         return p;
     }
 
-    pub fn withDefault(self: Self, default: i64) Self {
+    pub fn withDefault(self: IntPrompt, default: i64) IntPrompt {
         var p = self;
         p.default = default;
         return p;
     }
 
-    pub fn withMin(self: Self, m: i64) Self {
+    pub fn withMin(self: IntPrompt, m: i64) IntPrompt {
         var p = self;
         p.min = m;
         return p;
     }
 
-    pub fn withMax(self: Self, m: i64) Self {
+    pub fn withMax(self: IntPrompt, m: i64) IntPrompt {
         var p = self;
         p.max = m;
         return p;
     }
 
-    pub fn showDefault(self: Self, show: bool) Self {
+    pub fn showDefault(self: IntPrompt, show: bool) IntPrompt {
         var p = self;
         p.show_default = show;
         return p;
     }
 
-    pub fn ask(self: Self) PromptError!i64 {
+    pub fn ask(self: IntPrompt) PromptError!i64 {
         const stdout = std.io.getStdOut().writer();
         const stdin = std.io.getStdIn();
 
         while (true) {
-            // Write prompt with markup support
             writeStyledPrompt(stdout, self.allocator, self.prompt_text) catch return PromptError.OutOfMemory;
 
-            // Show bounds hint
             if (self.min != null or self.max != null) {
                 stdout.writeAll(" [") catch return PromptError.OutOfMemory;
                 if (self.min) |m| {
@@ -258,29 +225,18 @@ pub const IntPrompt = struct {
                 stdout.writeAll("]") catch return PromptError.OutOfMemory;
             }
 
-            // Show default
-            if (self.show_default) {
-                if (self.default) |def| {
-                    stdout.print(" ({d})", .{def}) catch return PromptError.OutOfMemory;
-                }
+            if (self.show_default and self.default != null) {
+                stdout.print(" ({d})", .{self.default.?}) catch return PromptError.OutOfMemory;
             }
 
             stdout.writeAll(": ") catch return PromptError.OutOfMemory;
 
-            // Read input
             var input_buf: [256]u8 = undefined;
             const line = stdin.reader().readUntilDelimiterOrEof(&input_buf, '\n') catch return PromptError.OutOfMemory;
 
-            if (line == null) {
-                return PromptError.EndOfStream;
-            }
+            const raw = line orelse return PromptError.EndOfStream;
+            const trimmed = stripCarriageReturn(raw);
 
-            var trimmed = line.?;
-            if (trimmed.len > 0 and trimmed[trimmed.len - 1] == '\r') {
-                trimmed = trimmed[0 .. trimmed.len - 1];
-            }
-
-            // Handle empty with default
             if (trimmed.len == 0) {
                 if (self.default) |def| {
                     return def;
@@ -288,13 +244,11 @@ pub const IntPrompt = struct {
                 continue;
             }
 
-            // Parse integer
             const value = std.fmt.parseInt(i64, trimmed, 10) catch {
                 printValidationError(stdout, "Please enter a valid integer") catch {};
                 continue;
             };
 
-            // Validate bounds
             if (self.min) |m| {
                 if (value < m) {
                     var buf: [64]u8 = undefined;
@@ -318,7 +272,6 @@ pub const IntPrompt = struct {
     }
 };
 
-// Float prompt with bounds validation
 pub const FloatPrompt = struct {
     allocator: std.mem.Allocator,
     console: ?*Console = null,
@@ -328,54 +281,50 @@ pub const FloatPrompt = struct {
     max: ?f64 = null,
     show_default: bool = true,
 
-    const Self = @This();
-
-    pub fn init(allocator: std.mem.Allocator, prompt_text: []const u8) Self {
+    pub fn init(allocator: std.mem.Allocator, prompt_text: []const u8) FloatPrompt {
         return .{
             .allocator = allocator,
             .prompt_text = prompt_text,
         };
     }
 
-    pub fn withConsole(self: Self, c: *Console) Self {
+    pub fn withConsole(self: FloatPrompt, c: *Console) FloatPrompt {
         var p = self;
         p.console = c;
         return p;
     }
 
-    pub fn withDefault(self: Self, default: f64) Self {
+    pub fn withDefault(self: FloatPrompt, default: f64) FloatPrompt {
         var p = self;
         p.default = default;
         return p;
     }
 
-    pub fn withMin(self: Self, m: f64) Self {
+    pub fn withMin(self: FloatPrompt, m: f64) FloatPrompt {
         var p = self;
         p.min = m;
         return p;
     }
 
-    pub fn withMax(self: Self, m: f64) Self {
+    pub fn withMax(self: FloatPrompt, m: f64) FloatPrompt {
         var p = self;
         p.max = m;
         return p;
     }
 
-    pub fn showDefault(self: Self, show: bool) Self {
+    pub fn showDefault(self: FloatPrompt, show: bool) FloatPrompt {
         var p = self;
         p.show_default = show;
         return p;
     }
 
-    pub fn ask(self: Self) PromptError!f64 {
+    pub fn ask(self: FloatPrompt) PromptError!f64 {
         const stdout = std.io.getStdOut().writer();
         const stdin = std.io.getStdIn();
 
         while (true) {
-            // Write prompt with markup support
             writeStyledPrompt(stdout, self.allocator, self.prompt_text) catch return PromptError.OutOfMemory;
 
-            // Show bounds hint
             if (self.min != null or self.max != null) {
                 stdout.writeAll(" [") catch return PromptError.OutOfMemory;
                 if (self.min) |m| {
@@ -388,29 +337,18 @@ pub const FloatPrompt = struct {
                 stdout.writeAll("]") catch return PromptError.OutOfMemory;
             }
 
-            // Show default
-            if (self.show_default) {
-                if (self.default) |def| {
-                    stdout.print(" ({d:.2})", .{def}) catch return PromptError.OutOfMemory;
-                }
+            if (self.show_default and self.default != null) {
+                stdout.print(" ({d:.2})", .{self.default.?}) catch return PromptError.OutOfMemory;
             }
 
             stdout.writeAll(": ") catch return PromptError.OutOfMemory;
 
-            // Read input
             var input_buf: [256]u8 = undefined;
             const line = stdin.reader().readUntilDelimiterOrEof(&input_buf, '\n') catch return PromptError.OutOfMemory;
 
-            if (line == null) {
-                return PromptError.EndOfStream;
-            }
+            const raw = line orelse return PromptError.EndOfStream;
+            const trimmed = stripCarriageReturn(raw);
 
-            var trimmed = line.?;
-            if (trimmed.len > 0 and trimmed[trimmed.len - 1] == '\r') {
-                trimmed = trimmed[0 .. trimmed.len - 1];
-            }
-
-            // Handle empty with default
             if (trimmed.len == 0) {
                 if (self.default) |def| {
                     return def;
@@ -418,13 +356,11 @@ pub const FloatPrompt = struct {
                 continue;
             }
 
-            // Parse float
             const value = std.fmt.parseFloat(f64, trimmed) catch {
                 printValidationError(stdout, "Please enter a valid number") catch {};
                 continue;
             };
 
-            // Validate bounds
             if (self.min) |m| {
                 if (value < m) {
                     var buf: [64]u8 = undefined;
@@ -448,69 +384,50 @@ pub const FloatPrompt = struct {
     }
 };
 
-// Confirm prompt for yes/no questions
 pub const Confirm = struct {
     allocator: std.mem.Allocator,
     console: ?*Console = null,
     prompt_text: []const u8,
     default: ?bool = null,
 
-    const Self = @This();
-
-    pub fn init(allocator: std.mem.Allocator, prompt_text: []const u8) Self {
+    pub fn init(allocator: std.mem.Allocator, prompt_text: []const u8) Confirm {
         return .{
             .allocator = allocator,
             .prompt_text = prompt_text,
         };
     }
 
-    pub fn withConsole(self: Self, c: *Console) Self {
+    pub fn withConsole(self: Confirm, c: *Console) Confirm {
         var p = self;
         p.console = c;
         return p;
     }
 
-    pub fn withDefault(self: Self, default: bool) Self {
+    pub fn withDefault(self: Confirm, default: bool) Confirm {
         var p = self;
         p.default = default;
         return p;
     }
 
-    pub fn ask(self: Self) PromptError!bool {
+    pub fn ask(self: Confirm) PromptError!bool {
         const stdout = std.io.getStdOut().writer();
         const stdin = std.io.getStdIn();
 
         while (true) {
-            // Write prompt with markup support
             writeStyledPrompt(stdout, self.allocator, self.prompt_text) catch return PromptError.OutOfMemory;
 
-            // Show choices with default highlighted
-            stdout.writeAll(" [") catch return PromptError.OutOfMemory;
-            if (self.default) |def| {
-                if (def) {
-                    stdout.writeAll("Y/n") catch return PromptError.OutOfMemory;
-                } else {
-                    stdout.writeAll("y/N") catch return PromptError.OutOfMemory;
-                }
-            } else {
-                stdout.writeAll("y/n") catch return PromptError.OutOfMemory;
-            }
-            stdout.writeAll("]: ") catch return PromptError.OutOfMemory;
+            const hint = if (self.default) |def|
+                if (def) "Y/n" else "y/N"
+            else
+                "y/n";
+            stdout.print(" [{s}]: ", .{hint}) catch return PromptError.OutOfMemory;
 
-            // Read input
             var input_buf: [64]u8 = undefined;
             const line = stdin.reader().readUntilDelimiterOrEof(&input_buf, '\n') catch return PromptError.OutOfMemory;
 
-            if (line == null) {
-                return PromptError.EndOfStream;
-            }
+            const raw = line orelse return PromptError.EndOfStream;
+            const trimmed = stripCarriageReturn(raw);
 
-            var trimmed = line.?;
-            if (trimmed.len > 0 and trimmed[trimmed.len - 1] == '\r') {
-                trimmed = trimmed[0 .. trimmed.len - 1];
-            }
-
-            // Handle empty with default
             if (trimmed.len == 0) {
                 if (self.default) |def| {
                     return def;
@@ -518,31 +435,38 @@ pub const Confirm = struct {
                 continue;
             }
 
-            // Check for yes/no variants
             var lower_buf: [64]u8 = undefined;
             const lower = std.ascii.lowerString(lower_buf[0..trimmed.len], trimmed);
-            if (std.mem.eql(u8, lower, "y") or
-                std.mem.eql(u8, lower, "yes") or
-                std.mem.eql(u8, lower, "true") or
-                std.mem.eql(u8, lower, "1"))
-            {
-                return true;
-            }
 
-            if (std.mem.eql(u8, lower, "n") or
-                std.mem.eql(u8, lower, "no") or
-                std.mem.eql(u8, lower, "false") or
-                std.mem.eql(u8, lower, "0"))
-            {
-                return false;
-            }
+            if (isAffirmative(lower)) return true;
+            if (isNegative(lower)) return false;
 
             printValidationError(stdout, "Please enter y or n") catch {};
         }
     }
 };
 
-// Helper to write a styled prompt (supports markup)
+fn stripCarriageReturn(input: []u8) []u8 {
+    if (input.len > 0 and input[input.len - 1] == '\r') {
+        return input[0 .. input.len - 1];
+    }
+    return input;
+}
+
+fn isAffirmative(input: []const u8) bool {
+    return std.mem.eql(u8, input, "y") or
+        std.mem.eql(u8, input, "yes") or
+        std.mem.eql(u8, input, "true") or
+        std.mem.eql(u8, input, "1");
+}
+
+fn isNegative(input: []const u8) bool {
+    return std.mem.eql(u8, input, "n") or
+        std.mem.eql(u8, input, "no") or
+        std.mem.eql(u8, input, "false") or
+        std.mem.eql(u8, input, "0");
+}
+
 fn writeStyledPrompt(writer: anytype, allocator: std.mem.Allocator, prompt_text: []const u8) !void {
     var txt = Text.fromMarkup(allocator, prompt_text) catch {
         // Fall back to plain text if markup parsing fails
@@ -558,17 +482,10 @@ fn writeStyledPrompt(writer: anytype, allocator: std.mem.Allocator, prompt_text:
     defer allocator.free(segments);
 
     for (segments) |seg| {
-        if (seg.style) |style| {
-            if (!style.isEmpty()) {
-                try style.renderAnsi(.truecolor, writer);
-            }
-        }
+        const has_style = if (seg.style) |s| !s.isEmpty() else false;
+        if (has_style) try seg.style.?.renderAnsi(.truecolor, writer);
         try writer.writeAll(seg.text);
-        if (seg.style) |style| {
-            if (!style.isEmpty()) {
-                try Style.renderReset(writer);
-            }
-        }
+        if (has_style) try Style.renderReset(writer);
     }
 }
 
