@@ -6,6 +6,9 @@ const terminal = @import("terminal.zig");
 const Segment = @import("segment.zig").Segment;
 const box = @import("box.zig");
 const Panel = @import("renderables/panel.zig").Panel;
+const Syntax = @import("renderables/syntax.zig").Syntax;
+const SyntaxTheme = @import("renderables/syntax.zig").SyntaxTheme;
+const Language = @import("renderables/syntax.zig").Language;
 
 /// Log level matching std.log.Level for compatibility
 pub const Level = enum {
@@ -546,6 +549,10 @@ pub const TracebackOptions = struct {
     show_source: bool = true,
     /// Theme for styling
     theme: TracebackTheme = TracebackTheme.default,
+    /// Whether to apply syntax highlighting to source code snippets
+    syntax_highlighting: bool = true,
+    /// Syntax theme for code highlighting (only used when syntax_highlighting is true)
+    syntax_theme: SyntaxTheme = SyntaxTheme.default,
 };
 
 /// A formatted traceback with stack frames and optional source context
@@ -937,6 +944,12 @@ pub const Traceback = struct {
             1;
         const end_line = @min(target_line + self.options.context_after, @as(u32, @intCast(source_lines.len)));
 
+        // Detect language from file path for syntax highlighting
+        const language = if (self.options.syntax_highlighting)
+            Language.fromFilename(file_path)
+        else
+            Language.plain;
+
         var line_num = start_line;
         while (line_num <= end_line) : (line_num += 1) {
             const line_content = source_lines[line_num - 1];
@@ -955,10 +968,38 @@ pub const Traceback = struct {
                 try segments.append(allocator, Segment.styled(line_copy, theme.line_number_style));
             }
 
-            // Source line content
-            const line_copy = try allocator.dupe(u8, line_content);
-            const content_style = if (is_target) theme.highlight_style else theme.context_style;
-            try segments.append(allocator, Segment.styled(line_copy, content_style));
+            // Source line content - with or without syntax highlighting
+            if (self.options.syntax_highlighting and language != .plain) {
+                // Use syntax highlighting for the line
+                const highlighted_segments = try self.highlightSourceLine(
+                    allocator,
+                    line_content,
+                    language,
+                    is_target,
+                );
+                defer allocator.free(highlighted_segments);
+
+                for (highlighted_segments) |seg| {
+                    // Skip newlines from syntax highlighter (we add our own)
+                    if (std.mem.eql(u8, seg.text, "\n")) continue;
+
+                    if (seg.text.len > 0) {
+                        const text_copy = try allocator.dupe(u8, seg.text);
+                        // For target line, blend with highlight style
+                        if (is_target) {
+                            const blended_style = blendHighlightStyle(seg.style, theme.highlight_style);
+                            try segments.append(allocator, Segment.styled(text_copy, blended_style));
+                        } else {
+                            try segments.append(allocator, Segment.styledOptional(text_copy, seg.style));
+                        }
+                    }
+                }
+            } else {
+                // Fall back to plain text with theme styling
+                const line_copy = try allocator.dupe(u8, line_content);
+                const content_style = if (is_target) theme.highlight_style else theme.context_style;
+                try segments.append(allocator, Segment.styled(line_copy, content_style));
+            }
             try segments.append(allocator, Segment.line());
 
             // Column indicator for target line
@@ -976,7 +1017,44 @@ pub const Traceback = struct {
             }
         }
     }
+
+    /// Highlight a single line of source code using syntax highlighting
+    fn highlightSourceLine(
+        self: *Traceback,
+        allocator: std.mem.Allocator,
+        line: []const u8,
+        language: Language,
+        is_target: bool,
+    ) ![]Segment {
+        _ = is_target; // Currently unused, reserved for future blending options
+        const syntax = Syntax.init(allocator, line)
+            .withLanguage(language)
+            .withTheme(self.options.syntax_theme);
+
+        // Render without line numbers (we handle those separately)
+        return syntax.render(0, allocator);
+    }
 };
+
+/// Blend syntax highlighting style with the target line highlight style
+/// Preserves the syntax color but adds underline/bold from highlight
+fn blendHighlightStyle(syntax_style: ?Style, highlight_style: Style) Style {
+    var result = syntax_style orelse Style.empty;
+
+    // Add highlight attributes if they're set
+    if (highlight_style.hasAttribute(.bold)) {
+        result = result.bold();
+    }
+    if (highlight_style.hasAttribute(.underline)) {
+        result = result.underline();
+    }
+    // If highlight has a background color and syntax doesn't, use it
+    if (highlight_style.bgcolor != null and result.bgcolor == null) {
+        result = result.background(highlight_style.bgcolor.?);
+    }
+
+    return result;
+}
 
 /// Create a traceback from the current location
 pub fn traceHere(allocator: std.mem.Allocator) !Traceback {
@@ -1129,4 +1207,108 @@ test "Traceback.render basic" {
     }
     try std.testing.expect(found_traceback);
     try std.testing.expect(found_error);
+}
+
+test "TracebackOptions.syntax_highlighting defaults" {
+    const opts = TracebackOptions{};
+    try std.testing.expect(opts.syntax_highlighting);
+    try std.testing.expect(opts.syntax_theme.keyword_style.hasAttribute(.bold));
+}
+
+test "TracebackOptions.syntax_highlighting can be disabled" {
+    const opts = TracebackOptions{ .syntax_highlighting = false };
+    try std.testing.expect(!opts.syntax_highlighting);
+}
+
+test "TracebackOptions.syntax_theme customization" {
+    const opts = TracebackOptions{
+        .syntax_theme = SyntaxTheme.monokai,
+    };
+    try std.testing.expect(opts.syntax_theme.background_color != null);
+}
+
+test "blendHighlightStyle preserves syntax color" {
+    const syntax_style = Style.empty.foreground(Color.green);
+    const highlight_style = Style.empty.bold();
+
+    const blended = blendHighlightStyle(syntax_style, highlight_style);
+
+    // Should have the syntax color
+    try std.testing.expect(blended.color != null);
+    try std.testing.expectEqual(Color.green, blended.color.?);
+    // Should also be bold from highlight
+    try std.testing.expect(blended.hasAttribute(.bold));
+}
+
+test "blendHighlightStyle adds highlight attributes" {
+    const syntax_style = Style.empty.foreground(Color.cyan);
+    const highlight_style = Style.empty.underline().bold();
+
+    const blended = blendHighlightStyle(syntax_style, highlight_style);
+
+    try std.testing.expect(blended.hasAttribute(.bold));
+    try std.testing.expect(blended.hasAttribute(.underline));
+}
+
+test "blendHighlightStyle uses highlight background when syntax has none" {
+    const syntax_style = Style.empty.foreground(Color.magenta);
+    const highlight_style = Style.empty.background(Color.red);
+
+    const blended = blendHighlightStyle(syntax_style, highlight_style);
+
+    try std.testing.expect(blended.bgcolor != null);
+    try std.testing.expectEqual(Color.red, blended.bgcolor.?);
+}
+
+test "blendHighlightStyle handles null syntax style" {
+    const highlight_style = Style.empty.bold().underline();
+
+    const blended = blendHighlightStyle(null, highlight_style);
+
+    try std.testing.expect(blended.hasAttribute(.bold));
+    try std.testing.expect(blended.hasAttribute(.underline));
+}
+
+test "Traceback.highlightSourceLine basic" {
+    const allocator = std.testing.allocator;
+    var tb = Traceback.init(allocator);
+    defer tb.deinit();
+
+    const segments = try tb.highlightSourceLine(
+        allocator,
+        "const x = 42;",
+        .zig,
+        false,
+    );
+    defer allocator.free(segments);
+
+    try std.testing.expect(segments.len > 0);
+
+    // Should have produced some styled segments
+    var has_styled = false;
+    for (segments) |seg| {
+        if (seg.style != null and !std.mem.eql(u8, seg.text, "\n")) {
+            has_styled = true;
+            break;
+        }
+    }
+    try std.testing.expect(has_styled);
+}
+
+test "Traceback.highlightSourceLine with custom theme" {
+    const allocator = std.testing.allocator;
+    var tb = Traceback.init(allocator);
+    defer tb.deinit();
+
+    tb.options.syntax_theme = SyntaxTheme.monokai;
+
+    const segments = try tb.highlightSourceLine(
+        allocator,
+        "pub fn main() void {}",
+        .zig,
+        false,
+    );
+    defer allocator.free(segments);
+
+    try std.testing.expect(segments.len > 0);
 }
