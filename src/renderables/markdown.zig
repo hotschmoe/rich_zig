@@ -756,7 +756,7 @@ pub const Markdown = struct {
             if (tryParseStrikethrough(text, pos)) |result| {
                 try spans.append(allocator, .{
                     .text = result.content,
-                    .style_type = result.style_type,
+                    .style_type = .strikethrough,
                 });
                 pos = result.end_pos;
                 continue;
@@ -919,19 +919,16 @@ pub const Markdown = struct {
         return null;
     }
 
-    fn tryParseStrikethrough(text: []const u8, pos: usize) ?ParseResult {
+    fn tryParseStrikethrough(text: []const u8, pos: usize) ?InlineCodeResult {
         // Strikethrough uses ~~ (GFM extension)
         if (pos + 2 > text.len) return null;
         if (text[pos] != '~' or text[pos + 1] != '~') return null;
 
         const content_start = pos + 2;
-        if (content_start >= text.len) return null;
-
         // Find closing ~~
         if (findClosingDelimiter(text, content_start, '~', 2)) |end| {
             return .{
                 .content = text[content_start..end],
-                .style_type = .strikethrough,
                 .end_pos = end + 2,
             };
         }
