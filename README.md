@@ -10,8 +10,9 @@ A full-featured Zig port of [Python Rich](https://github.com/Textualize/rich), t
 +--------------------------------------------------+
 ```
 
-[![CI](https://github.com/hotschmoe-zig/rich_zig/actions/workflows/ci.yml/badge.svg)](https://github.com/hotschmoe-zig/rich_zig/actions/workflows/ci.yml)
+[![CI](https://github.com/hotschmoe/rich_zig/actions/workflows/ci.yml/badge.svg)](https://github.com/hotschmoe/rich_zig/actions/workflows/ci.yml)
 [![Zig](https://img.shields.io/badge/Zig-0.15.2-orange)](https://ziglang.org/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 ## Overview
 
@@ -72,7 +73,7 @@ rich_zig brings rich text and beautiful formatting to Zig terminal applications.
 Add rich_zig to your project using `zig fetch`:
 
 ```bash
-zig fetch --save git+https://github.com/hotschmoe-zig/rich_zig.git
+zig fetch --save git+https://github.com/hotschmoe/rich_zig.git
 ```
 
 Or add manually to your `build.zig.zon`:
@@ -80,7 +81,7 @@ Or add manually to your `build.zig.zon`:
 ```zig
 .dependencies = .{
     .rich_zig = .{
-        .url = "git+https://github.com/hotschmoe-zig/rich_zig.git",
+        .url = "git+https://github.com/hotschmoe/rich_zig.git",
         .hash = "...",  // Will be filled by zig fetch
     },
 },
@@ -118,10 +119,10 @@ pub fn build(b: *std.Build) void {
 }
 ```
 
-### Using a Specific Version
+### Using a Specific Version (Recommended)
 
 ```bash
-zig fetch --save git+https://github.com/hotschmoe-zig/rich_zig.git#v1.0.0
+zig fetch --save git+https://github.com/hotschmoe/rich_zig.git#v1.1.0
 ```
 
 Or manually in `build.zig.zon`:
@@ -129,11 +130,13 @@ Or manually in `build.zig.zon`:
 ```zig
 .dependencies = .{
     .rich_zig = .{
-        .url = "git+https://github.com/hotschmoe-zig/rich_zig.git#v1.0.0",
+        .url = "git+https://github.com/hotschmoe/rich_zig.git#v1.1.0",
         .hash = "...",
     },
 },
 ```
+
+See [Releases](https://github.com/hotschmoe/rich_zig/releases) for all available versions.
 
 ### Local Development
 
@@ -408,13 +411,25 @@ We track 100% feature parity with Rich/rich_rust. See [docs/FEATURE_PARITY.md](d
 
 ## CI/CD
 
-Automated testing via GitHub Actions:
+Automated testing via GitHub Actions on PRs and release tags:
 
+| Trigger | Tests | Release |
+|---------|-------|---------|
+| Pull Request | Yes | No |
+| Tag `v*` | Yes | Yes (if tests pass) |
+
+**Test Matrix**:
 - **Platforms**: Linux, macOS, Windows
 - **Optimization Levels**: Debug, ReleaseSafe, ReleaseFast, ReleaseSmall
-- **Fuzz Testing**: Parser robustness
+- **Fuzz Testing**: Parser robustness (Linux)
 - **Package Validation**: Consumer integration test
-- **Auto-Release**: Tags created on version bump to master
+
+**Release Workflow**:
+1. Update version in `build.zig.zon`
+2. Commit and push to master
+3. Create and push tag: `git tag v1.0.2 && git push origin v1.0.2`
+4. CI runs full test suite
+5. If tests pass, GitHub Release is created automatically
 
 ## Compatibility
 
