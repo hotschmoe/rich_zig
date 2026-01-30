@@ -53,6 +53,9 @@ pub const MarkdownTheme = struct {
     blockquote_border_char: []const u8 = "\u{2502}",
     blockquote_indent: usize = 2,
     inline_code_style: Style = Style.empty.fg(Color.bright_yellow).dim(),
+    image_style: Style = Style.empty.fg(Color.bright_black).italic(),
+    image_prefix: []const u8 = "[Image: ",
+    image_suffix: []const u8 = "]",
 
     pub const default: MarkdownTheme = .{};
 
@@ -500,6 +503,7 @@ pub const Markdown = struct {
         text: []const u8,
         style_type: StyleType,
         link_url: ?[]const u8 = null,
+        image_url: ?[]const u8 = null,
 
         const StyleType = enum {
             plain,
@@ -508,6 +512,7 @@ pub const Markdown = struct {
             bold_italic,
             link,
             code,
+            image,
         };
     };
 
@@ -516,7 +521,18 @@ pub const Markdown = struct {
         var pos: usize = 0;
 
         while (pos < text.len) {
-            // Try link first: [text](url)
+            // Try image first: ![alt](url)
+            if (tryParseImage(text, pos)) |result| {
+                try spans.append(allocator, .{
+                    .text = result.alt_text,
+                    .style_type = .image,
+                    .image_url = result.url,
+                });
+                pos = result.end_pos;
+                continue;
+            }
+
+            // Try link: [text](url)
             if (tryParseLink(text, pos)) |result| {
                 try spans.append(allocator, .{
                     .text = result.link_text,
@@ -571,6 +587,33 @@ pub const Markdown = struct {
         url: []const u8,
         end_pos: usize,
     };
+
+    const ImageResult = struct {
+        alt_text: []const u8,
+        url: []const u8,
+        end_pos: usize,
+    };
+
+    fn tryParseImage(text: []const u8, pos: usize) ?ImageResult {
+        // Image syntax: ![alt text](url)
+        if (pos >= text.len or text[pos] != '!') return null;
+        if (pos + 1 >= text.len or text[pos + 1] != '[') return null;
+
+        const alt_start = pos + 2;
+        const alt_end = findMatchingDelimiter(text, alt_start, '[', ']') orelse return null;
+
+        const paren_start = alt_end + 1;
+        if (paren_start >= text.len or text[paren_start] != '(') return null;
+
+        const url_start = paren_start + 1;
+        const url_end = findMatchingDelimiter(text, url_start, '(', ')') orelse return null;
+
+        return .{
+            .alt_text = text[alt_start..alt_end],
+            .url = text[url_start..url_end],
+            .end_pos = url_end + 1,
+        };
+    }
 
     /// Scans for a matching closing delimiter, respecting nesting.
     /// Returns the position of the closing delimiter, or null if not found.
@@ -685,7 +728,7 @@ pub const Markdown = struct {
 
     fn advanceToNextDelimiter(text: []const u8, start: usize) usize {
         var pos = start;
-        while (pos < text.len and text[pos] != '*' and text[pos] != '_' and text[pos] != '[' and text[pos] != '`') {
+        while (pos < text.len and text[pos] != '*' and text[pos] != '_' and text[pos] != '[' and text[pos] != '`' and text[pos] != '!') {
             pos += 1;
         }
         return pos;
@@ -721,6 +764,26 @@ pub const Markdown = struct {
         defer allocator.free(spans);
 
         for (spans) |span| {
+            if (span.style_type == .image) {
+                // Images: display as "[Image: alt text]" since terminals can't show images
+                const final_style: Style = if (base_style) |bs|
+                    bs.combine(self.theme.image_style)
+                else
+                    self.theme.image_style;
+
+                try segments.append(allocator, Segment.styled(self.theme.image_prefix, final_style));
+                if (span.text.len > 0) {
+                    try segments.append(allocator, Segment.styled(span.text, final_style));
+                } else {
+                    // If no alt text, show the URL instead
+                    if (span.image_url) |url| {
+                        try segments.append(allocator, Segment.styled(url, final_style));
+                    }
+                }
+                try segments.append(allocator, Segment.styled(self.theme.image_suffix, final_style));
+                continue;
+            }
+
             const inline_style: ?Style = switch (span.style_type) {
                 .plain => null,
                 .bold => self.theme.bold_style,
@@ -734,6 +797,7 @@ pub const Markdown = struct {
                     }
                     break :blk link_style;
                 },
+                .image => unreachable, // Handled above
             };
 
             const final_style: ?Style = if (inline_style) |is|
@@ -2177,4 +2241,235 @@ test "MarkdownTheme has inline code style" {
     const theme = MarkdownTheme.default;
     try std.testing.expect(theme.inline_code_style.color != null);
     try std.testing.expect(theme.inline_code_style.hasAttribute(.dim));
+}
+
+test "tryParseImage basic" {
+    const text = "![alt text](https://example.com/image.png)";
+    const result = Markdown.tryParseImage(text, 0);
+    try std.testing.expect(result != null);
+    try std.testing.expectEqualStrings("alt text", result.?.alt_text);
+    try std.testing.expectEqualStrings("https://example.com/image.png", result.?.url);
+    try std.testing.expectEqual(@as(usize, text.len), result.?.end_pos);
+}
+
+test "tryParseImage empty alt" {
+    const text = "![](https://example.com/image.png)";
+    const result = Markdown.tryParseImage(text, 0);
+    try std.testing.expect(result != null);
+    try std.testing.expectEqualStrings("", result.?.alt_text);
+    try std.testing.expectEqualStrings("https://example.com/image.png", result.?.url);
+}
+
+test "tryParseImage no image" {
+    try std.testing.expect(Markdown.tryParseImage("plain text", 0) == null);
+    try std.testing.expect(Markdown.tryParseImage("[link](url)", 0) == null);
+    try std.testing.expect(Markdown.tryParseImage("![unclosed", 0) == null);
+    try std.testing.expect(Markdown.tryParseImage("![alt]no paren", 0) == null);
+    try std.testing.expect(Markdown.tryParseImage("![alt](unclosed", 0) == null);
+}
+
+test "tryParseImage with offset" {
+    const text = "prefix ![img](url) suffix";
+    const result = Markdown.tryParseImage(text, 7);
+    try std.testing.expect(result != null);
+    try std.testing.expectEqualStrings("img", result.?.alt_text);
+    try std.testing.expectEqualStrings("url", result.?.url);
+}
+
+test "tryParseImage nested brackets in alt" {
+    const text = "![text [nested]](url)";
+    const result = Markdown.tryParseImage(text, 0);
+    try std.testing.expect(result != null);
+    try std.testing.expectEqualStrings("text [nested]", result.?.alt_text);
+}
+
+test "tryParseImage nested parens in url" {
+    const text = "![img](https://example.com/path(1).png)";
+    const result = Markdown.tryParseImage(text, 0);
+    try std.testing.expect(result != null);
+    try std.testing.expectEqualStrings("https://example.com/path(1).png", result.?.url);
+}
+
+test "parseInlineStyles with image" {
+    const allocator = std.testing.allocator;
+    const spans = try Markdown.parseInlineStyles("Check ![photo](url) out", allocator);
+    defer allocator.free(spans);
+
+    try std.testing.expectEqual(@as(usize, 3), spans.len);
+    try std.testing.expectEqualStrings("Check ", spans[0].text);
+    try std.testing.expectEqual(Markdown.InlineSpan.StyleType.plain, spans[0].style_type);
+    try std.testing.expectEqualStrings("photo", spans[1].text);
+    try std.testing.expectEqual(Markdown.InlineSpan.StyleType.image, spans[1].style_type);
+    try std.testing.expectEqualStrings("url", spans[1].image_url.?);
+    try std.testing.expectEqualStrings(" out", spans[2].text);
+    try std.testing.expectEqual(Markdown.InlineSpan.StyleType.plain, spans[2].style_type);
+}
+
+test "Markdown.render with image" {
+    const allocator = std.testing.allocator;
+    const md = Markdown.init("See ![a cat](https://example.com/cat.jpg) here");
+    const segments = try md.render(80, allocator);
+    defer allocator.free(segments);
+
+    var found_prefix = false;
+    var found_alt = false;
+    var found_suffix = false;
+
+    for (segments) |seg| {
+        if (std.mem.eql(u8, seg.text, "[Image: ")) {
+            found_prefix = true;
+            try std.testing.expect(seg.style != null);
+            try std.testing.expect(seg.style.?.hasAttribute(.italic));
+        }
+        if (std.mem.eql(u8, seg.text, "a cat")) {
+            found_alt = true;
+            try std.testing.expect(seg.style != null);
+            try std.testing.expect(seg.style.?.hasAttribute(.italic));
+        }
+        if (std.mem.eql(u8, seg.text, "]")) {
+            found_suffix = true;
+        }
+    }
+    try std.testing.expect(found_prefix);
+    try std.testing.expect(found_alt);
+    try std.testing.expect(found_suffix);
+}
+
+test "Markdown.render image at start" {
+    const allocator = std.testing.allocator;
+    const md = Markdown.init("![Start](url) of line");
+    const segments = try md.render(80, allocator);
+    defer allocator.free(segments);
+
+    try std.testing.expect(segments.len >= 3);
+    try std.testing.expectEqualStrings("[Image: ", segments[0].text);
+    try std.testing.expectEqualStrings("Start", segments[1].text);
+    try std.testing.expectEqualStrings("]", segments[2].text);
+}
+
+test "Markdown.render image at end" {
+    const allocator = std.testing.allocator;
+    const md = Markdown.init("End with ![image](url)");
+    const segments = try md.render(80, allocator);
+    defer allocator.free(segments);
+
+    var found_alt = false;
+    for (segments) |seg| {
+        if (std.mem.eql(u8, seg.text, "image")) {
+            found_alt = true;
+            try std.testing.expect(seg.style != null);
+        }
+    }
+    try std.testing.expect(found_alt);
+}
+
+test "Markdown.render multiple images" {
+    const allocator = std.testing.allocator;
+    const md = Markdown.init("![one](url1) and ![two](url2)");
+    const segments = try md.render(80, allocator);
+    defer allocator.free(segments);
+
+    var found_one = false;
+    var found_two = false;
+    for (segments) |seg| {
+        if (std.mem.eql(u8, seg.text, "one")) {
+            found_one = true;
+        }
+        if (std.mem.eql(u8, seg.text, "two")) {
+            found_two = true;
+        }
+    }
+    try std.testing.expect(found_one);
+    try std.testing.expect(found_two);
+}
+
+test "Markdown.render image with empty alt shows url" {
+    const allocator = std.testing.allocator;
+    const md = Markdown.init("![](https://example.com/img.png)");
+    const segments = try md.render(80, allocator);
+    defer allocator.free(segments);
+
+    var found_url = false;
+    for (segments) |seg| {
+        if (std.mem.eql(u8, seg.text, "https://example.com/img.png")) {
+            found_url = true;
+            try std.testing.expect(seg.style != null);
+        }
+    }
+    try std.testing.expect(found_url);
+}
+
+test "Markdown.render image in list item" {
+    const allocator = std.testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+
+    const md = Markdown.init("- Item with ![icon](url)");
+    const segments = try md.render(80, arena.allocator());
+
+    var found_alt = false;
+    for (segments) |seg| {
+        if (std.mem.eql(u8, seg.text, "icon")) {
+            found_alt = true;
+            try std.testing.expect(seg.style != null);
+        }
+    }
+    try std.testing.expect(found_alt);
+}
+
+test "Markdown.render image in blockquote" {
+    const allocator = std.testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+
+    const md = Markdown.init("> Quote with ![photo](url)");
+    const segments = try md.render(80, arena.allocator());
+
+    var found_alt = false;
+    for (segments) |seg| {
+        if (std.mem.eql(u8, seg.text, "photo")) {
+            found_alt = true;
+            try std.testing.expect(seg.style != null);
+        }
+    }
+    try std.testing.expect(found_alt);
+}
+
+test "Markdown.render image with other inline styles" {
+    const allocator = std.testing.allocator;
+    const md = Markdown.init("![image](url) with **bold** and *italic*");
+    const segments = try md.render(80, allocator);
+    defer allocator.free(segments);
+
+    var found_image = false;
+    var found_bold = false;
+    var found_italic = false;
+
+    for (segments) |seg| {
+        if (std.mem.eql(u8, seg.text, "image")) {
+            found_image = true;
+        }
+        if (std.mem.eql(u8, seg.text, "bold")) {
+            found_bold = true;
+            try std.testing.expect(seg.style != null);
+            try std.testing.expect(seg.style.?.hasAttribute(.bold));
+        }
+        if (std.mem.eql(u8, seg.text, "italic")) {
+            found_italic = true;
+            try std.testing.expect(seg.style != null);
+            try std.testing.expect(seg.style.?.hasAttribute(.italic));
+        }
+    }
+
+    try std.testing.expect(found_image);
+    try std.testing.expect(found_bold);
+    try std.testing.expect(found_italic);
+}
+
+test "MarkdownTheme has image style" {
+    const theme = MarkdownTheme.default;
+    try std.testing.expect(theme.image_style.hasAttribute(.italic));
+    try std.testing.expect(theme.image_style.color != null);
+    try std.testing.expectEqualStrings("[Image: ", theme.image_prefix);
+    try std.testing.expectEqualStrings("]", theme.image_suffix);
 }
