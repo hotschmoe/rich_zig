@@ -20,7 +20,7 @@ pub fn main() !void {
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
-    try stdout.writeAll("rich_zig v0.13.0 - Full Demo\n");
+    try stdout.writeAll("rich_zig v1.0.0 - Full Demo\n");
     try stdout.writeAll("============================\n\n");
 
     // Phase 1: Color, Style, Segment
@@ -384,7 +384,7 @@ pub fn main() !void {
 
     // JSON pretty-print
     try stdout.writeAll("\nJSON pretty-printing:\n");
-    var json = try rich.Json.fromString(allocator, "{\"name\": \"rich_zig\", \"version\": \"0.9.1\", \"awesome\": true}");
+    var json = try rich.Json.fromString(allocator, "{\"name\": \"rich_zig\", \"version\": \"1.0.0\", \"awesome\": true}");
     defer json.deinit();
 
     const json_segs = try json.render(80, allocator);
