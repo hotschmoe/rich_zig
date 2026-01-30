@@ -1091,57 +1091,57 @@ const syntax = Syntax.init(allocator, code, .zig)
 
 These can be shipped immediately without affecting existing users:
 
-| Task | Priority | Description |
-|------|----------|-------------|
-| Add prelude module | P0 | Create `src/prelude.zig` with common exports |
-| Add Panel convenience constructors | P0 | `.info()`, `.warning()`, `.err()`, `.success()` |
-| Add semantic error types | P1 | `src/errors.zig` with MarkupError, RenderError, TableError |
-| Document renderable protocol | P1 | How to create custom renderables |
-| Add StaticStringMap for colors | P1 | O(1) color name lookup |
+| Bead | Task | Priority | Description |
+|------|------|----------|-------------|
+| `bd-2dx` | Add prelude module | P0 | Create `src/prelude.zig` with common exports |
+| `bd-1ml` | Add Panel convenience constructors | P0 | `.info()`, `.warning()`, `.err()`, `.success()` |
+| `bd-3l3` | Add semantic error types | P1 | `src/errors.zig` with MarkupError, RenderError, TableError |
+| `bd-1n8` | Document renderable protocol | P1 | How to create custom renderables |
+| `bd-9ow` | Add StaticStringMap for colors | P1 | O(1) color name lookup |
 
 ### Phase B: API Consistency (Minor Breaking)
 
 These improve the API but may require user code changes:
 
-| Task | Priority | Description |
-|------|----------|-------------|
-| Store allocator in renderables | P0 | Simplify `render()` signature to just `render(width)` |
-| Standardize builder return types | P0 | All builders return value copies, not `*Self` |
-| Add Column builder for Table | P1 | `Column.header("Name").style(...).justify(...)` |
-| Split Table API: config vs data | P1 | Fluent for columns, mutation for rows |
+| Bead | Task | Priority | Description |
+|------|------|----------|-------------|
+| `bd-374` | Store allocator in renderables | P0 | Simplify `render()` signature to just `render(width)` |
+| `bd-3ro` | Standardize builder return types | P0 | All builders return value copies, not `*Self` |
+| `bd-ak1` | Add Column builder for Table | P1 | `Column.header("Name").style(...).justify(...)` |
+| `bd-2br` | Split Table API: config vs data | P1 | Fluent for columns, mutation for rows |
 
 ### Phase C: Documentation
 
-| Task | Priority | Description |
-|------|----------|-------------|
-| Create docs/api.md skeleton | P0 | Type reference organized by phase |
-| Create docs/guide/quickstart.md | P0 | 5-minute getting started |
-| Document Console API | P0 | Print, log, capture, export |
-| Document Panel, Table, Tree | P0 | Core renderables |
-| Document all renderables | P1 | Rule, Progress, Syntax, Markdown, etc. |
-| Update README with v1.0.0 details | P0 | Installation, version pinning |
-| Add quick reference card | P1 | Common operations cheat sheet |
+| Bead | Task | Priority | Description |
+|------|------|----------|-------------|
+| `bd-2mw` | Create docs/api.md skeleton | P0 | Type reference organized by phase |
+| `bd-1zf` | Create docs/guide/quickstart.md | P0 | 5-minute getting started |
+| `bd-3iy` | Document Console API | P0 | Print, log, capture, export |
+| `bd-e7n` | Document Panel, Table, Tree | P0 | Core renderables |
+| `bd-2jl` | Document all renderables | P1 | Rule, Progress, Syntax, Markdown, etc. |
+| `bd-1ud` | Update README with v1.0.0 details | P0 | Installation, version pinning |
+| `bd-3lu` | Add quick reference card | P1 | Common operations cheat sheet |
 
 ### Phase D: Large File Refactoring
 
-| Task | Priority | Description |
-|------|----------|-------------|
-| Split markdown.zig (3.2K lines) | P0 | parser.zig, renderer.zig, theme.zig, elements.zig |
-| Split syntax.zig (2.5K lines) | P0 | highlighter.zig, theme.zig, tokenizer.zig, languages/ |
-| Split table.zig (1.7K lines) | P1 | column.zig, row.zig, layout.zig, style.zig |
-| Split progress.zig (1.6K lines) | P1 | bar.zig, spinner.zig, group.zig |
-| Update imports in root.zig | P0 | Maintain public API stability |
-| Verify all tests pass | P0 | No regressions |
+| Bead | Task | Priority | Description |
+|------|------|----------|-------------|
+| `bd-8gg` | Split markdown.zig (3.2K lines) | P0 | parser.zig, renderer.zig, theme.zig, elements.zig |
+| `bd-f7i` | Split syntax.zig (2.5K lines) | P0 | highlighter.zig, theme.zig, tokenizer.zig, languages/ |
+| `bd-12r` | Split table.zig (1.7K lines) | P1 | column.zig, row.zig, layout.zig, style.zig |
+| `bd-eqr` | Split progress.zig (1.6K lines) | P1 | bar.zig, spinner.zig, group.zig |
+| `bd-2eo` | Update imports in root.zig | P0 | Maintain public API stability |
+| `bd-5hk` | Verify all tests pass | P0 | No regressions |
 
 ### Phase E: Comptime Optimizations
 
-| Task | Priority | Description |
-|------|----------|-------------|
-| Implement BuilderMixin | P2 | Comptime-generated builder methods |
-| Add comptime markup validation | P2 | `comptimeMarkup("[bold]text[/]")` |
-| Implement comptime themes | P2 | Zero-cost theme composition |
-| Arena allocation for Live | P2 | O(1) frame reset |
-| Create docgen tool (stretch) | P3 | Comptime type introspection for docs |
+| Bead | Task | Priority | Description |
+|------|------|----------|-------------|
+| `bd-2x5` | Implement BuilderMixin | P2 | Comptime-generated builder methods |
+| `bd-3ts` | Add comptime markup validation | P2 | `comptimeMarkup("[bold]text[/]")` |
+| `bd-h8n` | Implement comptime themes | P2 | Zero-cost theme composition |
+| `bd-3o9` | Arena allocation for Live | P2 | O(1) frame reset |
+| `bd-15t` | Create docgen tool (stretch) | P3 | Comptime type introspection for docs |
 
 ---
 
