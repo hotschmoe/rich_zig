@@ -94,7 +94,7 @@ pub fn build(b: *std.Build) void {
     // This will evaluate the `run` step rather than the default step.
     // For a top level step to actually do something, it must depend on other
     // steps (e.g. a Run step, as we will see in a moment).
-    const run_step = b.step("run", "Run the app");
+    const run_step = b.step("run", "Run the demo and all examples");
 
     // This creates a RunArtifact step in the build graph. A RunArtifact step
     // invokes an executable compiled by Zig. Steps will only be executed by the
@@ -103,11 +103,11 @@ pub fn build(b: *std.Build) void {
     // how this Run step will be executed. In our case we want to run it when
     // the user runs `zig build run`, so we create a dependency link.
     const run_cmd = b.addRunArtifact(exe);
-    run_step.dependOn(&run_cmd.step);
-
-    // By making the run step depend on the default step, it will be run from the
-    // installation directory rather than directly from within the cache directory.
     run_cmd.step.dependOn(b.getInstallStep());
+
+    // Run main demo first
+    const run_demo_step = b.step("demo", "Run the main demo only");
+    run_demo_step.dependOn(&run_cmd.step);
 
     // This allows the user to pass arguments to the application in the build
     // command itself, like this: `zig build run -- arg1 arg2 etc`
@@ -156,6 +156,10 @@ pub fn build(b: *std.Build) void {
 
     // Examples - each example gets its own build target
     const examples = [_][]const u8{ "hello", "panel", "table", "progress", "tree", "layout", "json_syntax" };
+
+    // For chaining all examples in the "run" step
+    var prev_step: *std.Build.Step = &run_cmd.step;
+
     for (examples) |name| {
         const example_exe = b.addExecutable(.{
             .name = b.fmt("example-{s}", .{name}),
@@ -171,10 +175,20 @@ pub fn build(b: *std.Build) void {
 
         b.installArtifact(example_exe);
 
-        const example_run_cmd = b.addRunArtifact(example_exe);
-        example_run_cmd.step.dependOn(b.getInstallStep());
+        // Run command for chaining in "run" step
+        const chained_run = b.addRunArtifact(example_exe);
+        chained_run.step.dependOn(b.getInstallStep());
+        chained_run.step.dependOn(prev_step);
+        prev_step = &chained_run.step;
+
+        // Standalone run command for individual example step
+        const standalone_run = b.addRunArtifact(example_exe);
+        standalone_run.step.dependOn(b.getInstallStep());
 
         const example_step = b.step(b.fmt("example-{s}", .{name}), b.fmt("Run the {s} example", .{name}));
-        example_step.dependOn(&example_run_cmd.step);
+        example_step.dependOn(&standalone_run.step);
     }
+
+    // run_step runs demo + all examples in sequence
+    run_step.dependOn(prev_step);
 }

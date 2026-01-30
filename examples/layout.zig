@@ -62,39 +62,16 @@ pub fn main() !void {
     // Columns example - Columns takes pre-rendered segment arrays
     try console.print("[bold]Columns:[/]");
     {
-        // Columns works with segment arrays - use fromText for simple text columns
-        const texts = [_][]const u8{ "Column 1", "Column 2", "Column 3" };
-        const columns = try rich.Columns.fromText(allocator, &texts);
+        // Create segment arrays for each column
+        const col1 = [_]rich.Segment{rich.Segment.plain("Column 1")};
+        const col2 = [_]rich.Segment{rich.Segment.plain("Column 2")};
+        const col3 = [_]rich.Segment{rich.Segment.plain("Column 3")};
+        const items = [_][]const rich.Segment{ &col1, &col2, &col3 };
+
+        const columns = rich.Columns.init(allocator, &items);
         const col_segments = try columns.render(80, allocator);
         defer allocator.free(col_segments);
         try console.printSegments(col_segments);
-    }
-    try console.print("");
-
-    // Split layout example - Split takes segments, not renderables directly
-    try console.print("[bold]Split Layout (Horizontal):[/]");
-    {
-        // Pre-render panels to get segments
-        const left_panel = rich.Panel.fromText(allocator, "Left side content")
-            .withTitle("Left")
-            .withWidth(35);
-        const left_segs = try left_panel.render(80, allocator);
-        defer allocator.free(left_segs);
-
-        const right_panel = rich.Panel.fromText(allocator, "Right side content")
-            .withTitle("Right")
-            .withWidth(35);
-        const right_segs = try right_panel.render(80, allocator);
-        defer allocator.free(right_segs);
-
-        var split = rich.Split.horizontal(allocator);
-        defer split.deinit();
-        _ = split.add(left_segs);
-        _ = split.add(right_segs);
-
-        const split_segs = try split.render(80, allocator);
-        defer allocator.free(split_segs);
-        try console.printSegments(split_segs);
     }
     try console.print("");
 
