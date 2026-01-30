@@ -483,6 +483,228 @@ pub const Console = struct {
             }
         }
     }
+
+    pub const SvgOptions = struct {
+        title: ?[]const u8 = null,
+        font_family: []const u8 = "Fira Code,Monaco,Consolas,Liberation Mono,monospace",
+        font_size: u16 = 14,
+        line_height: f32 = 1.4,
+        font_aspect_ratio: f32 = 0.61,
+        background_color: []const u8 = "#282a36",
+        foreground_color: []const u8 = "#f8f8f2",
+        padding: u16 = 20,
+        chrome: bool = true,
+        chrome_color: []const u8 = "#1e1f29",
+        term_width: ?u16 = null,
+    };
+
+    pub fn exportSvg(segments: []const Segment, allocator: std.mem.Allocator, options: SvgOptions) ![]u8 {
+        const cells = @import("cells.zig");
+        var result: std.ArrayList(u8) = .empty;
+        var writer = result.writer(allocator);
+
+        // Parse segments into lines for layout calculation
+        var lines: std.ArrayList(std.ArrayList(LineSegment)) = .empty;
+        var current_line: std.ArrayList(LineSegment) = .empty;
+        var max_line_width: usize = 0;
+        var current_line_width: usize = 0;
+
+        for (segments) |seg| {
+            if (seg.control != null) continue;
+
+            if (std.mem.eql(u8, seg.text, "\n")) {
+                if (current_line_width > max_line_width) {
+                    max_line_width = current_line_width;
+                }
+                try lines.append(allocator, current_line);
+                current_line = .empty;
+                current_line_width = 0;
+                continue;
+            }
+
+            const seg_width = cells.cellLen(seg.text);
+            try current_line.append(allocator, .{ .text = seg.text, .style = seg.style, .width = seg_width });
+            current_line_width += seg_width;
+        }
+
+        // Append the last line if not empty
+        if (current_line.items.len > 0 or lines.items.len == 0) {
+            if (current_line_width > max_line_width) {
+                max_line_width = current_line_width;
+            }
+            try lines.append(allocator, current_line);
+        }
+        defer {
+            for (lines.items) |*line| {
+                line.deinit(allocator);
+            }
+            lines.deinit(allocator);
+        }
+
+        const num_lines = lines.items.len;
+        const term_width = options.term_width orelse @as(u16, @intCast(@max(max_line_width, 40)));
+
+        // Calculate dimensions
+        const char_height: f32 = @floatFromInt(options.font_size);
+        const char_width: f32 = char_height * options.font_aspect_ratio;
+        const line_height: f32 = char_height * options.line_height;
+
+        const chrome_height: f32 = if (options.chrome) 36.0 else 0.0;
+        const terminal_width: f32 = @as(f32, @floatFromInt(term_width)) * char_width + @as(f32, @floatFromInt(options.padding * 2));
+        const terminal_height: f32 = @as(f32, @floatFromInt(num_lines)) * line_height + @as(f32, @floatFromInt(options.padding * 2));
+
+        const total_width: f32 = terminal_width;
+        const total_height: f32 = terminal_height + chrome_height;
+
+        // Write SVG header
+        try writer.print(
+            \\<svg xmlns="http://www.w3.org/2000/svg" width="{d:.0}" height="{d:.0}" viewBox="0 0 {d:.0} {d:.0}">
+            \\<style>
+            \\  .terminal {{ font-family: {s}; font-size: {d}px; }}
+            \\  .terminal text {{ fill: {s}; }}
+            \\</style>
+            \\
+        , .{ total_width, total_height, total_width, total_height, options.font_family, options.font_size, options.foreground_color });
+
+        // Chrome (terminal window decorations)
+        if (options.chrome) {
+            try writer.print(
+                \\<rect width="{d:.0}" height="{d:.0}" rx="8" fill="{s}"/>
+                \\<rect y="36" width="{d:.0}" height="{d:.0}" fill="{s}"/>
+            , .{ total_width, total_height, options.chrome_color, total_width, terminal_height, options.background_color });
+
+            // Traffic light buttons
+            try writer.writeAll(
+                \\<circle cx="20" cy="18" r="6" fill="#ff5f56"/>
+                \\<circle cx="40" cy="18" r="6" fill="#ffbd2e"/>
+                \\<circle cx="60" cy="18" r="6" fill="#27c93f"/>
+                \\
+            );
+
+            // Title in chrome
+            if (options.title) |title| {
+                const title_x = total_width / 2;
+                try writer.print(
+                    \\<text x="{d:.0}" y="23" text-anchor="middle" fill="{s}" font-family="{s}" font-size="13">{s}</text>
+                    \\
+                , .{ title_x, options.foreground_color, options.font_family, title });
+            }
+        } else {
+            try writer.print(
+                \\<rect width="{d:.0}" height="{d:.0}" fill="{s}"/>
+                \\
+            , .{ total_width, total_height, options.background_color });
+        }
+
+        // Terminal content group
+        const content_y = chrome_height + @as(f32, @floatFromInt(options.padding));
+        const content_x: f32 = @floatFromInt(options.padding);
+        try writer.print(
+            \\<g class="terminal" transform="translate({d:.1},{d:.1})">
+            \\
+        , .{ content_x, content_y });
+
+        // Render each line
+        for (lines.items, 0..) |line, line_idx| {
+            const y = @as(f32, @floatFromInt(line_idx)) * line_height + char_height;
+            var x: f32 = 0;
+
+            for (line.items) |line_seg| {
+                const has_style = if (line_seg.style) |s| !s.isEmpty() else false;
+
+                if (has_style) {
+                    try writer.writeAll("<tspan ");
+                    try writeSvgStyle(line_seg.style.?, writer);
+                    try writer.print(" x=\"{d:.1}\" y=\"{d:.1}\">", .{ x, y });
+                } else {
+                    try writer.print("<text x=\"{d:.1}\" y=\"{d:.1}\">", .{ x, y });
+                }
+
+                try writeXmlEscaped(line_seg.text, writer);
+
+                if (has_style) {
+                    try writer.writeAll("</tspan>");
+                } else {
+                    try writer.writeAll("</text>");
+                }
+
+                x += @as(f32, @floatFromInt(line_seg.width)) * char_width;
+            }
+        }
+
+        try writer.writeAll("</g>\n</svg>");
+
+        return result.toOwnedSlice(allocator);
+    }
+
+    const LineSegment = struct {
+        text: []const u8,
+        style: ?Style,
+        width: usize,
+    };
+
+    fn writeSvgStyle(style: Style, writer: anytype) !void {
+        try writer.writeAll("style=\"");
+        var needs_sep = false;
+
+        if (style.color) |c| {
+            const triplet = c.getTriplet();
+            if (triplet) |t| {
+                try writer.print("fill:rgb({d},{d},{d})", .{ t.r, t.g, t.b });
+                needs_sep = true;
+            }
+        }
+
+        if (style.hasAttribute(.bold)) {
+            if (needs_sep) try writer.writeByte(';');
+            try writer.writeAll("font-weight:bold");
+            needs_sep = true;
+        }
+
+        if (style.hasAttribute(.dim)) {
+            if (needs_sep) try writer.writeByte(';');
+            try writer.writeAll("opacity:0.5");
+            needs_sep = true;
+        }
+
+        if (style.hasAttribute(.italic)) {
+            if (needs_sep) try writer.writeByte(';');
+            try writer.writeAll("font-style:italic");
+            needs_sep = true;
+        }
+
+        if (style.hasAttribute(.underline)) {
+            if (needs_sep) try writer.writeByte(';');
+            try writer.writeAll("text-decoration:underline");
+            needs_sep = true;
+        }
+
+        if (style.hasAttribute(.strike)) {
+            if (needs_sep) try writer.writeByte(';');
+            try writer.writeAll("text-decoration:line-through");
+            needs_sep = true;
+        }
+
+        if (style.hasAttribute(.overline)) {
+            if (needs_sep) try writer.writeByte(';');
+            try writer.writeAll("text-decoration:overline");
+        }
+
+        try writer.writeByte('"');
+    }
+
+    fn writeXmlEscaped(text: []const u8, writer: anytype) !void {
+        for (text) |c| {
+            switch (c) {
+                '<' => try writer.writeAll("&lt;"),
+                '>' => try writer.writeAll("&gt;"),
+                '&' => try writer.writeAll("&amp;"),
+                '"' => try writer.writeAll("&quot;"),
+                '\'' => try writer.writeAll("&apos;"),
+                else => try writer.writeByte(c),
+            }
+        }
+    }
 };
 
 // Tests
@@ -612,4 +834,75 @@ test "Console.exportHtml newlines" {
     defer allocator.free(html);
 
     try std.testing.expect(std.mem.indexOf(u8, html, "<br>") != null);
+}
+
+test "Console.exportSvg plain" {
+    const allocator = std.testing.allocator;
+    const segments = [_]Segment{Segment.plain("Hello")};
+
+    const svg = try Console.exportSvg(&segments, allocator, .{});
+    defer allocator.free(svg);
+
+    try std.testing.expect(std.mem.indexOf(u8, svg, "<svg") != null);
+    try std.testing.expect(std.mem.indexOf(u8, svg, "</svg>") != null);
+    try std.testing.expect(std.mem.indexOf(u8, svg, "Hello") != null);
+}
+
+test "Console.exportSvg styled" {
+    const allocator = std.testing.allocator;
+    const segments = [_]Segment{Segment.styled("Bold", Style.empty.bold())};
+
+    const svg = try Console.exportSvg(&segments, allocator, .{});
+    defer allocator.free(svg);
+
+    try std.testing.expect(std.mem.indexOf(u8, svg, "Bold") != null);
+    try std.testing.expect(std.mem.indexOf(u8, svg, "font-weight:bold") != null or
+        std.mem.indexOf(u8, svg, "font-weight: bold") != null);
+}
+
+test "Console.exportSvg escapes XML" {
+    const allocator = std.testing.allocator;
+    const segments = [_]Segment{Segment.plain("<script>")};
+
+    const svg = try Console.exportSvg(&segments, allocator, .{});
+    defer allocator.free(svg);
+
+    try std.testing.expect(std.mem.indexOf(u8, svg, "&lt;script&gt;") != null);
+}
+
+test "Console.exportSvg with title" {
+    const allocator = std.testing.allocator;
+    const segments = [_]Segment{Segment.plain("Content")};
+
+    const svg = try Console.exportSvg(&segments, allocator, .{ .title = "My Title" });
+    defer allocator.free(svg);
+
+    try std.testing.expect(std.mem.indexOf(u8, svg, "My Title") != null);
+}
+
+test "Console.exportSvg multiple lines" {
+    const allocator = std.testing.allocator;
+    const segments = [_]Segment{
+        Segment.plain("Line1"),
+        Segment.line(),
+        Segment.plain("Line2"),
+    };
+
+    const svg = try Console.exportSvg(&segments, allocator, .{});
+    defer allocator.free(svg);
+
+    try std.testing.expect(std.mem.indexOf(u8, svg, "Line1") != null);
+    try std.testing.expect(std.mem.indexOf(u8, svg, "Line2") != null);
+}
+
+test "Console.exportSvg with colors" {
+    const allocator = std.testing.allocator;
+    const segments = [_]Segment{Segment.styled("Red", Style.empty.foreground(Color.fromRgb(255, 0, 0)))};
+
+    const svg = try Console.exportSvg(&segments, allocator, .{});
+    defer allocator.free(svg);
+
+    try std.testing.expect(std.mem.indexOf(u8, svg, "Red") != null);
+    try std.testing.expect(std.mem.indexOf(u8, svg, "rgb(255,0,0)") != null or
+        std.mem.indexOf(u8, svg, "#ff0000") != null);
 }
