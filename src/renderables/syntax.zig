@@ -552,6 +552,7 @@ pub const Syntax = struct {
     start_line: usize = 1,
     word_wrap: bool = false,
     allocator: std.mem.Allocator,
+    owns_code: bool = false,
 
     pub fn init(allocator: std.mem.Allocator, code: []const u8) Syntax {
         return .{
@@ -594,27 +595,26 @@ pub const Syntax = struct {
         };
     }
 
-    /// Load code from filesystem and create syntax highlighter (auto-detects language from extension)
+    /// Load code from filesystem and create syntax highlighter (auto-detects language)
     pub fn loadFile(allocator: std.mem.Allocator, path: []const u8) !Syntax {
         const file = try std.fs.cwd().openFile(path, .{});
         defer file.close();
 
-        const stat = try file.stat();
-        const size = stat.size;
-
-        const code = try allocator.alloc(u8, size);
-        const bytes_read = try file.readAll(code);
+        const code = try file.readToEndAlloc(allocator, std.math.maxInt(usize));
 
         return Syntax{
-            .code = code[0..bytes_read],
-            .language = Language.fromFilename(path),
+            .code = code,
+            .language = Language.detect(path, code),
             .allocator = allocator,
+            .owns_code = true,
         };
     }
 
-    /// Free memory allocated by loadFile
+    /// Free memory allocated by loadFile. Only call on Syntax instances created via loadFile.
     pub fn deinit(self: *Syntax) void {
-        self.allocator.free(self.code);
+        if (self.owns_code) {
+            self.allocator.free(self.code);
+        }
     }
 
     pub fn withTheme(self: Syntax, theme: SyntaxTheme) Syntax {
