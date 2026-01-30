@@ -1161,6 +1161,8 @@ pub const Syntax = struct {
     }
 
     /// Wrap styled segments to fit within max_width, preserving styles across wrapped lines.
+    /// Prefers breaking at word boundaries (spaces) when possible, falls back to character-level
+    /// wrapping for long words that exceed the available width.
     fn wrapSegments(line_segments: []const Segment, max_width: usize, allocator: std.mem.Allocator) ![]Segment {
         if (max_width == 0) {
             return allocator.dupe(Segment, line_segments);
@@ -1169,39 +1171,176 @@ pub const Syntax = struct {
         var result: std.ArrayList(Segment) = .empty;
         var current_width: usize = 0;
 
+        // Track position of last space for word-boundary breaking
+        var last_space_result_idx: ?usize = null;
+        var last_space_width: usize = 0;
+
         for (line_segments) |seg| {
             const seg_width = seg.cellLength();
 
+            // If segment fits on current line, append it
             if (current_width + seg_width <= max_width) {
+                // Check if this segment contains a space (potential break point)
+                if (std.mem.lastIndexOfScalar(u8, seg.text, ' ')) |_| {
+                    last_space_result_idx = result.items.len;
+                    last_space_width = current_width + seg_width;
+                }
                 try result.append(allocator, seg);
                 current_width += seg_width;
                 continue;
             }
 
+            // Segment doesn't fit - need to wrap within it
             var remaining_text = seg.text;
+            var remaining_start: usize = 0;
 
             while (remaining_text.len > 0) {
                 if (current_width >= max_width) {
                     try result.append(allocator, Segment.line());
                     current_width = 0;
+                    last_space_result_idx = null;
                 }
 
                 const remaining_width = cells.cellLen(remaining_text);
                 const available = max_width - current_width;
 
                 if (remaining_width <= available) {
+                    // Check for space in this final piece
+                    if (std.mem.lastIndexOfScalar(u8, remaining_text, ' ')) |_| {
+                        last_space_result_idx = result.items.len;
+                        last_space_width = current_width + remaining_width;
+                    }
                     try result.append(allocator, Segment.styledOptional(remaining_text, seg.style));
                     current_width += remaining_width;
                     break;
                 }
 
-                const byte_pos = cells.cellToByteIndex(remaining_text, available);
-                if (byte_pos > 0) {
-                    try result.append(allocator, Segment.styledOptional(remaining_text[0..byte_pos], seg.style));
+                // Find word boundary within available space
+                const byte_limit = cells.cellToByteIndex(remaining_text, available);
+                var break_byte = byte_limit;
+                var break_width = available;
+
+                // Look for last space within the available width
+                if (std.mem.lastIndexOfScalar(u8, remaining_text[0..byte_limit], ' ')) |space_pos| {
+                    // Found a space - break after it
+                    break_byte = space_pos + 1;
+                    break_width = cells.cellLen(remaining_text[0..break_byte]);
+                } else if (current_width > 0 and last_space_result_idx != null) {
+                    // No space in current chunk, but we have a previous space on this line
+                    // Rewind to the last space by inserting a newline after it
+                    const space_idx = last_space_result_idx.?;
+                    const space_seg = result.items[space_idx];
+
+                    // Find the last space in that segment and split it
+                    if (std.mem.lastIndexOfScalar(u8, space_seg.text, ' ')) |sp| {
+                        // Split at the space: keep text up to and including space,
+                        // then insert newline, then continue with rest
+                        const before_space = space_seg.text[0 .. sp + 1];
+                        const after_space = space_seg.text[sp + 1 ..];
+
+                        // Update the segment to end at space
+                        result.items[space_idx] = Segment.styledOptional(before_space, space_seg.style);
+
+                        // Collect segments after the space to re-process
+                        var to_reprocess: std.ArrayList(Segment) = .empty;
+                        defer to_reprocess.deinit(allocator);
+
+                        if (after_space.len > 0) {
+                            try to_reprocess.append(allocator, Segment.styledOptional(after_space, space_seg.style));
+                        }
+
+                        // Add remaining segments from result after space_idx
+                        for (result.items[space_idx + 1 ..]) |s| {
+                            try to_reprocess.append(allocator, s);
+                        }
+
+                        // Add the current remaining text
+                        try to_reprocess.append(allocator, Segment.styledOptional(remaining_text, seg.style));
+
+                        // Truncate result to just before the newline
+                        result.shrinkRetainingCapacity(space_idx + 1);
+
+                        // Insert newline
+                        try result.append(allocator, Segment.line());
+                        current_width = 0;
+                        last_space_result_idx = null;
+
+                        // Re-add all the segments that need to be re-wrapped
+                        for (to_reprocess.items) |reprocess_seg| {
+                            const rw = reprocess_seg.cellLength();
+                            if (current_width + rw <= max_width) {
+                                if (std.mem.lastIndexOfScalar(u8, reprocess_seg.text, ' ')) |_| {
+                                    last_space_result_idx = result.items.len;
+                                    last_space_width = current_width + rw;
+                                }
+                                try result.append(allocator, reprocess_seg);
+                                current_width += rw;
+                            } else {
+                                // Need to wrap this segment too - continue with inner loop logic
+                                var inner_remaining = reprocess_seg.text;
+                                while (inner_remaining.len > 0) {
+                                    if (current_width >= max_width) {
+                                        try result.append(allocator, Segment.line());
+                                        current_width = 0;
+                                        last_space_result_idx = null;
+                                    }
+
+                                    const inner_width = cells.cellLen(inner_remaining);
+                                    const inner_avail = max_width - current_width;
+
+                                    if (inner_width <= inner_avail) {
+                                        if (std.mem.lastIndexOfScalar(u8, inner_remaining, ' ')) |_| {
+                                            last_space_result_idx = result.items.len;
+                                        }
+                                        try result.append(allocator, Segment.styledOptional(inner_remaining, reprocess_seg.style));
+                                        current_width += inner_width;
+                                        break;
+                                    }
+
+                                    const inner_byte_limit = cells.cellToByteIndex(inner_remaining, inner_avail);
+                                    var inner_break = inner_byte_limit;
+
+                                    if (std.mem.lastIndexOfScalar(u8, inner_remaining[0..inner_byte_limit], ' ')) |inner_sp| {
+                                        inner_break = inner_sp + 1;
+                                    }
+
+                                    if (inner_break > 0) {
+                                        try result.append(allocator, Segment.styledOptional(inner_remaining[0..inner_break], reprocess_seg.style));
+                                    }
+                                    try result.append(allocator, Segment.line());
+                                    inner_remaining = inner_remaining[inner_break..];
+                                    current_width = 0;
+                                    last_space_result_idx = null;
+                                }
+                            }
+                        }
+
+                        // Done with this segment, move to next in outer loop
+                        remaining_text = "";
+                        break;
+                    }
                 }
-                try result.append(allocator, Segment.line());
-                remaining_text = remaining_text[byte_pos..];
-                current_width = 0;
+
+                // Output text up to break point
+                if (break_byte > 0) {
+                    const chunk = remaining_text[0..break_byte];
+                    if (std.mem.lastIndexOfScalar(u8, chunk, ' ')) |_| {
+                        last_space_result_idx = result.items.len;
+                        last_space_width = current_width + break_width;
+                    }
+                    try result.append(allocator, Segment.styledOptional(chunk, seg.style));
+                    current_width += break_width;
+                }
+
+                // If we're at max width, insert newline
+                if (current_width >= max_width or break_byte == byte_limit) {
+                    try result.append(allocator, Segment.line());
+                    current_width = 0;
+                    last_space_result_idx = null;
+                }
+
+                remaining_text = remaining_text[break_byte..];
+                remaining_start += break_byte;
             }
         }
 
@@ -1736,6 +1875,45 @@ test "wrapSegments handles multiple segments" {
 
     // Should produce some output
     try std.testing.expect(wrapped.len > 0);
+}
+
+test "wrapSegments breaks at word boundaries" {
+    const allocator = std.testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+
+    // "Hello World" with width 8 should break after "Hello " (6 chars)
+    // not in the middle of "World"
+    const segs = [_]Segment{
+        Segment.plain("Hello World"),
+    };
+
+    const wrapped = try Syntax.wrapSegments(&segs, 8, arena.allocator());
+
+    // Collect non-newline text segments
+    var lines: std.ArrayList([]const u8) = .empty;
+    var current_line: std.ArrayList(u8) = .empty;
+
+    for (wrapped) |seg| {
+        if (std.mem.eql(u8, seg.text, "\n")) {
+            if (current_line.items.len > 0) {
+                try lines.append(arena.allocator(), try arena.allocator().dupe(u8, current_line.items));
+                current_line.clearRetainingCapacity();
+            }
+        } else {
+            try current_line.appendSlice(arena.allocator(), seg.text);
+        }
+    }
+    if (current_line.items.len > 0) {
+        try lines.append(arena.allocator(), try arena.allocator().dupe(u8, current_line.items));
+    }
+
+    // Should have 2 lines
+    try std.testing.expectEqual(@as(usize, 2), lines.items.len);
+    // First line should be "Hello " (breaks at word boundary)
+    try std.testing.expectEqualStrings("Hello ", lines.items[0]);
+    // Second line should be "World"
+    try std.testing.expectEqualStrings("World", lines.items[1]);
 }
 
 test "wrapSegments zero width returns input" {
