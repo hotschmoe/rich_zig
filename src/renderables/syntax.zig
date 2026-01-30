@@ -695,7 +695,6 @@ pub const Syntax = struct {
                         const indent = try allocator.dupe(u8, "     ");
                         try segments.append(allocator, Segment.styled(indent, self.theme.applyBackground(self.theme.line_number_style)));
                     }
-                    // Apply background to wrapped segment
                     try segments.append(allocator, Segment.styledOptional(seg.text, self.theme.applyBackgroundOpt(seg.style)));
                     after_wrap_newline = is_newline;
                 }
@@ -774,7 +773,7 @@ pub const Syntax = struct {
                 if (zig_builtins.has(builtin)) {
                     try segments.append(allocator, self.styledSegment(builtin, self.theme.builtin_style));
                 } else {
-                    try segments.append(allocator, self.styledSegment(builtin, self.theme.default_style));
+                    try segments.append(allocator, self.defaultSegment(builtin));
                 }
                 i = end;
                 continue;
@@ -816,7 +815,7 @@ pub const Syntax = struct {
                 continue;
             }
 
-            try segments.append(allocator, self.styledSegment(line[i .. i + 1], self.theme.default_style));
+            try segments.append(allocator, self.defaultSegment(line[i .. i + 1]));
             i += 1;
         }
     }
@@ -865,7 +864,7 @@ pub const Syntax = struct {
                 continue;
             }
 
-            try segments.append(allocator, self.styledSegment(line[i .. i + 1], self.theme.default_style));
+            try segments.append(allocator, self.defaultSegment(line[i .. i + 1]));
             i += 1;
         }
     }
