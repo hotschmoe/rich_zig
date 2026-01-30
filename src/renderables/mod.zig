@@ -69,6 +69,7 @@ pub const ProgressDisplay = progress.ProgressDisplay;
 pub const LabelContent = tree.LabelContent;
 pub const KV = tree.KV;
 pub const CellContent = table.CellContent;
+pub const Cell = table.Cell;
 pub const SplitContent = layout.SplitContent;
 pub const SplitterConfig = layout.SplitterConfig;
 

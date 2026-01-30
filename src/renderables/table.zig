@@ -24,10 +24,129 @@ pub const CellContent = union(enum) {
     }
 };
 
+/// A cell with optional column and row spanning
+pub const Cell = struct {
+    content: CellContent,
+    colspan: u8 = 1,
+    rowspan: u8 = 1,
+    style: ?Style = null,
+    justify: ?JustifyMethod = null,
+
+    pub fn text(t: []const u8) Cell {
+        return .{ .content = .{ .text = t } };
+    }
+
+    pub fn segments(segs: []const Segment) Cell {
+        return .{ .content = .{ .segments = segs } };
+    }
+
+    pub fn withColspan(self: Cell, span: u8) Cell {
+        var c = self;
+        c.colspan = if (span == 0) 1 else span;
+        return c;
+    }
+
+    pub fn withRowspan(self: Cell, span: u8) Cell {
+        var c = self;
+        c.rowspan = if (span == 0) 1 else span;
+        return c;
+    }
+
+    pub fn withStyle(self: Cell, s: Style) Cell {
+        var c = self;
+        c.style = s;
+        return c;
+    }
+
+    pub fn withJustify(self: Cell, j: JustifyMethod) Cell {
+        var c = self;
+        c.justify = j;
+        return c;
+    }
+
+    pub fn getCellWidth(self: Cell) usize {
+        return self.content.getCellWidth();
+    }
+};
+
 pub const JustifyMethod = enum {
     left,
     center,
     right,
+};
+
+/// Tracks active row spans across rows during rendering
+const RowSpanTracker = struct {
+    /// For each column, how many more rows the current span should occupy (0 = no span active)
+    remaining: []u8,
+    /// For each column, the cell content that is spanning (for rendering continuation cells)
+    span_cells: []?Cell,
+    allocator: std.mem.Allocator,
+
+    fn init(allocator: std.mem.Allocator, num_columns: usize) !RowSpanTracker {
+        const remaining = try allocator.alloc(u8, num_columns);
+        @memset(remaining, 0);
+        const span_cells = try allocator.alloc(?Cell, num_columns);
+        @memset(span_cells, null);
+        return .{
+            .remaining = remaining,
+            .span_cells = span_cells,
+            .allocator = allocator,
+        };
+    }
+
+    fn deinit(self: *RowSpanTracker) void {
+        self.allocator.free(self.remaining);
+        self.allocator.free(self.span_cells);
+    }
+
+    /// Check if column is blocked by a row span from a previous row
+    fn isBlocked(self: RowSpanTracker, col_idx: usize) bool {
+        return col_idx < self.remaining.len and self.remaining[col_idx] > 0;
+    }
+
+    /// Get the cell that is spanning into this position (if any)
+    fn getSpanningCell(self: RowSpanTracker, col_idx: usize) ?Cell {
+        if (col_idx < self.span_cells.len) {
+            return self.span_cells[col_idx];
+        }
+        return null;
+    }
+
+    /// Register a new cell with a row span
+    fn registerSpan(self: *RowSpanTracker, col_idx: usize, cell: Cell) void {
+        if (col_idx >= self.remaining.len) return;
+
+        const span = cell.colspan;
+        const end_col = @min(col_idx + span, self.remaining.len);
+
+        for (col_idx..end_col) |j| {
+            if (cell.rowspan > 1) {
+                self.remaining[j] = cell.rowspan - 1;
+                self.span_cells[j] = cell;
+            }
+        }
+    }
+
+    /// Decrement all active spans (called after rendering a row)
+    fn advanceRow(self: *RowSpanTracker) void {
+        for (0..self.remaining.len) |i| {
+            if (self.remaining[i] > 0) {
+                self.remaining[i] -= 1;
+                if (self.remaining[i] == 0) {
+                    self.span_cells[i] = null;
+                }
+            }
+        }
+    }
+
+    /// Check if any column in range has an active row span (for border rendering)
+    fn hasActiveSpanInRange(self: RowSpanTracker, start: usize, end: usize) bool {
+        for (start..@min(end, self.remaining.len)) |i| {
+            if (self.remaining[i] > 0) return true;
+        }
+        return false;
+    }
 };
 
 pub const Overflow = enum {
@@ -123,6 +242,7 @@ pub const Table = struct {
     columns: std.ArrayList(Column),
     rows: std.ArrayList([]const []const u8),
     rich_rows: std.ArrayList([]const CellContent),
+    spanned_rows: std.ArrayList([]const Cell),
     title: ?[]const u8 = null,
     title_style: Style = Style.empty,
     caption: ?[]const u8 = null,
@@ -137,6 +257,7 @@ pub const Table = struct {
     padding: struct { left: u8, right: u8 } = .{ .left = 1, .right = 1 },
     collapse_padding: bool = false,
     row_styles: std.ArrayList(?Style),
+    spanned_row_styles: std.ArrayList(?Style),
     alternating_styles: ?AlternatingStyles = null,
     footer: ?[]const []const u8 = null,
     footer_style: Style = Style.empty,
@@ -147,7 +268,9 @@ pub const Table = struct {
             .columns = std.ArrayList(Column).empty,
             .rows = std.ArrayList([]const []const u8).empty,
             .rich_rows = std.ArrayList([]const CellContent).empty,
+            .spanned_rows = std.ArrayList([]const Cell).empty,
             .row_styles = std.ArrayList(?Style).empty,
+            .spanned_row_styles = std.ArrayList(?Style).empty,
             .allocator = allocator,
         };
     }
@@ -162,7 +285,12 @@ pub const Table = struct {
             self.allocator.free(row);
         }
         self.rich_rows.deinit(self.allocator);
+        for (self.spanned_rows.items) |row| {
+            self.allocator.free(row);
+        }
+        self.spanned_rows.deinit(self.allocator);
         self.row_styles.deinit(self.allocator);
+        self.spanned_row_styles.deinit(self.allocator);
     }
 
     pub fn withTitle(self: *Table, title: []const u8) *Table {
@@ -205,6 +333,22 @@ pub const Table = struct {
         @memcpy(row_copy, row);
         try self.rich_rows.append(self.allocator, row_copy);
         try self.row_styles.append(self.allocator, style);
+    }
+
+    /// Add a row with cells that may have column/row spanning
+    pub fn addSpannedRow(self: *Table, row: []const Cell) !void {
+        const row_copy = try self.allocator.alloc(Cell, row.len);
+        @memcpy(row_copy, row);
+        try self.spanned_rows.append(self.allocator, row_copy);
+        try self.spanned_row_styles.append(self.allocator, null);
+    }
+
+    /// Add a row with cells that may have column/row spanning, with a row style
+    pub fn addSpannedRowStyled(self: *Table, row: []const Cell, style: Style) !void {
+        const row_copy = try self.allocator.alloc(Cell, row.len);
+        @memcpy(row_copy, row);
+        try self.spanned_rows.append(self.allocator, row_copy);
+        try self.spanned_row_styles.append(self.allocator, style);
     }
 
     pub fn withRowStyle(self: *Table, row_index: usize, style: Style) *Table {
@@ -287,7 +431,8 @@ pub const Table = struct {
 
         const total_text_rows = self.rows.items.len;
         const total_rich_rows = self.rich_rows.items.len;
-        const total_rows = total_text_rows + total_rich_rows;
+        const total_spanned_rows = self.spanned_rows.items.len;
+        const total_rows = total_text_rows + total_rich_rows + total_spanned_rows;
 
         for (self.rows.items, 0..) |row, idx| {
             try self.renderDataRow(&segments, allocator, row, col_widths, b, idx);
@@ -301,6 +446,23 @@ pub const Table = struct {
             try self.renderRichDataRow(&segments, allocator, row, col_widths, b, row_idx);
             if (self.show_lines and row_idx < total_rows - 1) {
                 try self.renderHorizontalBorder(&segments, allocator, col_widths, b.left_tee, b.horizontal, b.right_tee, b.cross);
+            }
+        }
+
+        // Render spanned rows with row span tracking
+        if (self.spanned_rows.items.len > 0) {
+            var span_tracker = try RowSpanTracker.init(allocator, self.columns.items.len);
+            defer span_tracker.deinit();
+
+            for (self.spanned_rows.items, 0..) |row, idx| {
+                const row_idx = total_text_rows + total_rich_rows + idx;
+                try self.renderSpannedDataRowWithTracker(&segments, allocator, row, col_widths, b, row_idx, &span_tracker);
+                span_tracker.advanceRow();
+
+                if (self.show_lines and row_idx < total_rows - 1) {
+                    // Render horizontal border, accounting for row spans
+                    try self.renderHorizontalBorderWithSpans(&segments, allocator, col_widths, b.left_tee, b.horizontal, b.right_tee, b.cross, b.vertical, &span_tracker);
+                }
             }
         }
 
@@ -349,6 +511,23 @@ pub const Table = struct {
             }
         }
 
+        // Process spanned rows - cells with colspan=1 contribute directly,
+        // spanning cells are handled after initial widths are set
+        for (self.spanned_rows.items) |row| {
+            var col_idx: usize = 0;
+            for (row) |cell| {
+                if (col_idx >= widths.len) break;
+                const span = @min(cell.colspan, @as(u8, @intCast(widths.len - col_idx)));
+                if (span == 1) {
+                    const cell_width = cell.getCellWidth();
+                    if (cell_width > widths[col_idx]) {
+                        widths[col_idx] = cell_width;
+                    }
+                }
+                col_idx += span;
+            }
+        }
+
         for (self.columns.items, 0..) |col, i| {
             if (col.width) |w| {
                 widths[i] = w;
@@ -394,6 +573,40 @@ pub const Table = struct {
                         0;
                     widths[i] = content_width;
                 }
+            }
+        }
+
+        // Second pass: handle spanning cells that need more width than available
+        // Distribute extra width evenly across spanned columns
+        for (self.spanned_rows.items) |row| {
+            var col_idx: usize = 0;
+            for (row) |cell| {
+                if (col_idx >= widths.len) break;
+                const span = @min(cell.colspan, @as(u8, @intCast(widths.len - col_idx)));
+                if (span > 1) {
+                    const cell_width = cell.getCellWidth();
+                    // Calculate current combined width of spanned columns
+                    var combined_width: usize = 0;
+                    for (col_idx..col_idx + span) |j| {
+                        combined_width += widths[j];
+                    }
+                    // Add separators between spanned columns
+                    combined_width += span - 1;
+
+                    if (cell_width > combined_width) {
+                        // Distribute the extra width evenly
+                        const extra = cell_width - combined_width;
+                        const per_col = extra / span;
+                        const remainder = extra % span;
+                        for (col_idx..col_idx + span) |j| {
+                            widths[j] += per_col;
+                            if (j - col_idx < remainder) {
+                                widths[j] += 1;
+                            }
+                        }
+                    }
+                }
+                col_idx += span;
             }
         }
 
@@ -492,9 +705,200 @@ pub const Table = struct {
         try segments.append(allocator, Segment.line());
     }
 
+    fn renderSpannedDataRow(self: Table, segments: *std.ArrayList(Segment), allocator: std.mem.Allocator, row: []const Cell, widths: []usize, b: BoxStyle, row_idx: usize) !void {
+        try segments.append(allocator, Segment.styled(b.left, self.border_style));
+
+        const row_style = self.getSpannedRowStyle(row_idx);
+        var col_idx: usize = 0;
+        var cell_idx: usize = 0;
+
+        while (col_idx < self.columns.items.len) {
+            const cell = if (cell_idx < row.len) row[cell_idx] else Cell.text("");
+            const span = @min(cell.colspan, @as(u8, @intCast(self.columns.items.len - col_idx)));
+
+            // Calculate the total width for this spanning cell
+            var total_width: usize = 0;
+            for (col_idx..col_idx + span) |j| {
+                total_width += widths[j];
+            }
+            // Add separator widths for spanned columns
+            if (span > 1) {
+                total_width += span - 1;
+            }
+
+            // Get the column for styling (use the first column in the span)
+            const col = self.columns.items[col_idx];
+
+            // Determine effective style: cell style > row style > column style
+            var effective_style = col.style;
+            if (row_style) |rs| {
+                effective_style = rs.combine(col.style);
+            }
+            if (cell.style) |cs| {
+                effective_style = effective_style.combine(cs);
+            }
+
+            // Determine justify: cell justify > column justify
+            const justify = cell.justify orelse col.justify;
+
+            try self.renderSpannedCell(segments, allocator, cell, total_width, justify, effective_style, col);
+
+            // Move past the spanned columns
+            col_idx += span;
+            cell_idx += 1;
+
+            // Add separator if not at the end
+            if (col_idx < self.columns.items.len) {
+                try segments.append(allocator, Segment.styled(b.vertical, self.border_style));
+            }
+        }
+
+        try segments.append(allocator, Segment.styled(b.right, self.border_style));
+        try segments.append(allocator, Segment.line());
+    }
+
+    fn renderSpannedDataRowWithTracker(self: Table, segments: *std.ArrayList(Segment), allocator: std.mem.Allocator, row: []const Cell, widths: []usize, b: BoxStyle, row_idx: usize, tracker: *RowSpanTracker) !void {
+        try segments.append(allocator, Segment.styled(b.left, self.border_style));
+
+        const row_style = self.getSpannedRowStyle(row_idx);
+        var col_idx: usize = 0;
+        var cell_idx: usize = 0;
+
+        while (col_idx < self.columns.items.len) {
+            // Check if this column is blocked by a row span from a previous row
+            if (tracker.isBlocked(col_idx)) {
+                // Render empty cell (the spanning cell continues from above)
+                try self.renderSpaces(segments, allocator, widths[col_idx]);
+                col_idx += 1;
+
+                if (col_idx < self.columns.items.len) {
+                    try segments.append(allocator, Segment.styled(b.vertical, self.border_style));
+                }
+                continue;
+            }
+
+            const cell = if (cell_idx < row.len) row[cell_idx] else Cell.text("");
+            const span = @min(cell.colspan, @as(u8, @intCast(self.columns.items.len - col_idx)));
+
+            // Register row span in tracker
+            if (cell.rowspan > 1) {
+                tracker.registerSpan(col_idx, cell);
+            }
+
+            // Calculate the total width for this spanning cell
+            var total_width: usize = 0;
+            for (col_idx..col_idx + span) |j| {
+                total_width += widths[j];
+            }
+            // Add separator widths for spanned columns
+            if (span > 1) {
+                total_width += span - 1;
+            }
+
+            // Get the column for styling (use the first column in the span)
+            const col = self.columns.items[col_idx];
+
+            // Determine effective style: cell style > row style > column style
+            var effective_style = col.style;
+            if (row_style) |rs| {
+                effective_style = rs.combine(col.style);
+            }
+            if (cell.style) |cs| {
+                effective_style = effective_style.combine(cs);
+            }
+
+            // Determine justify: cell justify > column justify
+            const justify = cell.justify orelse col.justify;
+
+            try self.renderSpannedCell(segments, allocator, cell, total_width, justify, effective_style, col);
+
+            // Move past the spanned columns
+            col_idx += span;
+            cell_idx += 1;
+
+            // Add separator if not at the end
+            if (col_idx < self.columns.items.len) {
+                try segments.append(allocator, Segment.styled(b.vertical, self.border_style));
+            }
+        }
+
+        try segments.append(allocator, Segment.styled(b.right, self.border_style));
+        try segments.append(allocator, Segment.line());
+    }
+
+    fn renderHorizontalBorderWithSpans(
+        self: Table,
+        segments: *std.ArrayList(Segment),
+        allocator: std.mem.Allocator,
+        widths: []usize,
+        left: []const u8,
+        horizontal: []const u8,
+        right: []const u8,
+        cross: []const u8,
+        vertical: []const u8,
+        tracker: *RowSpanTracker,
+    ) !void {
+        try segments.append(allocator, Segment.styled(left, self.border_style));
+
+        for (widths, 0..) |w, i| {
+            // If there's an active row span at this column, use vertical continuation
+            if (tracker.isBlocked(i)) {
+                // Row span continues: render spaces instead of horizontal line
+                for (0..w) |_| {
+                    try segments.append(allocator, Segment.plain(" "));
+                }
+            } else {
+                for (0..w) |_| {
+                    try segments.append(allocator, Segment.styled(horizontal, self.border_style));
+                }
+            }
+
+            if (i < widths.len - 1) {
+                // Determine intersection character based on spans
+                const left_blocked = tracker.isBlocked(i);
+                const right_blocked = tracker.isBlocked(i + 1);
+
+                if (left_blocked and right_blocked) {
+                    // Both sides have row spans - use vertical
+                    try segments.append(allocator, Segment.styled(vertical, self.border_style));
+                } else if (left_blocked) {
+                    // Left side has row span
+                    try segments.append(allocator, Segment.styled(cross, self.border_style));
+                } else if (right_blocked) {
+                    // Right side has row span
+                    try segments.append(allocator, Segment.styled(cross, self.border_style));
+                } else {
+                    // Normal cross
+                    try segments.append(allocator, Segment.styled(cross, self.border_style));
+                }
+            }
+        }
+
+        try segments.append(allocator, Segment.styled(right, self.border_style));
+        try segments.append(allocator, Segment.line());
+    }
+
     fn getRowStyle(self: Table, row_idx: usize) ?Style {
         if (row_idx < self.row_styles.items.len and self.row_styles.items[row_idx] != null) {
             return self.row_styles.items[row_idx];
+        }
+
+        if (self.alternating_styles) |alt| {
+            return if (row_idx % 2 == 0) alt.even else alt.odd;
+        }
+
+        return null;
+    }
+
+    fn getSpannedRowStyle(self: Table, row_idx: usize) ?Style {
+        // Calculate the index within spanned_row_styles
+        const text_rows = self.rows.items.len;
+        const rich_rows = self.rich_rows.items.len;
+        if (row_idx >= text_rows + rich_rows) {
+            const spanned_idx = row_idx - text_rows - rich_rows;
+            if (spanned_idx < self.spanned_row_styles.items.len and self.spanned_row_styles.items[spanned_idx] != null) {
+                return self.spanned_row_styles.items[spanned_idx];
+            }
         }
 
         if (self.alternating_styles) |alt| {
@@ -590,6 +994,44 @@ pub const Table = struct {
         try self.renderSpaces(segments, allocator, left_pad);
 
         switch (content) {
+            .text => |text| {
+                try segments.append(allocator, Segment.styledOptional(text, if (style.isEmpty()) null else style));
+            },
+            .segments => |segs| {
+                for (segs) |seg| {
+                    const combined_style = if (seg.style) |s| style.combine(s) else style;
+                    try segments.append(allocator, Segment.styledOptional(seg.text, if (combined_style.isEmpty()) null else combined_style));
+                }
+            },
+        }
+
+        try self.renderSpaces(segments, allocator, right_pad);
+    }
+
+    fn renderSpannedCell(self: Table, segments: *std.ArrayList(Segment), allocator: std.mem.Allocator, cell: Cell, width: usize, justify: JustifyMethod, style: Style, _: Column) !void {
+        const pad_left: usize = if (self.collapse_padding) 0 else self.padding.left;
+        const pad_right: usize = if (self.collapse_padding) 0 else self.padding.right;
+        const content_width = if (width > pad_left + pad_right)
+            width - pad_left - pad_right
+        else
+            width;
+
+        const cell_width = cell.getCellWidth();
+        const padding_total = if (content_width > cell_width) content_width - cell_width else 0;
+
+        const left_pad: usize = switch (justify) {
+            .left => pad_left,
+            .right => pad_left + padding_total,
+            .center => pad_left + padding_total / 2,
+        };
+        const right_pad = if (width > left_pad + cell_width)
+            width - left_pad - cell_width
+        else
+            0;
+
+        try self.renderSpaces(segments, allocator, left_pad);
+
+        switch (cell.content) {
             .text => |text| {
                 try segments.append(allocator, Segment.styledOptional(text, if (style.isEmpty()) null else style));
             },
@@ -1014,4 +1456,270 @@ test "Table.render mixed text and rich rows" {
     }
     try std.testing.expect(found_text);
     try std.testing.expect(found_rich);
+}
+
+// Cell type tests
+
+test "Cell.text creates text cell" {
+    const cell = Cell.text("hello");
+    try std.testing.expectEqualStrings("hello", cell.content.getText());
+    try std.testing.expectEqual(@as(u8, 1), cell.colspan);
+    try std.testing.expectEqual(@as(u8, 1), cell.rowspan);
+}
+
+test "Cell.withColspan sets column span" {
+    const cell = Cell.text("hello").withColspan(3);
+    try std.testing.expectEqual(@as(u8, 3), cell.colspan);
+}
+
+test "Cell.withRowspan sets row span" {
+    const cell = Cell.text("hello").withRowspan(2);
+    try std.testing.expectEqual(@as(u8, 2), cell.rowspan);
+}
+
+test "Cell.withColspan zero defaults to 1" {
+    const cell = Cell.text("hello").withColspan(0);
+    try std.testing.expectEqual(@as(u8, 1), cell.colspan);
+}
+
+test "Cell.withRowspan zero defaults to 1" {
+    const cell = Cell.text("hello").withRowspan(0);
+    try std.testing.expectEqual(@as(u8, 1), cell.rowspan);
+}
+
+test "Cell.withStyle sets cell style" {
+    const cell = Cell.text("hello").withStyle(Style.empty.bold());
+    try std.testing.expect(cell.style != null);
+    try std.testing.expect(cell.style.?.hasAttribute(.bold));
+}
+
+test "Cell.withJustify sets cell justification" {
+    const cell = Cell.text("hello").withJustify(.center);
+    try std.testing.expectEqual(JustifyMethod.center, cell.justify.?);
+}
+
+test "Cell.getCellWidth returns content width" {
+    const cell = Cell.text("hello");
+    try std.testing.expectEqual(@as(usize, 5), cell.getCellWidth());
+}
+
+// Spanned row tests
+
+test "Table.addSpannedRow adds row with cells" {
+    const allocator = std.testing.allocator;
+    var table = Table.init(allocator);
+    defer table.deinit();
+
+    _ = table.addColumn("A").addColumn("B").addColumn("C");
+    try table.addSpannedRow(&.{
+        Cell.text("spanning").withColspan(2),
+        Cell.text("single"),
+    });
+
+    try std.testing.expectEqual(@as(usize, 1), table.spanned_rows.items.len);
+}
+
+test "Table.addSpannedRowStyled adds row with style" {
+    const allocator = std.testing.allocator;
+    var table = Table.init(allocator);
+    defer table.deinit();
+
+    _ = table.addColumn("A");
+    try table.addSpannedRowStyled(&.{Cell.text("test")}, Style.empty.bold());
+
+    try std.testing.expectEqual(@as(usize, 1), table.spanned_rows.items.len);
+    try std.testing.expect(table.spanned_row_styles.items[0] != null);
+    try std.testing.expect(table.spanned_row_styles.items[0].?.hasAttribute(.bold));
+}
+
+test "Table.render with colspan cells" {
+    const allocator = std.testing.allocator;
+    var table = Table.init(allocator);
+    defer table.deinit();
+
+    _ = table.addColumn("A").addColumn("B").addColumn("C");
+    try table.addSpannedRow(&.{
+        Cell.text("spans two").withColspan(2),
+        Cell.text("single"),
+    });
+
+    const segments = try table.render(80, allocator);
+    defer allocator.free(segments);
+
+    try std.testing.expect(segments.len > 0);
+
+    var found_spanning = false;
+    var found_single = false;
+    for (segments) |seg| {
+        if (std.mem.indexOf(u8, seg.text, "spans two") != null) found_spanning = true;
+        if (std.mem.indexOf(u8, seg.text, "single") != null) found_single = true;
+    }
+    try std.testing.expect(found_spanning);
+    try std.testing.expect(found_single);
+}
+
+test "Table.render with full row colspan" {
+    const allocator = std.testing.allocator;
+    var table = Table.init(allocator);
+    defer table.deinit();
+
+    _ = table.addColumn("A").addColumn("B").addColumn("C");
+    try table.addSpannedRow(&.{
+        Cell.text("spans all three").withColspan(3),
+    });
+
+    const segments = try table.render(80, allocator);
+    defer allocator.free(segments);
+
+    var found_text = false;
+    for (segments) |seg| {
+        if (std.mem.indexOf(u8, seg.text, "spans all three") != null) {
+            found_text = true;
+            break;
+        }
+    }
+    try std.testing.expect(found_text);
+}
+
+test "Table.render with rowspan cells" {
+    const allocator = std.testing.allocator;
+    var table = Table.init(allocator);
+    defer table.deinit();
+
+    _ = table.addColumn("A").addColumn("B");
+    try table.addSpannedRow(&.{
+        Cell.text("spans 2 rows").withRowspan(2),
+        Cell.text("row1 col2"),
+    });
+    try table.addSpannedRow(&.{
+        Cell.text("row2 col2"),
+    });
+
+    const segments = try table.render(80, allocator);
+    defer allocator.free(segments);
+
+    var found_spanning = false;
+    var found_row1 = false;
+    var found_row2 = false;
+    for (segments) |seg| {
+        if (std.mem.indexOf(u8, seg.text, "spans 2 rows") != null) found_spanning = true;
+        if (std.mem.indexOf(u8, seg.text, "row1 col2") != null) found_row1 = true;
+        if (std.mem.indexOf(u8, seg.text, "row2 col2") != null) found_row2 = true;
+    }
+    try std.testing.expect(found_spanning);
+    try std.testing.expect(found_row1);
+    try std.testing.expect(found_row2);
+}
+
+test "Table.render with combined colspan and rowspan" {
+    const allocator = std.testing.allocator;
+    var table = Table.init(allocator);
+    defer table.deinit();
+
+    _ = table.addColumn("A").addColumn("B").addColumn("C");
+    try table.addSpannedRow(&.{
+        Cell.text("2x2").withColspan(2).withRowspan(2),
+        Cell.text("r1c3"),
+    });
+    try table.addSpannedRow(&.{
+        Cell.text("r2c3"),
+    });
+
+    const segments = try table.render(80, allocator);
+    defer allocator.free(segments);
+
+    var found_2x2 = false;
+    var found_r1c3 = false;
+    var found_r2c3 = false;
+    for (segments) |seg| {
+        if (std.mem.indexOf(u8, seg.text, "2x2") != null) found_2x2 = true;
+        if (std.mem.indexOf(u8, seg.text, "r1c3") != null) found_r1c3 = true;
+        if (std.mem.indexOf(u8, seg.text, "r2c3") != null) found_r2c3 = true;
+    }
+    try std.testing.expect(found_2x2);
+    try std.testing.expect(found_r1c3);
+    try std.testing.expect(found_r2c3);
+}
+
+test "Table.render spanned row with cell style override" {
+    const allocator = std.testing.allocator;
+    var table = Table.init(allocator);
+    defer table.deinit();
+
+    _ = table.addColumn("A").addColumn("B");
+    try table.addSpannedRow(&.{
+        Cell.text("styled").withStyle(Style.empty.bold()),
+        Cell.text("normal"),
+    });
+
+    const segments = try table.render(80, allocator);
+    defer allocator.free(segments);
+
+    try std.testing.expect(segments.len > 0);
+}
+
+test "Table.render spanned row with cell justify override" {
+    const allocator = std.testing.allocator;
+    var table = Table.init(allocator);
+    defer table.deinit();
+
+    _ = table.addColumn("A").withColumn(Column.init("B").withJustify(.left));
+    try table.addSpannedRow(&.{
+        Cell.text("left"),
+        Cell.text("centered").withJustify(.center),
+    });
+
+    const segments = try table.render(80, allocator);
+    defer allocator.free(segments);
+
+    try std.testing.expect(segments.len > 0);
+}
+
+test "Cell.segments creates segment cell" {
+    const segs = [_]Segment{Segment.plain("hello")};
+    const cell = Cell.segments(&segs);
+    try std.testing.expectEqual(@as(usize, 5), cell.getCellWidth());
+}
+
+test "RowSpanTracker basic functionality" {
+    const allocator = std.testing.allocator;
+    var tracker = try RowSpanTracker.init(allocator, 3);
+    defer tracker.deinit();
+
+    // Initially no columns are blocked
+    try std.testing.expect(!tracker.isBlocked(0));
+    try std.testing.expect(!tracker.isBlocked(1));
+    try std.testing.expect(!tracker.isBlocked(2));
+
+    // Register a cell with rowspan 2 at column 0
+    const cell = Cell.text("test").withRowspan(2);
+    tracker.registerSpan(0, cell);
+
+    // After registration, column 0 should be blocked for the next row
+    try std.testing.expect(tracker.isBlocked(0));
+    try std.testing.expect(!tracker.isBlocked(1));
+
+    // After advancing, still blocked (1 remaining)
+    tracker.advanceRow();
+    try std.testing.expect(!tracker.isBlocked(0)); // Now at 0, not blocked anymore
+
+    // Advance again - should still be unblocked
+    tracker.advanceRow();
+    try std.testing.expect(!tracker.isBlocked(0));
+}
+
+test "RowSpanTracker with colspan" {
+    const allocator = std.testing.allocator;
+    var tracker = try RowSpanTracker.init(allocator, 4);
+    defer tracker.deinit();
+
+    // Register a cell with colspan 2 and rowspan 2
+    const cell = Cell.text("test").withColspan(2).withRowspan(2);
+    tracker.registerSpan(1, cell);
+
+    // Columns 1 and 2 should be blocked
+    try std.testing.expect(!tracker.isBlocked(0));
+    try std.testing.expect(tracker.isBlocked(1));
+    try std.testing.expect(tracker.isBlocked(2));
+    try std.testing.expect(!tracker.isBlocked(3));
 }
