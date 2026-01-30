@@ -145,7 +145,7 @@ We aim to implement all features from the Rich library that are feasible in Zig 
 | Export to SVG | Y | Y | [x] | Terminal screenshot |
 | Export to text | Y | Y | [x] | Strip ANSI |
 | Pager support | Y | Y | [x] | Less-like paging |
-| Input prompts | Y | Y | [ ] | User input |
+| Input prompts | Y | Y | [x] | User input |
 | Status/spinner | Y | Y | [x] | Transient message |
 | Log method | Y | Y | [x] | With timestamp |
 | Clear screen | Y | Y | [x] | Full clear |
@@ -214,7 +214,7 @@ We aim to implement all features from the Rich library that are feasible in Zig 
 | No wrap columns | Y | Y | [x] | Prevent wrapping |
 | Overflow handling | Y | Y | [x] | Ellipsis, fold |
 | Footer row | Y | Y | [x] | Summary row |
-| Row/column spanning | Y | Y | [ ] | Merged cells |
+| Row/column spanning | Y | Y | [x] | Merged cells |
 | Nested tables | Y | Y | [x] | Table in table |
 | Add row from iterable | Y | Y | [x] | Convenience method |
 
@@ -330,7 +330,7 @@ We aim to implement all features from the Rich library that are feasible in Zig 
 | Explicit language | Y | Y | [x] | User-specified |
 | Line numbers | Y | Y | [x] | Left margin |
 | Line range | Y | Y | [x] | Partial display |
-| Word wrap | Y | Y | [ ] | Long lines |
+| Word wrap | Y | Y | [x] | Long lines |
 | Theme selection | Y | Y | [x] | Color schemes |
 | Custom themes | Y | Y | [x] | User-defined |
 | Background color | Y | Y | [ ] | Code block bg |
@@ -350,14 +350,14 @@ We aim to implement all features from the Rich library that are feasible in Zig 
 | Code (inline) | Y | Y | [x] | Backtick code |
 | Code blocks | Y | Y | [x] | Fenced blocks |
 | Links | Y | Y | [x] | Hyperlinks |
-| Images (alt text) | Y | Y | [ ] | Show alt text |
+| Images (alt text) | Y | Y | [x] | Show alt text |
 | Lists (ordered) | Y | Y | [x] | Numbered |
 | Lists (unordered) | Y | Y | [x] | Bullet points |
 | Blockquotes | Y | Y | [x] | Indented |
-| Horizontal rules | Y | Y | [ ] | Dividers |
-| Tables | Y | Y | [ ] | GFM tables |
-| Task lists | Y | Y | [ ] | Checkboxes |
-| Strikethrough | Y | Y | [ ] | GFM extension |
+| Horizontal rules | Y | Y | [x] | Dividers |
+| Tables | Y | Y | [x] | GFM tables |
+| Task lists | Y | Y | [x] | Checkboxes |
+| Strikethrough | Y | Y | [x] | GFM extension |
 
 **Note**: Requires CommonMark parser implementation or binding.
 

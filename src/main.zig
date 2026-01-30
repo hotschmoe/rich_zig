@@ -20,7 +20,7 @@ pub fn main() !void {
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
-    try stdout.writeAll("rich_zig v0.11.0 - Full Demo\n");
+    try stdout.writeAll("rich_zig v0.12.0 - Full Demo\n");
     try stdout.writeAll("============================\n\n");
 
     // Phase 1: Color, Style, Segment
@@ -542,6 +542,80 @@ pub fn main() !void {
     try log_handler.emit(rich.logging.LogRecord.init(.info, "Info level message"));
     try log_handler.emit(rich.logging.LogRecord.init(.warn, "Warning level message"));
     try log_handler.emit(rich.logging.LogRecord.init(.err, "Error level message"));
+
+    // v0.12.0 Features
+    try stdout.writeAll("\nv0.12.0 New Features\n");
+    try stdout.writeAll("--------------------\n");
+
+    // Table with row/column spanning
+    try stdout.writeAll("\nTable with row/column spanning:\n");
+    var span_table = rich.Table.init(allocator);
+    defer span_table.deinit();
+    _ = span_table.addColumn("A").addColumn("B").addColumn("C");
+    try span_table.addSpannedRow(&.{
+        rich.Cell.text("Spans 2 cols").withColspan(2),
+        rich.Cell.text("C1"),
+    });
+    try span_table.addSpannedRow(&.{
+        rich.Cell.text("Spans 2 rows").withRowspan(2),
+        rich.Cell.text("B2"),
+        rich.Cell.text("C2"),
+    });
+    try span_table.addSpannedRow(&.{
+        rich.Cell.text("B3"),
+        rich.Cell.text("C3"),
+    });
+    const span_table_segs = try span_table.render(40, allocator);
+    defer allocator.free(span_table_segs);
+    try renderSegments(span_table_segs, stdout);
+
+    // Markdown strikethrough
+    try stdout.writeAll("\nMarkdown strikethrough:\n");
+    const md_strike = rich.Markdown.init("This text has ~~strikethrough~~ formatting.");
+    const md_strike_segs = try md_strike.render(60, allocator);
+    defer allocator.free(md_strike_segs);
+    try renderSegments(md_strike_segs, stdout);
+
+    // Markdown task lists
+    try stdout.writeAll("\nMarkdown task lists:\n");
+    {
+        var arena = std.heap.ArenaAllocator.init(allocator);
+        defer arena.deinit();
+        const md_tasks = rich.Markdown.init("- [x] Completed task\n- [ ] Pending task\n- [x] Another done");
+        const md_tasks_segs = try md_tasks.render(60, arena.allocator());
+        try renderSegments(md_tasks_segs, stdout);
+    }
+
+    // Markdown GFM table
+    try stdout.writeAll("\nMarkdown GFM table:\n");
+    {
+        var arena = std.heap.ArenaAllocator.init(allocator);
+        defer arena.deinit();
+        const md_table = rich.Markdown.init("| Name | Value |\n|------|-------|\n| foo  | 123   |\n| bar  | 456   |");
+        const md_table_segs = try md_table.render(60, arena.allocator());
+        try renderSegments(md_table_segs, stdout);
+    }
+
+    // Markdown images (alt text display)
+    try stdout.writeAll("\nMarkdown images (alt text):\n");
+    const md_img = rich.Markdown.init("Here's an image: ![Logo](https://example.com/logo.png)");
+    const md_img_segs = try md_img.render(60, allocator);
+    defer allocator.free(md_img_segs);
+    try renderSegments(md_img_segs, stdout);
+
+    // Syntax highlighting with word wrap
+    try stdout.writeAll("\nSyntax with word wrap (width=40):\n");
+    const long_code = "const very_long_variable_name: u32 = some_function_call(arg1, arg2, arg3);";
+    const wrap_syntax = rich.Syntax.init(allocator, long_code).withLanguage(.zig).withWordWrap();
+    const wrap_segs = try wrap_syntax.render(40, allocator);
+    defer allocator.free(wrap_segs);
+    try renderSegments(wrap_segs, stdout);
+
+    // Console input prompts (API documentation - interactive features)
+    try stdout.writeAll("\nConsole input prompts (API available):\n");
+    try stdout.writeAll("  console.input(\"Enter name: \")     -> Read line of text\n");
+    try stdout.writeAll("  console.prompt(\"[bold]Name:[/] \") -> Styled prompt\n");
+    try stdout.writeAll("  rich.Prompt, IntPrompt, FloatPrompt, Confirm\n");
 
     try stdout.writeAll("\nAll phases complete!\n");
     try stdout.flush();

@@ -97,6 +97,7 @@ pub const Syntax = renderables.Syntax;
 pub const SyntaxTheme = renderables.SyntaxTheme;
 pub const SyntaxLanguage = renderables.SyntaxLanguage;
 pub const KV = renderables.KV;
+pub const Cell = renderables.Cell;
 pub const CellContent = renderables.CellContent;
 pub const SplitContent = renderables.SplitContent;
 pub const SplitterConfig = renderables.SplitterConfig;
