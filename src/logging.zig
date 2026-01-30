@@ -975,24 +975,21 @@ pub const Traceback = struct {
                     allocator,
                     line_content,
                     language,
-                    is_target,
                 );
                 defer allocator.free(highlighted_segments);
 
                 for (highlighted_segments) |seg| {
                     // Skip newlines from syntax highlighter (we add our own)
                     if (std.mem.eql(u8, seg.text, "\n")) continue;
+                    if (seg.text.len == 0) continue;
 
-                    if (seg.text.len > 0) {
-                        const text_copy = try allocator.dupe(u8, seg.text);
-                        // For target line, blend with highlight style
-                        if (is_target) {
-                            const blended_style = blendHighlightStyle(seg.style, theme.highlight_style);
-                            try segments.append(allocator, Segment.styled(text_copy, blended_style));
-                        } else {
-                            try segments.append(allocator, Segment.styledOptional(text_copy, seg.style));
-                        }
-                    }
+                    const text_copy = try allocator.dupe(u8, seg.text);
+                    // For target line, blend with highlight style to preserve syntax color
+                    const style = if (is_target)
+                        blendHighlightStyle(seg.style, theme.highlight_style)
+                    else
+                        seg.style orelse Style.empty;
+                    try segments.append(allocator, Segment.styled(text_copy, style));
                 }
             } else {
                 // Fall back to plain text with theme styling
@@ -1024,9 +1021,7 @@ pub const Traceback = struct {
         allocator: std.mem.Allocator,
         line: []const u8,
         language: Language,
-        is_target: bool,
     ) ![]Segment {
-        _ = is_target; // Currently unused, reserved for future blending options
         const syntax = Syntax.init(allocator, line)
             .withLanguage(language)
             .withTheme(self.options.syntax_theme);
@@ -1278,7 +1273,6 @@ test "Traceback.highlightSourceLine basic" {
         allocator,
         "const x = 42;",
         .zig,
-        false,
     );
     defer allocator.free(segments);
 
@@ -1306,7 +1300,6 @@ test "Traceback.highlightSourceLine with custom theme" {
         allocator,
         "pub fn main() void {}",
         .zig,
-        false,
     );
     defer allocator.free(segments);
 
