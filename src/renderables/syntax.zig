@@ -1173,7 +1173,6 @@ pub const Syntax = struct {
 
         // Track position of last space for word-boundary breaking
         var last_space_result_idx: ?usize = null;
-        var last_space_width: usize = 0;
 
         for (line_segments) |seg| {
             const seg_width = seg.cellLength();
@@ -1183,7 +1182,6 @@ pub const Syntax = struct {
                 // Check if this segment contains a space (potential break point)
                 if (std.mem.lastIndexOfScalar(u8, seg.text, ' ')) |_| {
                     last_space_result_idx = result.items.len;
-                    last_space_width = current_width + seg_width;
                 }
                 try result.append(allocator, seg);
                 current_width += seg_width;
@@ -1192,7 +1190,6 @@ pub const Syntax = struct {
 
             // Segment doesn't fit - need to wrap within it
             var remaining_text = seg.text;
-            var remaining_start: usize = 0;
 
             while (remaining_text.len > 0) {
                 if (current_width >= max_width) {
@@ -1208,7 +1205,6 @@ pub const Syntax = struct {
                     // Check for space in this final piece
                     if (std.mem.lastIndexOfScalar(u8, remaining_text, ' ')) |_| {
                         last_space_result_idx = result.items.len;
-                        last_space_width = current_width + remaining_width;
                     }
                     try result.append(allocator, Segment.styledOptional(remaining_text, seg.style));
                     current_width += remaining_width;
@@ -1271,7 +1267,6 @@ pub const Syntax = struct {
                             if (current_width + rw <= max_width) {
                                 if (std.mem.lastIndexOfScalar(u8, reprocess_seg.text, ' ')) |_| {
                                     last_space_result_idx = result.items.len;
-                                    last_space_width = current_width + rw;
                                 }
                                 try result.append(allocator, reprocess_seg);
                                 current_width += rw;
@@ -1326,7 +1321,6 @@ pub const Syntax = struct {
                     const chunk = remaining_text[0..break_byte];
                     if (std.mem.lastIndexOfScalar(u8, chunk, ' ')) |_| {
                         last_space_result_idx = result.items.len;
-                        last_space_width = current_width + break_width;
                     }
                     try result.append(allocator, Segment.styledOptional(chunk, seg.style));
                     current_width += break_width;
@@ -1340,7 +1334,6 @@ pub const Syntax = struct {
                 }
 
                 remaining_text = remaining_text[break_byte..];
-                remaining_start += break_byte;
             }
         }
 
