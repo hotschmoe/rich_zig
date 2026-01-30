@@ -327,13 +327,16 @@ pub const Markdown = struct {
     const UnorderedListItem = struct {
         text: []const u8,
         indent_level: usize,
-        bullet: u8,
     };
 
-    fn parseOrderedListItem(line: []const u8) ?OrderedListItem {
-        var indent: usize = 0;
-        while (indent < line.len and line[indent] == ' ') : (indent += 1) {}
+    fn countLeadingSpaces(line: []const u8) usize {
+        var count: usize = 0;
+        while (count < line.len and line[count] == ' ') : (count += 1) {}
+        return count;
+    }
 
+    fn parseOrderedListItem(line: []const u8) ?OrderedListItem {
+        const indent = countLeadingSpaces(line);
         const rest = line[indent..];
         if (rest.len == 0) return null;
 
@@ -349,34 +352,41 @@ pub const Markdown = struct {
         if (after_delim >= rest.len or rest[after_delim] != ' ') return null;
 
         const number = std.fmt.parseInt(usize, rest[0..num_end], 10) catch return null;
-        const text = std.mem.trim(u8, rest[after_delim..], " \t");
 
         return .{
             .number = number,
-            .text = text,
+            .text = std.mem.trim(u8, rest[after_delim..], " \t"),
             .indent_level = indent / 2,
         };
     }
 
     fn parseUnorderedListItem(line: []const u8) ?UnorderedListItem {
-        var indent: usize = 0;
-        while (indent < line.len and line[indent] == ' ') : (indent += 1) {}
-
+        const indent = countLeadingSpaces(line);
         const rest = line[indent..];
         if (rest.len < 2) return null;
 
         const bullet = rest[0];
         if (bullet != '-' and bullet != '*' and bullet != '+') return null;
-
         if (rest[1] != ' ') return null;
 
-        const text = std.mem.trim(u8, rest[2..], " \t");
-
         return .{
-            .text = text,
+            .text = std.mem.trim(u8, rest[2..], " \t"),
             .indent_level = indent / 2,
-            .bullet = bullet,
         };
+    }
+
+    fn renderListIndent(
+        self: Markdown,
+        indent_level: usize,
+        segments: *std.ArrayList(Segment),
+        allocator: std.mem.Allocator,
+    ) !void {
+        const base_indent = indent_level * self.theme.list_indent;
+        if (base_indent > 0) {
+            const indent_str = try allocator.alloc(u8, base_indent);
+            @memset(indent_str, ' ');
+            try segments.append(allocator, Segment.plain(indent_str));
+        }
     }
 
     fn renderUnorderedListItem(
@@ -385,12 +395,7 @@ pub const Markdown = struct {
         segments: *std.ArrayList(Segment),
         allocator: std.mem.Allocator,
     ) !void {
-        const base_indent = item.indent_level * self.theme.list_indent;
-        if (base_indent > 0) {
-            const indent_str = try allocator.alloc(u8, base_indent);
-            @memset(indent_str, ' ');
-            try segments.append(allocator, Segment.plain(indent_str));
-        }
+        try self.renderListIndent(item.indent_level, segments, allocator);
 
         const bullet_with_space = try std.fmt.allocPrint(allocator, "{s} ", .{self.theme.list_bullet_char});
         try segments.append(allocator, Segment.styled(bullet_with_space, self.theme.list_bullet_style));
@@ -404,12 +409,7 @@ pub const Markdown = struct {
         segments: *std.ArrayList(Segment),
         allocator: std.mem.Allocator,
     ) !void {
-        const base_indent = item.indent_level * self.theme.list_indent;
-        if (base_indent > 0) {
-            const indent_str = try allocator.alloc(u8, base_indent);
-            @memset(indent_str, ' ');
-            try segments.append(allocator, Segment.plain(indent_str));
-        }
+        try self.renderListIndent(item.indent_level, segments, allocator);
 
         const number_str = try std.fmt.allocPrint(allocator, "{d}. ", .{item.number});
         try segments.append(allocator, Segment.styled(number_str, self.theme.list_number_style));
@@ -1451,21 +1451,18 @@ test "parseUnorderedListItem dash" {
     try std.testing.expect(item != null);
     try std.testing.expectEqualStrings("First item", item.?.text);
     try std.testing.expectEqual(@as(usize, 0), item.?.indent_level);
-    try std.testing.expectEqual(@as(u8, '-'), item.?.bullet);
 }
 
 test "parseUnorderedListItem asterisk" {
     const item = Markdown.parseUnorderedListItem("* Asterisk item");
     try std.testing.expect(item != null);
     try std.testing.expectEqualStrings("Asterisk item", item.?.text);
-    try std.testing.expectEqual(@as(u8, '*'), item.?.bullet);
 }
 
 test "parseUnorderedListItem plus" {
     const item = Markdown.parseUnorderedListItem("+ Plus item");
     try std.testing.expect(item != null);
     try std.testing.expectEqualStrings("Plus item", item.?.text);
-    try std.testing.expectEqual(@as(u8, '+'), item.?.bullet);
 }
 
 test "parseUnorderedListItem with indentation" {
