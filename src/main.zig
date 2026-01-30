@@ -214,33 +214,20 @@ pub fn main() !void {
     // Align - horizontal alignment within a width
     try stdout.writeAll("\nAlign (width=20, showing left/center/right):\n");
     const align_content = [_]rich.Segment{rich.Segment.plain("Text")};
-
-    try stdout.writeAll("|");
-    const align_left = rich.Align.init(&align_content).left().withWidth(20);
-    const align_left_segs = try align_left.render(80, allocator);
-    defer allocator.free(align_left_segs);
-    for (align_left_segs) |seg| {
-        if (!std.mem.eql(u8, seg.text, "\n")) try seg.render(stdout, .truecolor);
+    const alignments = [_]struct { alignment: rich.Align, label: []const u8 }{
+        .{ .alignment = rich.Align.init(&align_content).left().withWidth(20), .label = "left" },
+        .{ .alignment = rich.Align.init(&align_content).center().withWidth(20), .label = "center" },
+        .{ .alignment = rich.Align.init(&align_content).right().withWidth(20), .label = "right" },
+    };
+    for (alignments) |item| {
+        try stdout.writeAll("|");
+        const segs = try item.alignment.render(80, allocator);
+        defer allocator.free(segs);
+        for (segs) |seg| {
+            if (!std.mem.eql(u8, seg.text, "\n")) try seg.render(stdout, .truecolor);
+        }
+        try stdout.print("| {s}\n", .{item.label});
     }
-    try stdout.writeAll("| left\n");
-
-    try stdout.writeAll("|");
-    const aligned = rich.Align.init(&align_content).center().withWidth(20);
-    const align_segs = try aligned.render(80, allocator);
-    defer allocator.free(align_segs);
-    for (align_segs) |seg| {
-        if (!std.mem.eql(u8, seg.text, "\n")) try seg.render(stdout, .truecolor);
-    }
-    try stdout.writeAll("| center\n");
-
-    try stdout.writeAll("|");
-    const align_right = rich.Align.init(&align_content).right().withWidth(20);
-    const align_right_segs = try align_right.render(80, allocator);
-    defer allocator.free(align_right_segs);
-    for (align_right_segs) |seg| {
-        if (!std.mem.eql(u8, seg.text, "\n")) try seg.render(stdout, .truecolor);
-    }
-    try stdout.writeAll("| right\n");
 
     // Console log methods - flush our buffer first so log output appears in order
     try stdout.writeAll("\nConsole logging:\n");
@@ -304,31 +291,11 @@ pub fn main() !void {
         .horizontal = "=",
         .vertical = "!",
     });
-    try stdout.print("  {s}{s}{s}{s}{s}{s}{s}{s}{s}{s}\n", .{
-        custom_box.top_left,
-        custom_box.horizontal,
-        custom_box.horizontal,
-        custom_box.horizontal,
-        custom_box.horizontal,
-        custom_box.horizontal,
-        custom_box.horizontal,
-        custom_box.horizontal,
-        custom_box.horizontal,
-        custom_box.top_right,
-    });
+    const horiz = try custom_box.getHorizontal(8, allocator);
+    defer allocator.free(horiz);
+    try stdout.print("  {s}{s}{s}\n", .{ custom_box.top_left, horiz, custom_box.top_right });
     try stdout.print("  {s} Custom {s}\n", .{ custom_box.vertical, custom_box.vertical });
-    try stdout.print("  {s}{s}{s}{s}{s}{s}{s}{s}{s}{s}\n", .{
-        custom_box.bottom_left,
-        custom_box.horizontal,
-        custom_box.horizontal,
-        custom_box.horizontal,
-        custom_box.horizontal,
-        custom_box.horizontal,
-        custom_box.horizontal,
-        custom_box.horizontal,
-        custom_box.horizontal,
-        custom_box.bottom_right,
-    });
+    try stdout.print("  {s}{s}{s}\n", .{ custom_box.bottom_left, horiz, custom_box.bottom_right });
 
     // Table with footer
     try stdout.writeAll("\nTable with footer:\n");
@@ -621,11 +588,11 @@ pub fn main() !void {
         \\
     );
 
-    // v0.13.0 Features
+    // v0.13.0 Features (arenas used for syntax/traceback internal allocations)
     try stdout.writeAll("\nv0.13.0 New Features\n");
     try stdout.writeAll("--------------------\n");
 
-    // Syntax with theme (background color) - uses arena due to internal allocations
+    // Syntax with theme (background color)
     try stdout.writeAll("\nSyntax with Monokai theme (includes background):\n");
     {
         var arena = std.heap.ArenaAllocator.init(allocator);
@@ -638,7 +605,7 @@ pub fn main() !void {
         try renderSegments(themed_segs, stdout);
     }
 
-    // Syntax with custom tab size - uses arena due to internal allocations
+    // Syntax with custom tab size
     try stdout.writeAll("\nSyntax with custom tab size (2 spaces):\n");
     {
         var arena = std.heap.ArenaAllocator.init(allocator);
@@ -651,7 +618,7 @@ pub fn main() !void {
         try renderSegments(tabbed_segs, stdout);
     }
 
-    // Syntax with indent guides - uses arena due to internal allocations
+    // Syntax with indent guides
     try stdout.writeAll("\nSyntax with indent guides:\n");
     {
         var arena = std.heap.ArenaAllocator.init(allocator);
@@ -670,7 +637,7 @@ pub fn main() !void {
         try renderSegments(guided_segs, stdout);
     }
 
-    // Syntax with highlighted lines (uses arena due to internal allocations)
+    // Syntax with highlighted lines
     try stdout.writeAll("\nSyntax with highlighted lines (line 2):\n");
     {
         var arena = std.heap.ArenaAllocator.init(allocator);
@@ -689,7 +656,7 @@ pub fn main() !void {
         try renderSegments(hl_segs, stdout);
     }
 
-    // Traceback support (uses arena due to internal allocations in logging.zig)
+    // Traceback support
     try stdout.writeAll("\nTraceback rendering:\n");
     {
         var arena = std.heap.ArenaAllocator.init(allocator);
