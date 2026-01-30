@@ -13,6 +13,7 @@ pub fn main() !void {
     var console = rich.Console.init(allocator);
     defer console.deinit();
 
+    try console.print("");
     try console.printRenderable(rich.Rule.init().withTitle("JSON and Syntax Example").withCharacters("="));
     try console.print("");
 

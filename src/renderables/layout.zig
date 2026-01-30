@@ -267,27 +267,10 @@ pub const Split = struct {
                 const line = if (line_idx < child_lines[col].len) child_lines[col][line_idx] else &[_]Segment{};
 
                 const adjusted = try segment_mod.adjustLineLength(line, col_width, ' ', allocator);
-                defer {
-                    for (adjusted) |seg| {
-                        if (seg.text.len > 0 and seg.style == null) {
-                            var is_original = false;
-                            for (line) |orig| {
-                                if (std.mem.eql(u8, seg.text, orig.text)) {
-                                    is_original = true;
-                                    break;
-                                }
-                            }
-                            if (!is_original) {
-                                allocator.free(@constCast(seg.text));
-                            }
-                        }
-                    }
-                    allocator.free(adjusted);
-                }
-
                 for (adjusted) |seg| {
                     try segments.append(allocator, seg);
                 }
+                allocator.free(adjusted);
             }
             try segments.append(allocator, Segment.line());
         }
@@ -535,15 +518,17 @@ test "Split.withSplitterStyle" {
 
 test "Split.render with splitter" {
     const allocator = std.testing.allocator;
-    var split = Split.horizontal(allocator).withSplitterChar("|");
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+
+    var split = Split.horizontal(arena.allocator()).withSplitterChar("|");
     defer split.deinit();
 
     const segs1 = [_]Segment{Segment.plain("Left")};
     const segs2 = [_]Segment{Segment.plain("Right")};
     _ = split.add(&segs1).add(&segs2);
 
-    const segments = try split.render(80, allocator);
-    defer allocator.free(segments);
+    const segments = try split.render(80, arena.allocator());
 
     var found_splitter = false;
     for (segments) |seg| {

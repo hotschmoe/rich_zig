@@ -13,6 +13,7 @@ pub fn main() !void {
     var console = rich.Console.init(allocator);
     defer console.deinit();
 
+    try console.print("");
     try console.printRenderable(rich.Rule.init().withTitle("Advanced Progress Example").withCharacters("="));
     try console.print("");
 
@@ -80,4 +81,5 @@ pub fn main() !void {
 
         try console.printRenderable(group);
     }
+    try console.print("");
 }
