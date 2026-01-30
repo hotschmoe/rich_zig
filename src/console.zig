@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const Style = @import("style.zig").Style;
 const Segment = @import("segment.zig").Segment;
 const segment = @import("segment.zig");
@@ -7,6 +8,140 @@ const ColorSystem = @import("color.zig").ColorSystem;
 const Color = @import("color.zig").Color;
 const terminal = @import("terminal.zig");
 const markup = @import("markup.zig");
+
+pub const PagerOptions = struct {
+    use_external: bool = true,
+    external_command: ?[]const u8 = null,
+    prompt: []const u8 = ":",
+    quit_keys: []const u8 = "qQ",
+    scroll_lines: u16 = 1,
+};
+
+pub const Pager = struct {
+    allocator: std.mem.Allocator,
+    options: PagerOptions,
+    terminal_height: u16,
+    terminal_width: u16,
+    is_tty: bool,
+
+    pub fn init(allocator: std.mem.Allocator, console: *const Console) Pager {
+        return initWithOptions(allocator, console, .{});
+    }
+
+    pub fn initWithOptions(allocator: std.mem.Allocator, console: *const Console, options: PagerOptions) Pager {
+        return .{
+            .allocator = allocator,
+            .options = options,
+            .terminal_height = console.height(),
+            .terminal_width = console.width(),
+            .is_tty = console.isTty(),
+        };
+    }
+
+    pub fn page(self: *Pager, content: []const u8) !void {
+        if (!self.is_tty) {
+            const stdout = std.io.getStdOut().writer();
+            try stdout.writeAll(content);
+            return;
+        }
+
+        if (self.options.use_external) {
+            if (self.tryExternalPager(content)) return;
+        }
+
+        try self.internalPager(content);
+    }
+
+    pub fn pageSegments(self: *Pager, segments: []const Segment) !void {
+        const text = try segment.joinText(segments, self.allocator);
+        defer self.allocator.free(text);
+        try self.page(text);
+    }
+
+    fn tryExternalPager(self: *Pager, content: []const u8) bool {
+        if (builtin.os.tag == .windows) {
+            return self.tryPagerCommand("more", content);
+        }
+
+        if (self.options.external_command) |cmd| {
+            if (self.tryPagerCommand(cmd, content)) return true;
+        }
+
+        const pagers = [_][]const u8{ "less", "more" };
+        for (pagers) |pager_cmd| {
+            if (self.tryPagerCommand(pager_cmd, content)) return true;
+        }
+
+        return false;
+    }
+
+    fn tryPagerCommand(self: *Pager, cmd: []const u8, content: []const u8) bool {
+        _ = self;
+        var child = std.process.Child.init(&.{cmd}, std.heap.page_allocator);
+        child.stdin_behavior = .Pipe;
+
+        child.spawn() catch return false;
+
+        if (child.stdin) |stdin| {
+            stdin.writeAll(content) catch {};
+            stdin.close();
+            child.stdin = null;
+        }
+
+        _ = child.wait() catch return false;
+        return true;
+    }
+
+    fn internalPager(self: *Pager, content: []const u8) !void {
+        const stdout = std.io.getStdOut().writer();
+        const stdin_file = std.io.getStdIn();
+
+        const lines = try self.splitLines(content);
+        defer self.allocator.free(lines);
+
+        if (lines.len == 0) return;
+
+        const page_size = self.terminal_height - 1;
+        var current_line: usize = 0;
+
+        while (current_line < lines.len) {
+            const end_line = @min(current_line + page_size, lines.len);
+
+            for (lines[current_line..end_line]) |line| {
+                try stdout.writeAll(line);
+                try stdout.writeByte('\n');
+            }
+
+            current_line = end_line;
+
+            if (current_line >= lines.len) break;
+
+            const remaining = lines.len - current_line;
+            try stdout.print("{s}({d} more lines, press Enter to continue, q to quit)", .{ self.options.prompt, remaining });
+
+            const input = stdin_file.reader().readByte() catch break;
+
+            try stdout.writeByte('\r');
+            try stdout.writeByteNTimes(' ', self.terminal_width);
+            try stdout.writeByte('\r');
+
+            if (std.mem.indexOfScalar(u8, self.options.quit_keys, input) != null) {
+                break;
+            }
+        }
+    }
+
+    fn splitLines(self: *Pager, content: []const u8) ![]const []const u8 {
+        var lines_list: std.ArrayList([]const u8) = .empty;
+
+        var iter = std.mem.splitScalar(u8, content, '\n');
+        while (iter.next()) |line| {
+            try lines_list.append(self.allocator, line);
+        }
+
+        return lines_list.toOwnedSlice(self.allocator);
+    }
+};
 
 pub const LogLevel = enum {
     debug,
@@ -374,6 +509,24 @@ pub const Console = struct {
         try writer.interface.flush();
         self.status_line_active = false;
         self.status_line_length = 0;
+    }
+
+    pub fn pager(self: *Console) Pager {
+        return Pager.init(self.allocator, self);
+    }
+
+    pub fn pagerWithOptions(self: *Console, options: PagerOptions) Pager {
+        return Pager.initWithOptions(self.allocator, self, options);
+    }
+
+    pub fn printPaged(self: *Console, content: []const u8) !void {
+        var p = self.pager();
+        try p.page(content);
+    }
+
+    pub fn printSegmentsPaged(self: *Console, segments: []const Segment) !void {
+        var p = self.pager();
+        try p.pageSegments(segments);
     }
 
     pub fn exportHtml(segments: []const Segment, allocator: std.mem.Allocator) ![]u8 {
@@ -844,4 +997,105 @@ test "Console.exportSvg with colors" {
     try std.testing.expect(std.mem.indexOf(u8, svg, "Red") != null);
     try std.testing.expect(std.mem.indexOf(u8, svg, "rgb(255,0,0)") != null or
         std.mem.indexOf(u8, svg, "#ff0000") != null);
+}
+
+test "Pager.init" {
+    const allocator = std.testing.allocator;
+    var console = Console.initWithOptions(allocator, .{
+        .width = 80,
+        .height = 24,
+    });
+    defer console.deinit();
+
+    const p = Pager.init(allocator, &console);
+    try std.testing.expectEqual(@as(u16, 24), p.terminal_height);
+    try std.testing.expectEqual(@as(u16, 80), p.terminal_width);
+}
+
+test "Pager.initWithOptions" {
+    const allocator = std.testing.allocator;
+    var console = Console.initWithOptions(allocator, .{
+        .width = 100,
+        .height = 40,
+    });
+    defer console.deinit();
+
+    const p = Pager.initWithOptions(allocator, &console, .{
+        .use_external = false,
+        .prompt = ">>",
+        .quit_keys = "xX",
+    });
+    try std.testing.expectEqual(@as(u16, 40), p.terminal_height);
+    try std.testing.expectEqual(false, p.options.use_external);
+    try std.testing.expectEqualStrings(">>", p.options.prompt);
+    try std.testing.expectEqualStrings("xX", p.options.quit_keys);
+}
+
+test "Pager.splitLines" {
+    const allocator = std.testing.allocator;
+    var console = Console.initWithOptions(allocator, .{
+        .width = 80,
+        .height = 24,
+    });
+    defer console.deinit();
+
+    var p = Pager.init(allocator, &console);
+
+    const lines = try p.splitLines("line1\nline2\nline3");
+    defer allocator.free(lines);
+
+    try std.testing.expectEqual(@as(usize, 3), lines.len);
+    try std.testing.expectEqualStrings("line1", lines[0]);
+    try std.testing.expectEqualStrings("line2", lines[1]);
+    try std.testing.expectEqualStrings("line3", lines[2]);
+}
+
+test "Pager.splitLines empty" {
+    const allocator = std.testing.allocator;
+    var console = Console.initWithOptions(allocator, .{
+        .width = 80,
+        .height = 24,
+    });
+    defer console.deinit();
+
+    var p = Pager.init(allocator, &console);
+
+    const lines = try p.splitLines("");
+    defer allocator.free(lines);
+
+    try std.testing.expectEqual(@as(usize, 1), lines.len);
+}
+
+test "Console.pager" {
+    const allocator = std.testing.allocator;
+    var console = Console.initWithOptions(allocator, .{
+        .width = 80,
+        .height = 24,
+    });
+    defer console.deinit();
+
+    const p = console.pager();
+    try std.testing.expectEqual(@as(u16, 24), p.terminal_height);
+    try std.testing.expectEqual(@as(u16, 80), p.terminal_width);
+}
+
+test "Console.pagerWithOptions" {
+    const allocator = std.testing.allocator;
+    var console = Console.initWithOptions(allocator, .{
+        .width = 80,
+        .height = 24,
+    });
+    defer console.deinit();
+
+    const p = console.pagerWithOptions(.{ .use_external = false });
+    try std.testing.expectEqual(false, p.options.use_external);
+}
+
+test "PagerOptions defaults" {
+    const opts = PagerOptions{};
+    try std.testing.expectEqual(true, opts.use_external);
+    try std.testing.expectEqual(@as(?[]const u8, null), opts.external_command);
+    try std.testing.expectEqualStrings(":", opts.prompt);
+    try std.testing.expectEqualStrings("qQ", opts.quit_keys);
+    try std.testing.expectEqual(@as(u16, 1), opts.scroll_lines);
 }
