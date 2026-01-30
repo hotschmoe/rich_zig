@@ -42,9 +42,7 @@ pub fn main() !void {
             .column = 4,
         });
 
-        // Traceback.render takes *Traceback, so call directly
-        const segs = try tb.render(70, arena.allocator());
-        try console.printSegments(segs);
+        try console.printRenderable(&tb);
     }
     try console.print("");
 
@@ -83,7 +81,6 @@ pub fn main() !void {
             .column = 12,
         });
 
-        const segs = try tb.render(70, arena.allocator());
-        try console.printSegments(segs);
+        try console.printRenderable(&tb);
     }
 }

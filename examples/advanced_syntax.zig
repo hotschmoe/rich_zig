@@ -23,8 +23,7 @@ pub fn main() !void {
         const syntax = rich.Syntax.init(arena.allocator(), code)
             .withLanguage(.zig)
             .withTheme(rich.SyntaxTheme.monokai);
-        const segs = try syntax.render(60, arena.allocator());
-        try console.printSegments(segs);
+        try console.printRenderable(syntax);
     }
     try console.print("");
 
@@ -38,8 +37,7 @@ pub fn main() !void {
         const syntax = rich.Syntax.init(arena.allocator(), code)
             .withLanguage(.zig)
             .withTabSize(2);
-        const segs = try syntax.render(60, arena.allocator());
-        try console.printSegments(segs);
+        try console.printRenderable(syntax);
     }
     try console.print("");
 
@@ -62,8 +60,7 @@ pub fn main() !void {
         const syntax = rich.Syntax.init(arena.allocator(), code)
             .withLanguage(.zig)
             .withIndentGuides();
-        const segs = try syntax.render(60, arena.allocator());
-        try console.printSegments(segs);
+        try console.printRenderable(syntax);
     }
     try console.print("");
 
@@ -83,12 +80,11 @@ pub fn main() !void {
             .withLanguage(.zig)
             .withLineNumbers()
             .withHighlightLines(&highlight_lines);
-        const segs = try syntax.render(60, arena.allocator());
-        try console.printSegments(segs);
+        try console.printRenderable(syntax);
     }
     try console.print("");
 
-    // Syntax with word wrap
+    // Syntax with word wrap (manual render to demo specific width)
     try console.print("[bold]Syntax with Word Wrap (width=45):[/]");
     {
         var arena = std.heap.ArenaAllocator.init(allocator);

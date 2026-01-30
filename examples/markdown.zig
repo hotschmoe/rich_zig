@@ -57,39 +57,27 @@ pub fn main() !void {
     }
     try console.print("");
 
-    // Lists (uses arena for internal allocations)
+    // Lists
     try console.print("[bold]Lists:[/]");
     {
-        var arena = std.heap.ArenaAllocator.init(allocator);
-        defer arena.deinit();
-
         const md = rich.Markdown.init("- First item\n- Second item\n- Third item\n\n1. Numbered one\n2. Numbered two\n3. Numbered three");
-        const segs = try md.render(60, arena.allocator());
-        try console.printSegments(segs);
+        try console.printRenderable(md);
     }
     try console.print("");
 
     // Blockquotes
     try console.print("[bold]Blockquotes:[/]");
     {
-        var arena = std.heap.ArenaAllocator.init(allocator);
-        defer arena.deinit();
-
         const md = rich.Markdown.init("> This is a quote\n> with multiple lines\n>> Nested quote");
-        const segs = try md.render(60, arena.allocator());
-        try console.printSegments(segs);
+        try console.printRenderable(md);
     }
     try console.print("");
 
     // Fenced code block
     try console.print("[bold]Fenced Code Block:[/]");
     {
-        var arena = std.heap.ArenaAllocator.init(allocator);
-        defer arena.deinit();
-
         const md = rich.Markdown.init("```zig\nconst x: u32 = 42;\nstd.debug.print(\"{}\", .{x});\n```");
-        const segs = try md.render(60, arena.allocator());
-        try console.printSegments(segs);
+        try console.printRenderable(md);
     }
     try console.print("");
 
@@ -104,24 +92,16 @@ pub fn main() !void {
     // GFM: Task lists
     try console.print("[bold]GFM Task Lists:[/]");
     {
-        var arena = std.heap.ArenaAllocator.init(allocator);
-        defer arena.deinit();
-
         const md = rich.Markdown.init("- [x] Completed task\n- [ ] Pending task\n- [x] Another done");
-        const segs = try md.render(60, arena.allocator());
-        try console.printSegments(segs);
+        try console.printRenderable(md);
     }
     try console.print("");
 
     // GFM: Tables
     try console.print("[bold]GFM Tables:[/]");
     {
-        var arena = std.heap.ArenaAllocator.init(allocator);
-        defer arena.deinit();
-
         const md = rich.Markdown.init("| Name | Value |\n|------|-------|\n| foo  | 123   |\n| bar  | 456   |");
-        const segs = try md.render(60, arena.allocator());
-        try console.printSegments(segs);
+        try console.printRenderable(md);
     }
     try console.print("");
 

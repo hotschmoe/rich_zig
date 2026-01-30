@@ -31,8 +31,7 @@ pub fn main() !void {
 
         var json = try rich.Json.fromString(arena.allocator(), json_str);
         json.indent = 2;
-        const segs = try json.render(console.width(), arena.allocator());
-        try console.printSegments(segs);
+        try console.printRenderable(json);
     }
     try console.print("");
 
@@ -54,8 +53,7 @@ pub fn main() !void {
             .null_style = rich.Style.empty.foreground(rich.Color.red),
             .key_style = rich.Style.empty.bold().foreground(rich.Color.cyan),
         });
-        const segs = try json.render(console.width(), arena.allocator());
-        try console.printSegments(segs);
+        try console.printRenderable(json);
     }
     try console.print("");
 
@@ -76,8 +74,7 @@ pub fn main() !void {
 
         var syntax = rich.Syntax.init(arena.allocator(), zig_code).withLanguage(.zig);
         syntax.show_line_numbers = true;
-        const segs = try syntax.render(console.width(), arena.allocator());
-        try console.printSegments(segs);
+        try console.printRenderable(syntax);
     }
     try console.print("");
 
@@ -98,17 +95,13 @@ pub fn main() !void {
 
         var syntax = rich.Syntax.init(arena.allocator(), python_code).withLanguage(.python);
         syntax.show_line_numbers = true;
-        const segs = try syntax.render(console.width(), arena.allocator());
-        try console.printSegments(segs);
+        try console.printRenderable(syntax);
     }
     try console.print("");
 
     // Markdown rendering
     try console.print("[bold]Markdown Rendering:[/]");
     {
-        var arena = std.heap.ArenaAllocator.init(allocator);
-        defer arena.deinit();
-
         const markdown_text =
             \\# rich_zig
             \\
@@ -126,7 +119,6 @@ pub fn main() !void {
         ;
 
         const md = rich.Markdown.init(markdown_text);
-        const segs = try md.render(console.width(), arena.allocator());
-        try console.printSegments(segs);
+        try console.printRenderable(md);
     }
 }

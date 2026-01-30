@@ -20,10 +20,7 @@ pub fn main() !void {
             .withCompleted(60)
             .withTotal(100)
             .withWidth(40);
-
-        const segments = try bar.render(80, allocator);
-        defer allocator.free(segments);
-        try console.printSegments(segments);
+        try console.printRenderable(bar);
     }
     try console.print("");
 
@@ -35,10 +32,7 @@ pub fn main() !void {
             .withCompleted(75)
             .withTotal(100)
             .withWidth(30);
-
-        const segments = try bar.render(80, allocator);
-        defer allocator.free(segments);
-        try console.printSegments(segments);
+        try console.printRenderable(bar);
     }
     try console.print("");
 
@@ -50,10 +44,7 @@ pub fn main() !void {
             .withCompleted(completed)
             .withTotal(100)
             .withWidth(30);
-
-        const segments = try bar.render(80, allocator);
-        defer allocator.free(segments);
-        try console.printSegments(segments);
+        try console.printRenderable(bar);
     }
     try console.print("");
 
@@ -65,46 +56,39 @@ pub fn main() !void {
 
         var group = rich.ProgressGroup.init(arena.allocator());
 
-        // Add all tasks first
         _ = try group.addTask("Download", 100);
         _ = try group.addTask("Extract", 100);
         _ = try group.addTask("Install", 100);
 
-        // Then update progress (pointers from addTask can be invalidated by subsequent adds)
         group.bars.items[0].completed = 100;
         group.bars.items[1].completed = 60;
         group.bars.items[2].completed = 20;
 
-        const segs = try group.render(80, arena.allocator());
-        try console.printSegments(segs);
+        try console.printRenderable(group);
     }
     try console.print("");
 
-    // Spinner examples
+    // Spinner examples (Spinner.render has different signature - not compatible with printRenderable)
     try console.print("[bold]Spinners:[/]");
     {
-        // Default spinner (braille dots)
         const default_spinner = rich.Spinner.init();
         const default_segs = try default_spinner.render(allocator);
         defer allocator.free(default_segs);
         try console.printSegments(default_segs);
         try console.print(" Default (braille)");
 
-        // Dots spinner variant
         const dots_spinner = rich.Spinner.dots();
         const dots_segs = try dots_spinner.render(allocator);
         defer allocator.free(dots_segs);
         try console.printSegments(dots_segs);
         try console.print(" Dots variant");
 
-        // Line spinner
         const line_spinner = rich.Spinner.line();
         const line_segs = try line_spinner.render(allocator);
         defer allocator.free(line_segs);
         try console.printSegments(line_segs);
         try console.print(" Line variant");
 
-        // Spinner with style
         const styled_spinner = rich.Spinner.init().withStyle(rich.Style.empty.bold().foreground(rich.Color.cyan));
         const styled_segs = try styled_spinner.render(allocator);
         defer allocator.free(styled_segs);

@@ -16,41 +16,30 @@ pub fn main() !void {
     // Progress bar with timing information
     try console.print("[bold]Progress with Timing Info:[/]");
     {
-        var arena = std.heap.ArenaAllocator.init(allocator);
-        defer arena.deinit();
-
         const bar = rich.ProgressBar.init()
             .withDescription("Downloading")
             .withCompleted(75)
             .withTotal(100)
             .withWidth(25)
             .withTiming();
-        const segs = try bar.render(80, arena.allocator());
-        try console.printSegments(segs);
+        try console.printRenderable(bar);
     }
     try console.print("");
 
     // Indeterminate progress bar (unknown total)
     try console.print("[bold]Indeterminate Progress (unknown total):[/]");
     {
-        var arena = std.heap.ArenaAllocator.init(allocator);
-        defer arena.deinit();
-
         const bar = rich.ProgressBar.init()
             .withDescription("Scanning")
             .asIndeterminate()
             .withWidth(25);
-        const segs = try bar.render(80, arena.allocator());
-        try console.printSegments(segs);
+        try console.printRenderable(bar);
     }
     try console.print("");
 
     // Multiple progress bars at different completion levels
     try console.print("[bold]Progress at Different Stages:[/]");
     {
-        var arena = std.heap.ArenaAllocator.init(allocator);
-        defer arena.deinit();
-
         const stages = [_]struct { desc: []const u8, completed: u64 }{
             .{ .desc = "Critical", .completed = 90 },
             .{ .desc = "Warning", .completed = 60 },
@@ -63,8 +52,7 @@ pub fn main() !void {
                 .withCompleted(s.completed)
                 .withTotal(100)
                 .withWidth(20);
-            const segs = try bar.render(80, arena.allocator());
-            try console.printSegments(segs);
+            try console.printRenderable(bar);
         }
     }
     try console.print("");
@@ -77,19 +65,16 @@ pub fn main() !void {
 
         var group = rich.ProgressGroup.init(arena.allocator());
 
-        // Add all tasks first
         _ = try group.addTask("Complete", 100);
         _ = try group.addTask("In Progress", 100);
         _ = try group.addTask("Starting", 100);
         _ = try group.addTask("Pending", 100);
 
-        // Update progress after all tasks added (avoids pointer invalidation from reallocation)
         group.bars.items[0].completed = 100;
         group.bars.items[1].completed = 65;
         group.bars.items[2].completed = 10;
         group.bars.items[3].completed = 0;
 
-        const segs = try group.render(60, arena.allocator());
-        try console.printSegments(segs);
+        try console.printRenderable(group);
     }
 }
