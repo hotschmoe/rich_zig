@@ -461,7 +461,7 @@ pub const StackFrame = struct {
 
     pub fn format(self: StackFrame, allocator: std.mem.Allocator) ![]u8 {
         var result: std.ArrayList(u8) = .empty;
-        var writer = result.writer(allocator);
+        const writer = result.writer(allocator);
 
         if (self.function) |func| {
             try writer.writeAll(func);
@@ -658,13 +658,13 @@ pub const Traceback = struct {
             if (trimmed.len == 0) continue;
 
             // Try to parse different Zig trace formats
-            if (self.parseZigFrameLine(trimmed)) |frame| {
+            if (parseZigFrameLine(trimmed)) |frame| {
                 try self.addFrame(frame);
             }
         }
     }
 
-    fn parseZigFrameLine(_: *Traceback, line: []const u8) ?StackFrame {
+    fn parseZigFrameLine(line: []const u8) ?StackFrame {
         // Format 1: "file.zig:line:col: 0xaddr in function_name"
         // Format 2: "file.zig:line:col"
         // Format 3: "0xaddr in function_name (file.zig)"
@@ -779,8 +779,6 @@ pub const Traceback = struct {
         var segments: std.ArrayList(Segment) = .empty;
         const theme = self.options.theme;
 
-        const inner_width = if (self.options.show_box and max_width > 4) max_width - 4 else max_width;
-
         // Title line
         const title = "Traceback (most recent call last):";
         const title_copy = try allocator.dupe(u8, title);
@@ -806,7 +804,7 @@ pub const Traceback = struct {
                 }
             }
 
-            try self.renderFrame(&segments, allocator, frame, frames_to_show.len - 1 - frame_idx, inner_width);
+            try self.renderFrame(&segments, allocator, frame, frames_to_show.len - 1 - frame_idx);
         }
 
         // Error message
@@ -852,7 +850,6 @@ pub const Traceback = struct {
         allocator: std.mem.Allocator,
         frame: StackFrame,
         index: usize,
-        _: usize,
     ) !void {
         const theme = self.options.theme;
 
@@ -939,14 +936,6 @@ pub const Traceback = struct {
         else
             1;
         const end_line = @min(target_line + self.options.context_after, @as(u32, @intCast(source_lines.len)));
-
-        // Determine max line number width for alignment
-        var max_line_num = end_line;
-        var line_num_width: u8 = 1;
-        while (max_line_num >= 10) {
-            max_line_num /= 10;
-            line_num_width += 1;
-        }
 
         var line_num = start_line;
         while (line_num <= end_line) : (line_num += 1) {
