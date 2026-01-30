@@ -16,6 +16,9 @@ pub fn main() !void {
     // JSON rendering - use fromString to parse JSON text
     try console.print("[bold]JSON Rendering:[/]");
     {
+        var arena = std.heap.ArenaAllocator.init(allocator);
+        defer arena.deinit();
+
         const json_str =
             \\{
             \\  "name": "rich_zig",
@@ -26,22 +29,24 @@ pub fn main() !void {
             \\}
         ;
 
-        var json = try rich.Json.fromString(allocator, json_str);
-        defer json.deinit();
+        var json = try rich.Json.fromString(arena.allocator(), json_str);
         json.indent = 2;
-        try console.printRenderable(json);
+        const segs = try json.render(console.width(), arena.allocator());
+        try console.printSegments(segs);
     }
     try console.print("");
 
     // JSON with custom theme
     try console.print("[bold]JSON with Custom Theme:[/]");
     {
+        var arena = std.heap.ArenaAllocator.init(allocator);
+        defer arena.deinit();
+
         const json_str =
             \\{"status": "ok", "count": 42, "enabled": false}
         ;
 
-        var json = try rich.Json.fromString(allocator, json_str);
-        defer json.deinit();
+        var json = try rich.Json.fromString(arena.allocator(), json_str);
         json = json.withTheme(.{
             .string_style = rich.Style.empty.foreground(rich.Color.green),
             .number_style = rich.Style.empty.foreground(rich.Color.yellow),
@@ -49,13 +54,17 @@ pub fn main() !void {
             .null_style = rich.Style.empty.foreground(rich.Color.red),
             .key_style = rich.Style.empty.bold().foreground(rich.Color.cyan),
         });
-        try console.printRenderable(json);
+        const segs = try json.render(console.width(), arena.allocator());
+        try console.printSegments(segs);
     }
     try console.print("");
 
     // Syntax highlighting for Zig code
     try console.print("[bold]Zig Syntax Highlighting:[/]");
     {
+        var arena = std.heap.ArenaAllocator.init(allocator);
+        defer arena.deinit();
+
         const zig_code =
             \\const std = @import("std");
             \\
@@ -65,15 +74,19 @@ pub fn main() !void {
             \\}
         ;
 
-        var syntax = rich.Syntax.init(allocator, zig_code).withLanguage(.zig);
+        var syntax = rich.Syntax.init(arena.allocator(), zig_code).withLanguage(.zig);
         syntax.show_line_numbers = true;
-        try console.printRenderable(syntax);
+        const segs = try syntax.render(console.width(), arena.allocator());
+        try console.printSegments(segs);
     }
     try console.print("");
 
     // Syntax highlighting for Python
     try console.print("[bold]Python Syntax Highlighting:[/]");
     {
+        var arena = std.heap.ArenaAllocator.init(allocator);
+        defer arena.deinit();
+
         const python_code =
             \\def greet(name: str) -> str:
             \\    """Return a greeting message."""
@@ -83,15 +96,19 @@ pub fn main() !void {
             \\    print(greet("World"))
         ;
 
-        var syntax = rich.Syntax.init(allocator, python_code).withLanguage(.python);
+        var syntax = rich.Syntax.init(arena.allocator(), python_code).withLanguage(.python);
         syntax.show_line_numbers = true;
-        try console.printRenderable(syntax);
+        const segs = try syntax.render(console.width(), arena.allocator());
+        try console.printSegments(segs);
     }
     try console.print("");
 
     // Markdown rendering
     try console.print("[bold]Markdown Rendering:[/]");
     {
+        var arena = std.heap.ArenaAllocator.init(allocator);
+        defer arena.deinit();
+
         const markdown_text =
             \\# rich_zig
             \\
@@ -109,6 +126,7 @@ pub fn main() !void {
         ;
 
         const md = rich.Markdown.init(markdown_text);
-        try console.printRenderable(md);
+        const segs = try md.render(console.width(), arena.allocator());
+        try console.printSegments(segs);
     }
 }

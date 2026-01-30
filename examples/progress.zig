@@ -60,20 +60,23 @@ pub fn main() !void {
     // Progress group for multiple concurrent tasks
     try console.print("[bold]Progress Group (Multiple Tasks):[/]");
     {
-        var group = rich.ProgressGroup.init(allocator);
-        defer group.deinit();
+        var arena = std.heap.ArenaAllocator.init(allocator);
+        defer arena.deinit();
 
-        // addTask returns a pointer to the bar for updating progress
-        const download = try group.addTask("Download", 100);
-        const extract = try group.addTask("Extract", 100);
-        const install = try group.addTask("Install", 100);
+        var group = rich.ProgressGroup.init(arena.allocator());
 
-        // Update progress via returned pointers
-        download.completed = 100;
-        extract.completed = 60;
-        install.completed = 20;
+        // Add all tasks first
+        _ = try group.addTask("Download", 100);
+        _ = try group.addTask("Extract", 100);
+        _ = try group.addTask("Install", 100);
 
-        try console.printRenderable(group);
+        // Then update progress (pointers from addTask can be invalidated by subsequent adds)
+        group.bars.items[0].completed = 100;
+        group.bars.items[1].completed = 60;
+        group.bars.items[2].completed = 20;
+
+        const segs = try group.render(80, arena.allocator());
+        try console.printSegments(segs);
     }
     try console.print("");
 

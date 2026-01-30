@@ -16,6 +16,9 @@ pub fn main() !void {
     // Vertical split (stacked regions)
     try console.print("[bold]Vertical Split (Top/Bottom):[/]");
     {
+        var arena = std.heap.ArenaAllocator.init(allocator);
+        defer arena.deinit();
+
         const top = [_]rich.Segment{
             rich.Segment.styled("[ Top Region ]", rich.Style.empty.bold().foreground(rich.Color.cyan)),
         };
@@ -23,16 +26,20 @@ pub fn main() !void {
             rich.Segment.styled("[ Bottom Region ]", rich.Style.empty.dim()),
         };
 
-        var split = rich.Split.vertical(allocator);
-        defer split.deinit();
+        var split = rich.Split.vertical(arena.allocator());
         _ = split.add(&top).add(&bottom);
-        try console.printRenderable(split);
+
+        const segs = try split.render(40, arena.allocator());
+        try console.printSegments(segs);
     }
     try console.print("");
 
     // Horizontal split (side-by-side regions)
     try console.print("[bold]Horizontal Split (Left/Right):[/]");
     {
+        var arena = std.heap.ArenaAllocator.init(allocator);
+        defer arena.deinit();
+
         const left = [_]rich.Segment{
             rich.Segment.styled("[Left]", rich.Style.empty.foreground(rich.Color.green)),
         };
@@ -40,16 +47,20 @@ pub fn main() !void {
             rich.Segment.styled("[Right]", rich.Style.empty.foreground(rich.Color.yellow)),
         };
 
-        var split = rich.Split.horizontal(allocator);
-        defer split.deinit();
+        var split = rich.Split.horizontal(arena.allocator());
         _ = split.add(&left).add(&right);
-        try console.printRenderable(split);
+
+        const segs = try split.render(40, arena.allocator());
+        try console.printSegments(segs);
     }
     try console.print("");
 
     // Multiple vertical regions
     try console.print("[bold]Multiple Vertical Regions:[/]");
     {
+        var arena = std.heap.ArenaAllocator.init(allocator);
+        defer arena.deinit();
+
         const header = [_]rich.Segment{
             rich.Segment.styled("=== HEADER ===", rich.Style.empty.bold()),
         };
@@ -60,9 +71,10 @@ pub fn main() !void {
             rich.Segment.styled("--- footer ---", rich.Style.empty.dim()),
         };
 
-        var split = rich.Split.vertical(allocator);
-        defer split.deinit();
+        var split = rich.Split.vertical(arena.allocator());
         _ = split.add(&header).add(&content).add(&footer);
-        try console.printRenderable(split);
+
+        const segs = try split.render(40, arena.allocator());
+        try console.printSegments(segs);
     }
 }

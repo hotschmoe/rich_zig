@@ -23,7 +23,8 @@ pub fn main() !void {
         const syntax = rich.Syntax.init(arena.allocator(), code)
             .withLanguage(.zig)
             .withTheme(rich.SyntaxTheme.monokai);
-        try console.printRenderable(syntax);
+        const segs = try syntax.render(60, arena.allocator());
+        try console.printSegments(segs);
     }
     try console.print("");
 
@@ -37,7 +38,8 @@ pub fn main() !void {
         const syntax = rich.Syntax.init(arena.allocator(), code)
             .withLanguage(.zig)
             .withTabSize(2);
-        try console.printRenderable(syntax);
+        const segs = try syntax.render(60, arena.allocator());
+        try console.printSegments(segs);
     }
     try console.print("");
 
@@ -60,7 +62,8 @@ pub fn main() !void {
         const syntax = rich.Syntax.init(arena.allocator(), code)
             .withLanguage(.zig)
             .withIndentGuides();
-        try console.printRenderable(syntax);
+        const segs = try syntax.render(60, arena.allocator());
+        try console.printSegments(segs);
     }
     try console.print("");
 
@@ -80,20 +83,22 @@ pub fn main() !void {
             .withLanguage(.zig)
             .withLineNumbers()
             .withHighlightLines(&highlight_lines);
-        try console.printRenderable(syntax);
+        const segs = try syntax.render(60, arena.allocator());
+        try console.printSegments(segs);
     }
     try console.print("");
 
     // Syntax with word wrap
     try console.print("[bold]Syntax with Word Wrap (width=45):[/]");
     {
+        var arena = std.heap.ArenaAllocator.init(allocator);
+        defer arena.deinit();
+
         const long_code = "const very_long_variable_name: u32 = some_function_call(argument1, argument2, argument3);";
-        const syntax = rich.Syntax.init(allocator, long_code)
+        const syntax = rich.Syntax.init(arena.allocator(), long_code)
             .withLanguage(.zig)
             .withWordWrap();
-
-        const segs = try syntax.render(45, allocator);
-        defer allocator.free(segs);
+        const segs = try syntax.render(45, arena.allocator());
         try console.printSegments(segs);
     }
     try console.print("");
