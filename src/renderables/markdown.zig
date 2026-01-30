@@ -8,6 +8,11 @@ const Syntax = syntax_mod.Syntax;
 const SyntaxTheme = syntax_mod.SyntaxTheme;
 const Language = syntax_mod.Language;
 const Rule = @import("rule.zig").Rule;
+const table_mod = @import("table.zig");
+const Table = table_mod.Table;
+const Column = table_mod.Column;
+const JustifyMethod = table_mod.JustifyMethod;
+const BoxStyle = @import("../box.zig").BoxStyle;
 
 pub const HeaderLevel = enum(u3) {
     h1 = 1,
@@ -59,6 +64,9 @@ pub const MarkdownTheme = struct {
     image_suffix: []const u8 = "]",
     rule_style: Style = Style.empty.fg(Color.bright_black),
     rule_char: []const u8 = "\u{2500}",
+    table_header_style: Style = Style.empty.bold().fg(Color.bright_cyan),
+    table_border_style: Style = Style.empty.fg(Color.bright_black),
+    table_box_style: BoxStyle = BoxStyle.rounded,
 
     pub const default: MarkdownTheme = .{};
 
@@ -234,11 +242,18 @@ pub const Markdown = struct {
         var code_block_lang: ?[]const u8 = null;
         var code_lines: std.ArrayList(u8) = .empty;
 
+        var table_lines: std.ArrayList([]const u8) = .empty;
+        defer table_lines.deinit(allocator);
+
         while (lines.next()) |line| {
             const trimmed = std.mem.trimLeft(u8, line, " \t");
 
             if (parseFenceOpen(trimmed)) |lang| {
                 if (!in_code_block) {
+                    // Flush any pending table
+                    if (table_lines.items.len > 0) {
+                        try self.emitTable(&table_lines, max_width, &segments, allocator);
+                    }
                     in_code_block = true;
                     code_block_lang = lang;
                     code_lines = .empty;
@@ -259,6 +274,17 @@ pub const Markdown = struct {
                 }
                 try code_lines.appendSlice(allocator, line);
                 continue;
+            }
+
+            // Check if this could be a table row
+            if (isTableRow(trimmed)) {
+                try table_lines.append(allocator, trimmed);
+                continue;
+            }
+
+            // Not a table row - flush any pending table first
+            if (table_lines.items.len > 0) {
+                try self.emitTable(&table_lines, max_width, &segments, allocator);
             }
 
             if (parseHeader(trimmed)) |header_info| {
@@ -291,8 +317,13 @@ pub const Markdown = struct {
             }
         }
 
+        // Flush any remaining content
         if (in_code_block and code_lines.items.len > 0) {
             try self.emitCodeBlock(&code_lines, code_block_lang, max_width, &segments, allocator);
+        }
+
+        if (table_lines.items.len > 0) {
+            try self.emitTable(&table_lines, max_width, &segments, allocator);
         }
 
         return segments.toOwnedSlice(allocator);
@@ -315,6 +346,139 @@ pub const Markdown = struct {
         const code_segments = try code_block.render(max_width, allocator);
         defer allocator.free(code_segments);
         try segments.appendSlice(allocator, code_segments);
+    }
+
+    fn isTableRow(line: []const u8) bool {
+        const trimmed = std.mem.trim(u8, line, " \t");
+        if (trimmed.len == 0) return false;
+        // A table row must start with | or contain at least one |
+        if (trimmed[0] == '|') return true;
+        // Also accept rows without leading pipe if they contain a pipe
+        return std.mem.indexOf(u8, trimmed, "|") != null;
+    }
+
+    fn isTableSeparator(line: []const u8) bool {
+        const trimmed = std.mem.trim(u8, line, " \t|");
+        if (trimmed.len == 0) return false;
+
+        // Separator row contains only -, :, |, and spaces
+        for (trimmed) |c| {
+            if (c != '-' and c != ':' and c != '|' and c != ' ') return false;
+        }
+
+        // Must have at least 3 dashes total
+        var dash_count: usize = 0;
+        for (trimmed) |c| {
+            if (c == '-') dash_count += 1;
+        }
+        return dash_count >= 3;
+    }
+
+    fn parseTableAlignment(sep_cell: []const u8) JustifyMethod {
+        const trimmed = std.mem.trim(u8, sep_cell, " \t");
+        if (trimmed.len == 0) return .left;
+
+        const starts_colon = trimmed[0] == ':';
+        const ends_colon = trimmed[trimmed.len - 1] == ':';
+
+        if (starts_colon and ends_colon) return .center;
+        if (ends_colon) return .right;
+        return .left;
+    }
+
+    fn splitTableCells(line: []const u8, allocator: std.mem.Allocator) ![][]const u8 {
+        var result: std.ArrayList([]const u8) = .empty;
+
+        // Remove leading and trailing pipes
+        var content = std.mem.trim(u8, line, " \t");
+        if (content.len > 0 and content[0] == '|') {
+            content = content[1..];
+        }
+        if (content.len > 0 and content[content.len - 1] == '|') {
+            content = content[0 .. content.len - 1];
+        }
+
+        var iter = std.mem.splitScalar(u8, content, '|');
+        while (iter.next()) |cell| {
+            const trimmed_cell = std.mem.trim(u8, cell, " \t");
+            try result.append(allocator, trimmed_cell);
+        }
+
+        return result.toOwnedSlice(allocator);
+    }
+
+    fn emitTable(
+        self: Markdown,
+        table_lines: *std.ArrayList([]const u8),
+        max_width: usize,
+        segments: *std.ArrayList(Segment),
+        allocator: std.mem.Allocator,
+    ) !void {
+        defer table_lines.clearRetainingCapacity();
+
+        // Need at least 2 lines for a valid table (header + separator)
+        if (table_lines.items.len < 2) {
+            // Not a valid table, render as plain text
+            for (table_lines.items) |line| {
+                try self.renderInlineText(line, null, segments, allocator);
+                try segments.append(allocator, Segment.line());
+            }
+            return;
+        }
+
+        // Check if second line is a valid separator
+        if (!isTableSeparator(table_lines.items[1])) {
+            // Not a valid table, render as plain text
+            for (table_lines.items) |line| {
+                try self.renderInlineText(line, null, segments, allocator);
+                try segments.append(allocator, Segment.line());
+            }
+            return;
+        }
+
+        // Parse header row
+        const header_cells = try splitTableCells(table_lines.items[0], allocator);
+        defer allocator.free(header_cells);
+
+        // Parse separator row for alignments
+        const sep_cells = try splitTableCells(table_lines.items[1], allocator);
+        defer allocator.free(sep_cells);
+
+        // Build the table
+        var table = Table.init(allocator);
+        defer table.deinit();
+
+        // Add columns with headers and alignments
+        for (header_cells, 0..) |header, i| {
+            const justify = if (i < sep_cells.len) parseTableAlignment(sep_cells[i]) else .left;
+            _ = table.withColumn(Column.init(header).withJustify(justify));
+        }
+
+        // Apply theme styling
+        _ = table.withHeaderStyle(self.theme.table_header_style);
+        _ = table.withBorderStyle(self.theme.table_border_style);
+        _ = table.withBoxStyle(self.theme.table_box_style);
+
+        // Add data rows (skip header and separator)
+        for (table_lines.items[2..]) |row_line| {
+            const row_cells = try splitTableCells(row_line, allocator);
+            defer allocator.free(row_cells);
+
+            // Pad or truncate to match column count
+            const row = try allocator.alloc([]const u8, header_cells.len);
+            defer allocator.free(row);
+
+            for (0..header_cells.len) |i| {
+                row[i] = if (i < row_cells.len) row_cells[i] else "";
+            }
+
+            try table.addRow(row);
+        }
+
+        // Render the table
+        const table_segments = try table.render(max_width, allocator);
+        defer allocator.free(table_segments);
+        try segments.appendSlice(allocator, table_segments);
     }
 
     fn parseFenceOpen(line: []const u8) ?[]const u8 {
@@ -2581,4 +2745,205 @@ test "MarkdownTheme has rule style" {
     const theme = MarkdownTheme.default;
     try std.testing.expect(theme.rule_style.color != null);
     try std.testing.expectEqualStrings("\u{2500}", theme.rule_char);
+}
+
+// GFM Table tests
+
+test "isTableRow basic" {
+    try std.testing.expect(Markdown.isTableRow("| Header 1 | Header 2 |"));
+    try std.testing.expect(Markdown.isTableRow("|---|---|"));
+    try std.testing.expect(Markdown.isTableRow("| cell | cell |"));
+    try std.testing.expect(Markdown.isTableRow("Header 1 | Header 2"));
+    try std.testing.expect(!Markdown.isTableRow(""));
+    try std.testing.expect(!Markdown.isTableRow("No pipes here"));
+}
+
+test "isTableSeparator basic" {
+    try std.testing.expect(Markdown.isTableSeparator("|---|---|"));
+    try std.testing.expect(Markdown.isTableSeparator("| --- | --- |"));
+    try std.testing.expect(Markdown.isTableSeparator("|:---:|---:|"));
+    try std.testing.expect(Markdown.isTableSeparator("|:---|:---:|---:|"));
+    try std.testing.expect(Markdown.isTableSeparator("| -------- |"));
+    try std.testing.expect(!Markdown.isTableSeparator("| Header |"));
+    try std.testing.expect(!Markdown.isTableSeparator("|--|"));
+    try std.testing.expect(!Markdown.isTableSeparator(""));
+}
+
+test "parseTableAlignment" {
+    try std.testing.expectEqual(JustifyMethod.left, Markdown.parseTableAlignment("---"));
+    try std.testing.expectEqual(JustifyMethod.left, Markdown.parseTableAlignment(":---"));
+    try std.testing.expectEqual(JustifyMethod.center, Markdown.parseTableAlignment(":---:"));
+    try std.testing.expectEqual(JustifyMethod.right, Markdown.parseTableAlignment("---:"));
+    try std.testing.expectEqual(JustifyMethod.left, Markdown.parseTableAlignment("  ---  "));
+    try std.testing.expectEqual(JustifyMethod.center, Markdown.parseTableAlignment("  :---:  "));
+}
+
+test "splitTableCells basic" {
+    const allocator = std.testing.allocator;
+
+    const cells1 = try Markdown.splitTableCells("| A | B | C |", allocator);
+    defer allocator.free(cells1);
+    try std.testing.expectEqual(@as(usize, 3), cells1.len);
+    try std.testing.expectEqualStrings("A", cells1[0]);
+    try std.testing.expectEqualStrings("B", cells1[1]);
+    try std.testing.expectEqualStrings("C", cells1[2]);
+
+    const cells2 = try Markdown.splitTableCells("| Header 1 | Header 2 |", allocator);
+    defer allocator.free(cells2);
+    try std.testing.expectEqual(@as(usize, 2), cells2.len);
+    try std.testing.expectEqualStrings("Header 1", cells2[0]);
+    try std.testing.expectEqualStrings("Header 2", cells2[1]);
+}
+
+test "splitTableCells no leading pipe" {
+    const allocator = std.testing.allocator;
+
+    const parsed_cells = try Markdown.splitTableCells("A | B | C", allocator);
+    defer allocator.free(parsed_cells);
+    try std.testing.expectEqual(@as(usize, 3), parsed_cells.len);
+    try std.testing.expectEqualStrings("A", parsed_cells[0]);
+    try std.testing.expectEqualStrings("B", parsed_cells[1]);
+    try std.testing.expectEqualStrings("C", parsed_cells[2]);
+}
+
+test "Markdown.render basic GFM table" {
+    const allocator = std.testing.allocator;
+    const source =
+        \\| Name | Age |
+        \\|------|-----|
+        \\| Alice | 30 |
+        \\| Bob | 25 |
+    ;
+    const md = Markdown.init(source);
+    const segments = try md.render(80, allocator);
+    defer allocator.free(segments);
+
+    var found_name = false;
+    var found_age = false;
+    var found_alice = false;
+    var found_bob = false;
+
+    for (segments) |seg| {
+        if (std.mem.eql(u8, seg.text, "Name")) found_name = true;
+        if (std.mem.eql(u8, seg.text, "Age")) found_age = true;
+        if (std.mem.eql(u8, seg.text, "Alice")) found_alice = true;
+        if (std.mem.eql(u8, seg.text, "Bob")) found_bob = true;
+    }
+
+    try std.testing.expect(found_name);
+    try std.testing.expect(found_age);
+    try std.testing.expect(found_alice);
+    try std.testing.expect(found_bob);
+}
+
+test "Markdown.render GFM table with alignment" {
+    const allocator = std.testing.allocator;
+    const source =
+        \\| Left | Center | Right |
+        \\|:-----|:------:|------:|
+        \\| L | C | R |
+    ;
+    const md = Markdown.init(source);
+    const segments = try md.render(80, allocator);
+    defer allocator.free(segments);
+
+    var found_left = false;
+    var found_center = false;
+    var found_right = false;
+
+    for (segments) |seg| {
+        if (std.mem.eql(u8, seg.text, "Left")) found_left = true;
+        if (std.mem.eql(u8, seg.text, "Center")) found_center = true;
+        if (std.mem.eql(u8, seg.text, "Right")) found_right = true;
+    }
+
+    try std.testing.expect(found_left);
+    try std.testing.expect(found_center);
+    try std.testing.expect(found_right);
+}
+
+test "Markdown.render GFM table header style" {
+    const allocator = std.testing.allocator;
+    const source =
+        \\| Header |
+        \\|--------|
+        \\| Data |
+    ;
+    const md = Markdown.init(source);
+    const segments = try md.render(80, allocator);
+    defer allocator.free(segments);
+
+    var found_header = false;
+    for (segments) |seg| {
+        if (std.mem.eql(u8, seg.text, "Header")) {
+            found_header = true;
+            try std.testing.expect(seg.style != null);
+            try std.testing.expect(seg.style.?.hasAttribute(.bold));
+        }
+    }
+    try std.testing.expect(found_header);
+}
+
+test "Markdown.render table mixed with other elements" {
+    const allocator = std.testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+
+    const source =
+        \\# Title
+        \\
+        \\| Col1 | Col2 |
+        \\|------|------|
+        \\| A | B |
+        \\
+        \\Some text after
+    ;
+    const md = Markdown.init(source);
+    const segments = try md.render(80, arena.allocator());
+
+    var found_title = false;
+    var found_col1 = false;
+    var found_text = false;
+
+    for (segments) |seg| {
+        if (std.mem.eql(u8, seg.text, "Title")) found_title = true;
+        if (std.mem.eql(u8, seg.text, "Col1")) found_col1 = true;
+        if (std.mem.eql(u8, seg.text, "Some text after")) found_text = true;
+    }
+
+    try std.testing.expect(found_title);
+    try std.testing.expect(found_col1);
+    try std.testing.expect(found_text);
+}
+
+test "Markdown.render invalid table falls back to text" {
+    const allocator = std.testing.allocator;
+    // Only one line - not a valid table
+    const source = "| Header 1 | Header 2 |";
+    const md = Markdown.init(source);
+    const segments = try md.render(80, allocator);
+    defer allocator.free(segments);
+
+    // Should still render the text (as inline text, not table)
+    try std.testing.expect(segments.len >= 1);
+}
+
+test "Markdown.render table without separator falls back to text" {
+    const allocator = std.testing.allocator;
+    const source =
+        \\| Header 1 | Header 2 |
+        \\| Not a sep | Also not |
+    ;
+    const md = Markdown.init(source);
+    const segments = try md.render(80, allocator);
+    defer allocator.free(segments);
+
+    // Should still render as text (inline), not as a table
+    try std.testing.expect(segments.len >= 1);
+}
+
+test "MarkdownTheme has table styles" {
+    const theme = MarkdownTheme.default;
+    try std.testing.expect(theme.table_header_style.hasAttribute(.bold));
+    try std.testing.expect(theme.table_border_style.color != null);
 }
