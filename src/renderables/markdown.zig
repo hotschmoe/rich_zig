@@ -54,6 +54,10 @@ pub const MarkdownTheme = struct {
     list_bullet_style: Style = Style.empty.fg(Color.bright_cyan),
     list_bullet_char: []const u8 = "\u{2022}",
     list_indent: usize = 3,
+    task_unchecked_char: []const u8 = "\u{2610}",
+    task_checked_char: []const u8 = "\u{2611}",
+    task_unchecked_style: Style = Style.empty.fg(Color.bright_black),
+    task_checked_style: Style = Style.empty.fg(Color.bright_green),
     blockquote_style: Style = Style.empty.fg(Color.bright_black).italic(),
     blockquote_border_style: Style = Style.empty.fg(Color.bright_cyan),
     blockquote_border_char: []const u8 = "\u{2502}",
@@ -478,9 +482,15 @@ pub const Markdown = struct {
         indent_level: usize,
     };
 
+    const TaskCheckbox = enum {
+        unchecked,
+        checked,
+    };
+
     const UnorderedListItem = struct {
         text: []const u8,
         indent_level: usize,
+        checkbox: ?TaskCheckbox = null,
     };
 
     const BlockquoteItem = struct {
@@ -528,8 +538,32 @@ pub const Markdown = struct {
         if (bullet != '-' and bullet != '*' and bullet != '+') return null;
         if (rest[1] != ' ') return null;
 
+        const after_bullet = rest[2..];
+
+        // Check for task list syntax: [ ] or [x] or [X]
+        if (after_bullet.len >= 3 and after_bullet[0] == '[' and after_bullet[2] == ']') {
+            const checkbox_char = after_bullet[1];
+            if (checkbox_char == ' ') {
+                // Unchecked: - [ ] text
+                const text_start: usize = if (after_bullet.len > 3 and after_bullet[3] == ' ') 4 else 3;
+                return .{
+                    .text = std.mem.trim(u8, after_bullet[text_start..], " \t"),
+                    .indent_level = indent / 2,
+                    .checkbox = .unchecked,
+                };
+            } else if (checkbox_char == 'x' or checkbox_char == 'X') {
+                // Checked: - [x] text or - [X] text
+                const text_start: usize = if (after_bullet.len > 3 and after_bullet[3] == ' ') 4 else 3;
+                return .{
+                    .text = std.mem.trim(u8, after_bullet[text_start..], " \t"),
+                    .indent_level = indent / 2,
+                    .checkbox = .checked,
+                };
+            }
+        }
+
         return .{
-            .text = std.mem.trim(u8, rest[2..], " \t"),
+            .text = std.mem.trim(u8, after_bullet, " \t"),
             .indent_level = indent / 2,
         };
     }
@@ -578,8 +612,21 @@ pub const Markdown = struct {
     ) !void {
         try self.renderListIndent(item.indent_level, segments, allocator);
 
-        const bullet_with_space = try std.fmt.allocPrint(allocator, "{s} ", .{self.theme.list_bullet_char});
-        try segments.append(allocator, Segment.styled(bullet_with_space, self.theme.list_bullet_style));
+        if (item.checkbox) |checkbox| {
+            const checkbox_char = switch (checkbox) {
+                .unchecked => self.theme.task_unchecked_char,
+                .checked => self.theme.task_checked_char,
+            };
+            const checkbox_style = switch (checkbox) {
+                .unchecked => self.theme.task_unchecked_style,
+                .checked => self.theme.task_checked_style,
+            };
+            const checkbox_with_space = try std.fmt.allocPrint(allocator, "{s} ", .{checkbox_char});
+            try segments.append(allocator, Segment.styled(checkbox_with_space, checkbox_style));
+        } else {
+            const bullet_with_space = try std.fmt.allocPrint(allocator, "{s} ", .{self.theme.list_bullet_char});
+            try segments.append(allocator, Segment.styled(bullet_with_space, self.theme.list_bullet_style));
+        }
 
         try self.renderInlineText(item.text, null, segments, allocator);
     }
@@ -1941,6 +1988,137 @@ test "Markdown.render mixed ordered and unordered lists" {
     try std.testing.expect(found_unordered);
     try std.testing.expect(found_number);
     try std.testing.expect(found_bullet);
+}
+
+test "parseUnorderedListItem task list unchecked" {
+    const item = Markdown.parseUnorderedListItem("- [ ] Unchecked task");
+    try std.testing.expect(item != null);
+    try std.testing.expectEqualStrings("Unchecked task", item.?.text);
+    try std.testing.expectEqual(@as(usize, 0), item.?.indent_level);
+    try std.testing.expect(item.?.checkbox != null);
+    try std.testing.expectEqual(Markdown.TaskCheckbox.unchecked, item.?.checkbox.?);
+}
+
+test "parseUnorderedListItem task list checked lowercase" {
+    const item = Markdown.parseUnorderedListItem("- [x] Checked task");
+    try std.testing.expect(item != null);
+    try std.testing.expectEqualStrings("Checked task", item.?.text);
+    try std.testing.expect(item.?.checkbox != null);
+    try std.testing.expectEqual(Markdown.TaskCheckbox.checked, item.?.checkbox.?);
+}
+
+test "parseUnorderedListItem task list checked uppercase" {
+    const item = Markdown.parseUnorderedListItem("- [X] Checked task uppercase");
+    try std.testing.expect(item != null);
+    try std.testing.expectEqualStrings("Checked task uppercase", item.?.text);
+    try std.testing.expect(item.?.checkbox != null);
+    try std.testing.expectEqual(Markdown.TaskCheckbox.checked, item.?.checkbox.?);
+}
+
+test "parseUnorderedListItem task list with asterisk bullet" {
+    const item = Markdown.parseUnorderedListItem("* [ ] Task with asterisk");
+    try std.testing.expect(item != null);
+    try std.testing.expectEqualStrings("Task with asterisk", item.?.text);
+    try std.testing.expect(item.?.checkbox != null);
+    try std.testing.expectEqual(Markdown.TaskCheckbox.unchecked, item.?.checkbox.?);
+}
+
+test "parseUnorderedListItem task list with indentation" {
+    const item = Markdown.parseUnorderedListItem("  - [x] Indented task");
+    try std.testing.expect(item != null);
+    try std.testing.expectEqualStrings("Indented task", item.?.text);
+    try std.testing.expectEqual(@as(usize, 1), item.?.indent_level);
+    try std.testing.expect(item.?.checkbox != null);
+    try std.testing.expectEqual(Markdown.TaskCheckbox.checked, item.?.checkbox.?);
+}
+
+test "parseUnorderedListItem regular list no checkbox" {
+    const item = Markdown.parseUnorderedListItem("- Regular item");
+    try std.testing.expect(item != null);
+    try std.testing.expectEqualStrings("Regular item", item.?.text);
+    try std.testing.expect(item.?.checkbox == null);
+}
+
+test "MarkdownTheme has task list styles" {
+    const theme = MarkdownTheme.default;
+    try std.testing.expect(theme.task_unchecked_style.color != null);
+    try std.testing.expect(theme.task_checked_style.color != null);
+    try std.testing.expectEqualStrings("\u{2610}", theme.task_unchecked_char);
+    try std.testing.expectEqualStrings("\u{2611}", theme.task_checked_char);
+}
+
+test "Markdown.render task list" {
+    const allocator = std.testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+
+    const source =
+        \\- [ ] Unchecked task
+        \\- [x] Checked task
+        \\- Regular item
+    ;
+    const md = Markdown.init(source);
+    const segments = try md.render(80, arena.allocator());
+
+    var found_unchecked_box = false;
+    var found_checked_box = false;
+    var found_regular_bullet = false;
+    var found_unchecked_text = false;
+    var found_checked_text = false;
+    var found_regular_text = false;
+
+    for (segments) |seg| {
+        if (std.mem.indexOf(u8, seg.text, "\u{2610}") != null) found_unchecked_box = true;
+        if (std.mem.indexOf(u8, seg.text, "\u{2611}") != null) found_checked_box = true;
+        if (std.mem.indexOf(u8, seg.text, "\u{2022}") != null) found_regular_bullet = true;
+        if (std.mem.eql(u8, seg.text, "Unchecked task")) found_unchecked_text = true;
+        if (std.mem.eql(u8, seg.text, "Checked task")) found_checked_text = true;
+        if (std.mem.eql(u8, seg.text, "Regular item")) found_regular_text = true;
+    }
+
+    try std.testing.expect(found_unchecked_box);
+    try std.testing.expect(found_checked_box);
+    try std.testing.expect(found_regular_bullet);
+    try std.testing.expect(found_unchecked_text);
+    try std.testing.expect(found_checked_text);
+    try std.testing.expect(found_regular_text);
+}
+
+test "Markdown.render nested task list" {
+    const allocator = std.testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+
+    const source =
+        \\- [ ] Parent task
+        \\  - [x] Completed subtask
+        \\  - [ ] Pending subtask
+    ;
+    const md = Markdown.init(source);
+    const segments = try md.render(80, arena.allocator());
+
+    var found_parent = false;
+    var found_completed = false;
+    var found_pending = false;
+    var found_indent = false;
+
+    for (segments) |seg| {
+        if (std.mem.eql(u8, seg.text, "Parent task")) found_parent = true;
+        if (std.mem.eql(u8, seg.text, "Completed subtask")) found_completed = true;
+        if (std.mem.eql(u8, seg.text, "Pending subtask")) found_pending = true;
+        if (seg.text.len == 3) {
+            var all_spaces = true;
+            for (seg.text) |c| {
+                if (c != ' ') all_spaces = false;
+            }
+            if (all_spaces) found_indent = true;
+        }
+    }
+
+    try std.testing.expect(found_parent);
+    try std.testing.expect(found_completed);
+    try std.testing.expect(found_pending);
+    try std.testing.expect(found_indent);
 }
 
 test "parseBlockquote basic" {
