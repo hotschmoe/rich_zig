@@ -147,22 +147,16 @@ pub const Language = enum {
 
     /// Detect language from content using heuristics
     pub fn fromContent(content: []const u8) Language {
-        // Skip whitespace at the beginning
-        var start: usize = 0;
-        while (start < content.len and (content[start] == ' ' or content[start] == '\t' or content[start] == '\n' or content[start] == '\r')) {
-            start += 1;
-        }
-
-        if (start >= content.len) return .plain;
-        const trimmed = content[start..];
+        const trimmed = std.mem.trimLeft(u8, content, " \t\n\r");
+        if (trimmed.len == 0) return .plain;
 
         // Check for shebang
         if (std.mem.startsWith(u8, trimmed, "#!")) {
-            if (std.mem.indexOf(u8, trimmed[0..@min(trimmed.len, 100)], "python")) |_| return .python;
-            if (std.mem.indexOf(u8, trimmed[0..@min(trimmed.len, 100)], "node")) |_| return .javascript;
-            if (std.mem.indexOf(u8, trimmed[0..@min(trimmed.len, 100)], "bash")) |_| return .bash;
-            if (std.mem.indexOf(u8, trimmed[0..@min(trimmed.len, 100)], "sh")) |_| return .bash;
-            if (std.mem.indexOf(u8, trimmed[0..@min(trimmed.len, 100)], "zsh")) |_| return .bash;
+            const shebang = trimmed[0..@min(trimmed.len, 100)];
+            if (std.mem.indexOf(u8, shebang, "python") != null) return .python;
+            if (std.mem.indexOf(u8, shebang, "node") != null) return .javascript;
+            // "sh" matches bash, sh, zsh
+            if (std.mem.indexOf(u8, shebang, "sh") != null) return .bash;
             return .bash;
         }
 
@@ -660,8 +654,13 @@ pub const Syntax = struct {
             .css,
             .sql,
             .plain,
-            => try segments.append(allocator, Segment.styledOptional(line, if (self.theme.default_style.isEmpty()) null else self.theme.default_style)),
+            => try segments.append(allocator, self.defaultSegment(line)),
         }
+    }
+
+    fn defaultSegment(self: Syntax, text: []const u8) Segment {
+        const style = if (self.theme.default_style.isEmpty()) null else self.theme.default_style;
+        return Segment.styledOptional(text, style);
     }
 
     fn highlightZig(self: Syntax, segments: *std.ArrayList(Segment), allocator: std.mem.Allocator, line: []const u8) !void {
@@ -717,7 +716,7 @@ pub const Syntax = struct {
                 } else if (end < line.len and line[end] == '(') {
                     try segments.append(allocator, Segment.styled(ident, self.theme.function_style));
                 } else {
-                    try segments.append(allocator, Segment.styledOptional(ident, if (self.theme.default_style.isEmpty()) null else self.theme.default_style));
+                    try segments.append(allocator, self.defaultSegment(ident));
                 }
                 i = end;
                 continue;
@@ -804,7 +803,7 @@ pub const Syntax = struct {
 
         if (std.mem.startsWith(u8, line, "- ") or std.mem.startsWith(u8, line, "* ") or std.mem.startsWith(u8, line, "+ ")) {
             try segments.append(allocator, Segment.styled(line[0..2], self.theme.keyword_style));
-            try segments.append(allocator, Segment.styledOptional(line[2..], if (self.theme.default_style.isEmpty()) null else self.theme.default_style));
+            try segments.append(allocator, self.defaultSegment(line[2..]));
             return;
         }
 
@@ -860,7 +859,7 @@ pub const Syntax = struct {
                 }
             }
 
-            try segments.append(allocator, Segment.styledOptional(line[i .. i + 1], if (self.theme.default_style.isEmpty()) null else self.theme.default_style));
+            try segments.append(allocator, self.defaultSegment(line[i .. i + 1]));
             i += 1;
         }
     }
