@@ -63,14 +63,15 @@ pub fn main() !void {
         var group = rich.ProgressGroup.init(allocator);
         defer group.deinit();
 
-        _ = try group.addTask("Download", 100);
-        _ = try group.addTask("Extract", 100);
-        _ = try group.addTask("Install", 100);
+        // addTask returns a pointer to the bar for updating progress
+        const download = try group.addTask("Download", 100);
+        const extract = try group.addTask("Extract", 100);
+        const install = try group.addTask("Install", 100);
 
-        // Simulate different progress states
-        group.bars.items[0].completed = 100;
-        group.bars.items[1].completed = 60;
-        group.bars.items[2].completed = 20;
+        // Update progress via returned pointers
+        download.completed = 100;
+        extract.completed = 60;
+        install.completed = 20;
 
         try console.printRenderable(group);
     }

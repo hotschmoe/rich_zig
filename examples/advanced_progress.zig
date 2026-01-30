@@ -66,15 +66,16 @@ pub fn main() !void {
         var group = rich.ProgressGroup.init(allocator);
         defer group.deinit();
 
-        _ = try group.addTask("Complete", 100);
-        _ = try group.addTask("In Progress", 100);
-        _ = try group.addTask("Starting", 100);
-        _ = try group.addTask("Pending", 100);
+        // addTask returns *ProgressBar for updating progress
+        const complete = try group.addTask("Complete", 100);
+        const in_progress = try group.addTask("In Progress", 100);
+        const starting = try group.addTask("Starting", 100);
+        const pending = try group.addTask("Pending", 100);
 
-        group.bars.items[0].completed = 100;
-        group.bars.items[1].completed = 65;
-        group.bars.items[2].completed = 10;
-        group.bars.items[3].completed = 0;
+        complete.completed = 100;
+        in_progress.completed = 65;
+        starting.completed = 10;
+        pending.completed = 0;
 
         try console.printRenderable(group);
     }
