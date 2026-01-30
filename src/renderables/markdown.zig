@@ -44,6 +44,8 @@ pub const MarkdownTheme = struct {
     link_style: Style = Style.empty.fg(Color.bright_blue).underline(),
     code_block_style: Style = Style.empty.foreground(Color.default).dim(),
     syntax_theme: SyntaxTheme = SyntaxTheme.default,
+    list_number_style: Style = Style.empty.fg(Color.bright_yellow),
+    list_indent: usize = 3,
 
     pub const default: MarkdownTheme = .{};
 
@@ -252,6 +254,9 @@ pub const Markdown = struct {
                 const header_segments = try header.render(max_width, allocator);
                 defer allocator.free(header_segments);
                 try segments.appendSlice(allocator, header_segments);
+            } else if (parseOrderedListItem(line)) |list_item| {
+                try self.renderOrderedListItem(list_item, &segments, allocator);
+                try segments.append(allocator, Segment.line());
             } else {
                 if (line.len > 0) {
                     try self.renderInlineText(line, null, &segments, allocator);
@@ -307,6 +312,74 @@ pub const Markdown = struct {
         level: HeaderLevel,
         text: []const u8,
     };
+
+    const OrderedListItem = struct {
+        number: usize,
+        text: []const u8,
+        indent_level: usize,
+    };
+
+    fn parseOrderedListItem(line: []const u8) ?OrderedListItem {
+        // Count leading spaces for indentation
+        var indent: usize = 0;
+        while (indent < line.len and line[indent] == ' ') {
+            indent += 1;
+        }
+
+        const indent_level = indent / 2; // 2 spaces per indent level
+        const rest = line[indent..];
+
+        if (rest.len == 0) return null;
+
+        // Look for number followed by . or )
+        var num_end: usize = 0;
+        while (num_end < rest.len and rest[num_end] >= '0' and rest[num_end] <= '9') {
+            num_end += 1;
+        }
+
+        if (num_end == 0) return null; // No digits
+        if (num_end >= rest.len) return null; // No delimiter after number
+
+        const delimiter = rest[num_end];
+        if (delimiter != '.' and delimiter != ')') return null;
+
+        // Must have space after delimiter
+        const after_delim = num_end + 1;
+        if (after_delim >= rest.len or rest[after_delim] != ' ') return null;
+
+        const number = std.fmt.parseInt(usize, rest[0..num_end], 10) catch return null;
+        const text = std.mem.trim(u8, rest[after_delim..], " \t");
+
+        return .{
+            .number = number,
+            .text = text,
+            .indent_level = indent_level,
+        };
+    }
+
+    fn renderOrderedListItem(
+        self: Markdown,
+        item: OrderedListItem,
+        segments: *std.ArrayList(Segment),
+        allocator: std.mem.Allocator,
+    ) !void {
+        // Calculate indentation based on level
+        const base_indent = item.indent_level * self.theme.list_indent;
+
+        // Add leading indent spaces
+        if (base_indent > 0) {
+            const indent_str = try allocator.alloc(u8, base_indent);
+            @memset(indent_str, ' ');
+            try segments.append(allocator, Segment.plain(indent_str));
+        }
+
+        // Format the number with a period and space
+        const number_str = try std.fmt.allocPrint(allocator, "{d}. ", .{item.number});
+        try segments.append(allocator, Segment.styled(number_str, self.theme.list_number_style));
+
+        // Render the item text with inline formatting
+        try self.renderInlineText(item.text, null, segments, allocator);
+    }
 
     fn parseHeader(line: []const u8) ?HeaderInfo {
         if (line.len == 0 or line[0] != '#') return null;
@@ -1152,4 +1225,186 @@ test "MarkdownTheme has link style" {
     const theme = MarkdownTheme.default;
     try std.testing.expect(theme.link_style.hasAttribute(.underline));
     try std.testing.expect(theme.link_style.color != null);
+}
+
+test "parseOrderedListItem basic" {
+    const item = Markdown.parseOrderedListItem("1. First item");
+    try std.testing.expect(item != null);
+    try std.testing.expectEqual(@as(usize, 1), item.?.number);
+    try std.testing.expectEqualStrings("First item", item.?.text);
+    try std.testing.expectEqual(@as(usize, 0), item.?.indent_level);
+}
+
+test "parseOrderedListItem various numbers" {
+    const item2 = Markdown.parseOrderedListItem("2. Second");
+    try std.testing.expect(item2 != null);
+    try std.testing.expectEqual(@as(usize, 2), item2.?.number);
+
+    const item10 = Markdown.parseOrderedListItem("10. Tenth");
+    try std.testing.expect(item10 != null);
+    try std.testing.expectEqual(@as(usize, 10), item10.?.number);
+
+    const item99 = Markdown.parseOrderedListItem("99. Large");
+    try std.testing.expect(item99 != null);
+    try std.testing.expectEqual(@as(usize, 99), item99.?.number);
+}
+
+test "parseOrderedListItem with paren delimiter" {
+    const item = Markdown.parseOrderedListItem("1) First item");
+    try std.testing.expect(item != null);
+    try std.testing.expectEqual(@as(usize, 1), item.?.number);
+    try std.testing.expectEqualStrings("First item", item.?.text);
+}
+
+test "parseOrderedListItem with indentation" {
+    const item1 = Markdown.parseOrderedListItem("  1. Indented once");
+    try std.testing.expect(item1 != null);
+    try std.testing.expectEqual(@as(usize, 1), item1.?.indent_level);
+    try std.testing.expectEqualStrings("Indented once", item1.?.text);
+
+    const item2 = Markdown.parseOrderedListItem("    1. Indented twice");
+    try std.testing.expect(item2 != null);
+    try std.testing.expectEqual(@as(usize, 2), item2.?.indent_level);
+}
+
+test "parseOrderedListItem invalid" {
+    try std.testing.expect(Markdown.parseOrderedListItem("Not a list") == null);
+    try std.testing.expect(Markdown.parseOrderedListItem("1 No delimiter") == null);
+    try std.testing.expect(Markdown.parseOrderedListItem("1.NoSpace") == null);
+    try std.testing.expect(Markdown.parseOrderedListItem(". No number") == null);
+    try std.testing.expect(Markdown.parseOrderedListItem("") == null);
+    try std.testing.expect(Markdown.parseOrderedListItem("a. Letter") == null);
+}
+
+test "Markdown.render ordered list" {
+    const allocator = std.testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+
+    const md = Markdown.init("1. First\n2. Second\n3. Third");
+    const segments = try md.render(80, arena.allocator());
+
+    var found_first = false;
+    var found_second = false;
+    var found_third = false;
+    var found_num_1 = false;
+    var found_num_2 = false;
+    var found_num_3 = false;
+
+    for (segments) |seg| {
+        if (std.mem.eql(u8, seg.text, "First")) found_first = true;
+        if (std.mem.eql(u8, seg.text, "Second")) found_second = true;
+        if (std.mem.eql(u8, seg.text, "Third")) found_third = true;
+        if (std.mem.eql(u8, seg.text, "1. ")) {
+            found_num_1 = true;
+            try std.testing.expect(seg.style != null);
+        }
+        if (std.mem.eql(u8, seg.text, "2. ")) {
+            found_num_2 = true;
+            try std.testing.expect(seg.style != null);
+        }
+        if (std.mem.eql(u8, seg.text, "3. ")) {
+            found_num_3 = true;
+            try std.testing.expect(seg.style != null);
+        }
+    }
+
+    try std.testing.expect(found_first);
+    try std.testing.expect(found_second);
+    try std.testing.expect(found_third);
+    try std.testing.expect(found_num_1);
+    try std.testing.expect(found_num_2);
+    try std.testing.expect(found_num_3);
+}
+
+test "Markdown.render ordered list with inline styles" {
+    const allocator = std.testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+
+    const md = Markdown.init("1. Item with **bold** text");
+    const segments = try md.render(80, arena.allocator());
+
+    var found_bold = false;
+    for (segments) |seg| {
+        if (std.mem.eql(u8, seg.text, "bold")) {
+            found_bold = true;
+            try std.testing.expect(seg.style != null);
+            try std.testing.expect(seg.style.?.hasAttribute(.bold));
+        }
+    }
+    try std.testing.expect(found_bold);
+}
+
+test "Markdown.render nested ordered list" {
+    const allocator = std.testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+
+    const source =
+        \\1. Outer item
+        \\  1. Nested item
+        \\  2. Another nested
+        \\2. Back to outer
+    ;
+    const md = Markdown.init(source);
+    const segments = try md.render(80, arena.allocator());
+
+    var found_outer = false;
+    var found_nested = false;
+    var found_indent = false;
+
+    for (segments) |seg| {
+        if (std.mem.eql(u8, seg.text, "Outer item")) found_outer = true;
+        if (std.mem.eql(u8, seg.text, "Nested item")) found_nested = true;
+        // Check for indent spaces (3 spaces per indent level)
+        if (seg.text.len == 3) {
+            var all_spaces = true;
+            for (seg.text) |c| {
+                if (c != ' ') all_spaces = false;
+            }
+            if (all_spaces) found_indent = true;
+        }
+    }
+
+    try std.testing.expect(found_outer);
+    try std.testing.expect(found_nested);
+    try std.testing.expect(found_indent);
+}
+
+test "Markdown.render ordered list mixed with other elements" {
+    const allocator = std.testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+
+    const source =
+        \\# Header
+        \\
+        \\1. First item
+        \\2. Second item
+        \\
+        \\Some text
+    ;
+    const md = Markdown.init(source);
+    const segments = try md.render(80, arena.allocator());
+
+    var found_header = false;
+    var found_first = false;
+    var found_text = false;
+
+    for (segments) |seg| {
+        if (std.mem.eql(u8, seg.text, "Header")) found_header = true;
+        if (std.mem.eql(u8, seg.text, "First item")) found_first = true;
+        if (std.mem.eql(u8, seg.text, "Some text")) found_text = true;
+    }
+
+    try std.testing.expect(found_header);
+    try std.testing.expect(found_first);
+    try std.testing.expect(found_text);
+}
+
+test "MarkdownTheme has list styles" {
+    const theme = MarkdownTheme.default;
+    try std.testing.expect(theme.list_number_style.color != null);
+    try std.testing.expectEqual(@as(usize, 3), theme.list_indent);
 }
