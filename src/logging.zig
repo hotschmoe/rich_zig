@@ -233,12 +233,7 @@ pub const RichHandler = struct {
         // Padding for alignment
         const written_len = level_str.len + 2; // +2 for brackets
         const target_width = self.format.level_width + 2;
-        if (written_len < target_width) {
-            const padding = target_width - written_len;
-            for (0..padding) |_| {
-                try writer.writeByte(' ');
-            }
-        }
+        for (written_len..target_width) |_| try writer.writeByte(' ');
 
         try Style.renderReset(writer);
     }
@@ -266,13 +261,10 @@ pub const RichHandler = struct {
     }
 
     fn writeMessage(self: *RichHandler, message: []const u8, writer: anytype) !void {
-        if (!self.styles.message.isEmpty()) {
-            try self.styles.message.renderAnsi(self.color_system, writer);
-        }
+        const styled = !self.styles.message.isEmpty();
+        if (styled) try self.styles.message.renderAnsi(self.color_system, writer);
         try writer.writeAll(message);
-        if (!self.styles.message.isEmpty()) {
-            try Style.renderReset(writer);
-        }
+        if (styled) try Style.renderReset(writer);
     }
 
     // Convenience methods
