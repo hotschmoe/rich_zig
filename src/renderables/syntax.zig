@@ -225,6 +225,18 @@ pub const Syntax = struct {
         };
     }
 
+    pub fn renderDuped(self: Syntax, max_width: usize, allocator: std.mem.Allocator) ![]Segment {
+        const segments = try self.render(max_width, allocator);
+
+        for (segments) |*seg| {
+            if (seg.text.len > 0 and seg.text.ptr != "\n".ptr) {
+                seg.text = try allocator.dupe(u8, seg.text);
+            }
+        }
+
+        return segments;
+    }
+
     pub fn withLanguage(self: Syntax, lang: Language) Syntax {
         var s = self;
         s.language = lang;

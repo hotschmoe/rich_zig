@@ -3,6 +3,10 @@ const Segment = @import("../segment.zig").Segment;
 const Style = @import("../style.zig").Style;
 const Color = @import("../color.zig").Color;
 const cells = @import("../cells.zig");
+const syntax_mod = @import("syntax.zig");
+const Syntax = syntax_mod.Syntax;
+const SyntaxTheme = syntax_mod.SyntaxTheme;
+const Language = syntax_mod.Language;
 
 pub const HeaderLevel = enum(u3) {
     h1 = 1,
@@ -37,6 +41,8 @@ pub const MarkdownTheme = struct {
     bold_style: Style = Style.empty.bold(),
     italic_style: Style = Style.empty.italic(),
     bold_italic_style: Style = Style.empty.bold().italic(),
+    code_block_style: Style = Style.empty.foreground(Color.default).dim(),
+    syntax_theme: SyntaxTheme = SyntaxTheme.default,
 
     pub const default: MarkdownTheme = .{};
 
@@ -133,6 +139,63 @@ pub const Header = struct {
     }
 };
 
+pub const CodeBlock = struct {
+    code: []const u8,
+    language: ?[]const u8 = null,
+    theme: MarkdownTheme = .default,
+
+    pub fn init(code: []const u8) CodeBlock {
+        return .{ .code = code };
+    }
+
+    pub fn withLanguage(self: CodeBlock, lang: []const u8) CodeBlock {
+        var cb = self;
+        cb.language = lang;
+        return cb;
+    }
+
+    pub fn withTheme(self: CodeBlock, theme: MarkdownTheme) CodeBlock {
+        var cb = self;
+        cb.theme = theme;
+        return cb;
+    }
+
+    fn detectLanguage(self: CodeBlock) Language {
+        const lang = self.language orelse return .plain;
+        if (lang.len == 0) return .plain;
+
+        if (std.mem.eql(u8, lang, "zig")) return .zig;
+        if (std.mem.eql(u8, lang, "json")) return .json;
+        if (std.mem.eql(u8, lang, "md") or std.mem.eql(u8, lang, "markdown")) return .markdown;
+
+        return .plain;
+    }
+
+    pub fn render(self: CodeBlock, max_width: usize, allocator: std.mem.Allocator) ![]Segment {
+        const detected_lang = self.detectLanguage();
+
+        if (detected_lang != .plain) {
+            const syntax = Syntax.init(allocator, self.code)
+                .withLanguage(detected_lang)
+                .withTheme(self.theme.syntax_theme);
+            return syntax.renderDuped(max_width, allocator);
+        }
+
+        var segments: std.ArrayList(Segment) = .empty;
+        var lines = std.mem.splitScalar(u8, self.code, '\n');
+
+        while (lines.next()) |line| {
+            if (line.len > 0) {
+                const duped = try allocator.dupe(u8, line);
+                try segments.append(allocator, Segment.styled(duped, self.theme.code_block_style));
+            }
+            try segments.append(allocator, Segment.line());
+        }
+
+        return segments.toOwnedSlice(allocator);
+    }
+};
+
 pub const Markdown = struct {
     source: []const u8,
     theme: MarkdownTheme = .default,
@@ -151,8 +214,45 @@ pub const Markdown = struct {
         var segments: std.ArrayList(Segment) = .empty;
         var lines = std.mem.splitScalar(u8, self.source, '\n');
 
+        var in_code_block = false;
+        var code_block_lang: ?[]const u8 = null;
+        var code_lines: std.ArrayList(u8) = .empty;
+
         while (lines.next()) |line| {
             const trimmed = std.mem.trimLeft(u8, line, " \t");
+
+            if (parseFenceOpen(trimmed)) |lang| {
+                if (!in_code_block) {
+                    in_code_block = true;
+                    code_block_lang = lang;
+                    code_lines = .empty;
+                    continue;
+                }
+            }
+
+            if (in_code_block) {
+                if (parseFenceClose(trimmed)) {
+                    const code = try code_lines.toOwnedSlice(allocator);
+                    defer allocator.free(code);
+                    var code_block = CodeBlock.init(code).withTheme(self.theme);
+                    if (code_block_lang) |lang| {
+                        code_block = code_block.withLanguage(lang);
+                    }
+                    const code_segments = try code_block.render(max_width, allocator);
+                    defer allocator.free(code_segments);
+                    try segments.appendSlice(allocator, code_segments);
+
+                    in_code_block = false;
+                    code_block_lang = null;
+                    continue;
+                }
+
+                if (code_lines.items.len > 0) {
+                    try code_lines.append(allocator, '\n');
+                }
+                try code_lines.appendSlice(allocator, line);
+                continue;
+            }
 
             if (parseHeader(trimmed)) |header_info| {
                 const header = Header.init(header_info.text, header_info.level)
@@ -168,7 +268,36 @@ pub const Markdown = struct {
             }
         }
 
+        if (in_code_block and code_lines.items.len > 0) {
+            const code = try code_lines.toOwnedSlice(allocator);
+            defer allocator.free(code);
+            var code_block = CodeBlock.init(code).withTheme(self.theme);
+            if (code_block_lang) |lang| {
+                code_block = code_block.withLanguage(lang);
+            }
+            const code_segments = try code_block.render(max_width, allocator);
+            defer allocator.free(code_segments);
+            try segments.appendSlice(allocator, code_segments);
+        }
+
         return segments.toOwnedSlice(allocator);
+    }
+
+    fn parseFenceOpen(line: []const u8) ?[]const u8 {
+        if (line.len < 3) return null;
+        if (!std.mem.startsWith(u8, line, "```")) return null;
+
+        const rest = std.mem.trimLeft(u8, line[3..], " \t");
+        if (rest.len == 0) return "";
+
+        const lang_end = std.mem.indexOfAny(u8, rest, " \t") orelse rest.len;
+        return rest[0..lang_end];
+    }
+
+    fn parseFenceClose(line: []const u8) bool {
+        if (line.len < 3) return false;
+        const trimmed = std.mem.trimRight(u8, line, " \t");
+        return std.mem.eql(u8, trimmed, "```");
     }
 
     const HeaderInfo = struct {
@@ -637,4 +766,197 @@ test "MarkdownTheme has bold and italic styles" {
     try std.testing.expect(theme.italic_style.hasAttribute(.italic));
     try std.testing.expect(theme.bold_italic_style.hasAttribute(.bold));
     try std.testing.expect(theme.bold_italic_style.hasAttribute(.italic));
+}
+
+test "parseFenceOpen detects code fence" {
+    try std.testing.expectEqualStrings("", Markdown.parseFenceOpen("```").?);
+    try std.testing.expectEqualStrings("zig", Markdown.parseFenceOpen("```zig").?);
+    try std.testing.expectEqualStrings("json", Markdown.parseFenceOpen("```json").?);
+    try std.testing.expectEqualStrings("zig", Markdown.parseFenceOpen("```zig  ").?);
+    try std.testing.expect(Markdown.parseFenceOpen("``") == null);
+    try std.testing.expect(Markdown.parseFenceOpen("not a fence") == null);
+}
+
+test "parseFenceClose detects closing fence" {
+    try std.testing.expect(Markdown.parseFenceClose("```"));
+    try std.testing.expect(Markdown.parseFenceClose("```  "));
+    try std.testing.expect(!Markdown.parseFenceClose("``"));
+    try std.testing.expect(!Markdown.parseFenceClose("```zig"));
+}
+
+test "CodeBlock.init" {
+    const cb = CodeBlock.init("const x = 1;");
+    try std.testing.expectEqualStrings("const x = 1;", cb.code);
+    try std.testing.expect(cb.language == null);
+}
+
+test "CodeBlock.withLanguage" {
+    const cb = CodeBlock.init("code").withLanguage("zig");
+    try std.testing.expectEqualStrings("zig", cb.language.?);
+}
+
+test "CodeBlock.detectLanguage" {
+    const plain = CodeBlock.init("code");
+    try std.testing.expectEqual(Language.plain, plain.detectLanguage());
+
+    const zig = CodeBlock.init("code").withLanguage("zig");
+    try std.testing.expectEqual(Language.zig, zig.detectLanguage());
+
+    const json = CodeBlock.init("code").withLanguage("json");
+    try std.testing.expectEqual(Language.json, json.detectLanguage());
+
+    const md = CodeBlock.init("code").withLanguage("markdown");
+    try std.testing.expectEqual(Language.markdown, md.detectLanguage());
+
+    const unknown = CodeBlock.init("code").withLanguage("python");
+    try std.testing.expectEqual(Language.plain, unknown.detectLanguage());
+}
+
+test "CodeBlock.render plain" {
+    const allocator = std.testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+
+    const cb = CodeBlock.init("line1\nline2");
+    const segments = try cb.render(80, arena.allocator());
+
+    try std.testing.expect(segments.len >= 2);
+    var found_line1 = false;
+    var found_line2 = false;
+    for (segments) |seg| {
+        if (std.mem.eql(u8, seg.text, "line1")) found_line1 = true;
+        if (std.mem.eql(u8, seg.text, "line2")) found_line2 = true;
+    }
+    try std.testing.expect(found_line1);
+    try std.testing.expect(found_line2);
+}
+
+test "CodeBlock.render zig syntax" {
+    const allocator = std.testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+
+    const cb = CodeBlock.init("const x = 1;").withLanguage("zig");
+    const segments = try cb.render(80, arena.allocator());
+
+    try std.testing.expect(segments.len > 0);
+    var found_const = false;
+    for (segments) |seg| {
+        if (std.mem.eql(u8, seg.text, "const")) {
+            found_const = true;
+            try std.testing.expect(seg.style != null);
+        }
+    }
+    try std.testing.expect(found_const);
+}
+
+test "Markdown.render fenced code block plain" {
+    const allocator = std.testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+
+    const md = Markdown.init("```\ncode here\n```");
+    const segments = try md.render(80, arena.allocator());
+
+    var found_code = false;
+    for (segments) |seg| {
+        if (std.mem.eql(u8, seg.text, "code here")) {
+            found_code = true;
+        }
+    }
+    try std.testing.expect(found_code);
+}
+
+test "Markdown.render fenced code block with language" {
+    const allocator = std.testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+
+    const md = Markdown.init("```zig\nconst x = 1;\n```");
+    const segments = try md.render(80, arena.allocator());
+
+    var found_const = false;
+    for (segments) |seg| {
+        if (std.mem.eql(u8, seg.text, "const")) {
+            found_const = true;
+            try std.testing.expect(seg.style != null);
+        }
+    }
+    try std.testing.expect(found_const);
+}
+
+test "Markdown.render mixed content with code block" {
+    const allocator = std.testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+
+    const source =
+        \\# Title
+        \\
+        \\Some text
+        \\
+        \\```zig
+        \\const x = 42;
+        \\```
+        \\
+        \\More text
+    ;
+    const md = Markdown.init(source);
+    const segments = try md.render(80, arena.allocator());
+
+    var found_title = false;
+    var found_code = false;
+    var found_more = false;
+    for (segments) |seg| {
+        if (std.mem.eql(u8, seg.text, "Title")) found_title = true;
+        if (std.mem.eql(u8, seg.text, "const")) found_code = true;
+        if (std.mem.eql(u8, seg.text, "More text")) found_more = true;
+    }
+    try std.testing.expect(found_title);
+    try std.testing.expect(found_code);
+    try std.testing.expect(found_more);
+}
+
+test "Markdown.render unclosed code block" {
+    const allocator = std.testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+
+    const md = Markdown.init("```zig\ncode without closing");
+    const segments = try md.render(80, arena.allocator());
+
+    var found_code = false;
+    for (segments) |seg| {
+        if (std.mem.indexOf(u8, seg.text, "code") != null) {
+            found_code = true;
+        }
+    }
+    try std.testing.expect(found_code);
+}
+
+test "Markdown.render multiple code blocks" {
+    const allocator = std.testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+
+    const source =
+        \\```zig
+        \\const a = 1;
+        \\```
+        \\
+        \\```json
+        \\{"key": "value"}
+        \\```
+    ;
+    const md = Markdown.init(source);
+    const segments = try md.render(80, arena.allocator());
+
+    var found_const = false;
+    var found_key = false;
+    for (segments) |seg| {
+        if (std.mem.eql(u8, seg.text, "const")) found_const = true;
+        if (std.mem.indexOf(u8, seg.text, "key") != null) found_key = true;
+    }
+    try std.testing.expect(found_const);
+    try std.testing.expect(found_key);
 }
