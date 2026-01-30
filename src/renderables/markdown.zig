@@ -524,7 +524,7 @@ pub const Markdown = struct {
             // Try image first: ![alt](url)
             if (tryParseImage(text, pos)) |result| {
                 try spans.append(allocator, .{
-                    .text = result.alt_text,
+                    .text = result.text,
                     .style_type = .image,
                     .image_url = result.url,
                 });
@@ -535,7 +535,7 @@ pub const Markdown = struct {
             // Try link: [text](url)
             if (tryParseLink(text, pos)) |result| {
                 try spans.append(allocator, .{
-                    .text = result.link_text,
+                    .text = result.text,
                     .style_type = .link,
                     .link_url = result.url,
                 });
@@ -583,36 +583,15 @@ pub const Markdown = struct {
     }
 
     const LinkResult = struct {
-        link_text: []const u8,
+        text: []const u8,
         url: []const u8,
         end_pos: usize,
     };
 
-    const ImageResult = struct {
-        alt_text: []const u8,
-        url: []const u8,
-        end_pos: usize,
-    };
-
-    fn tryParseImage(text: []const u8, pos: usize) ?ImageResult {
-        // Image syntax: ![alt text](url)
+    fn tryParseImage(text: []const u8, pos: usize) ?LinkResult {
+        // Image syntax: ![alt text](url) - same as link but with ! prefix
         if (pos >= text.len or text[pos] != '!') return null;
-        if (pos + 1 >= text.len or text[pos + 1] != '[') return null;
-
-        const alt_start = pos + 2;
-        const alt_end = findMatchingDelimiter(text, alt_start, '[', ']') orelse return null;
-
-        const paren_start = alt_end + 1;
-        if (paren_start >= text.len or text[paren_start] != '(') return null;
-
-        const url_start = paren_start + 1;
-        const url_end = findMatchingDelimiter(text, url_start, '(', ')') orelse return null;
-
-        return .{
-            .alt_text = text[alt_start..alt_end],
-            .url = text[url_start..url_end],
-            .end_pos = url_end + 1,
-        };
+        return tryParseLinkAt(text, pos + 1);
     }
 
     /// Scans for a matching closing delimiter, respecting nesting.
@@ -634,6 +613,10 @@ pub const Markdown = struct {
     }
 
     fn tryParseLink(text: []const u8, pos: usize) ?LinkResult {
+        return tryParseLinkAt(text, pos);
+    }
+
+    fn tryParseLinkAt(text: []const u8, pos: usize) ?LinkResult {
         if (pos >= text.len or text[pos] != '[') return null;
 
         const text_start = pos + 1;
@@ -646,7 +629,7 @@ pub const Markdown = struct {
         const url_end = findMatchingDelimiter(text, url_start, '(', ')') orelse return null;
 
         return .{
-            .link_text = text[text_start..text_end],
+            .text = text[text_start..text_end],
             .url = text[url_start..url_end],
             .end_pos = url_end + 1,
         };
@@ -1308,7 +1291,7 @@ test "tryParseLink basic link" {
     const text = "[click here](https://example.com)";
     const result = Markdown.tryParseLink(text, 0);
     try std.testing.expect(result != null);
-    try std.testing.expectEqualStrings("click here", result.?.link_text);
+    try std.testing.expectEqualStrings("click here", result.?.text);
     try std.testing.expectEqualStrings("https://example.com", result.?.url);
     try std.testing.expectEqual(@as(usize, text.len), result.?.end_pos);
 }
@@ -1324,7 +1307,7 @@ test "tryParseLink with offset" {
     const text = "prefix [link](url) suffix";
     const result = Markdown.tryParseLink(text, 7);
     try std.testing.expect(result != null);
-    try std.testing.expectEqualStrings("link", result.?.link_text);
+    try std.testing.expectEqualStrings("link", result.?.text);
     try std.testing.expectEqualStrings("url", result.?.url);
 }
 
@@ -1332,7 +1315,7 @@ test "tryParseLink nested brackets" {
     const text = "[text [nested]](url)";
     const result = Markdown.tryParseLink(text, 0);
     try std.testing.expect(result != null);
-    try std.testing.expectEqualStrings("text [nested]", result.?.link_text);
+    try std.testing.expectEqualStrings("text [nested]", result.?.text);
 }
 
 test "tryParseLink nested parens in url" {
@@ -2247,7 +2230,7 @@ test "tryParseImage basic" {
     const text = "![alt text](https://example.com/image.png)";
     const result = Markdown.tryParseImage(text, 0);
     try std.testing.expect(result != null);
-    try std.testing.expectEqualStrings("alt text", result.?.alt_text);
+    try std.testing.expectEqualStrings("alt text", result.?.text);
     try std.testing.expectEqualStrings("https://example.com/image.png", result.?.url);
     try std.testing.expectEqual(@as(usize, text.len), result.?.end_pos);
 }
@@ -2256,7 +2239,7 @@ test "tryParseImage empty alt" {
     const text = "![](https://example.com/image.png)";
     const result = Markdown.tryParseImage(text, 0);
     try std.testing.expect(result != null);
-    try std.testing.expectEqualStrings("", result.?.alt_text);
+    try std.testing.expectEqualStrings("", result.?.text);
     try std.testing.expectEqualStrings("https://example.com/image.png", result.?.url);
 }
 
@@ -2272,7 +2255,7 @@ test "tryParseImage with offset" {
     const text = "prefix ![img](url) suffix";
     const result = Markdown.tryParseImage(text, 7);
     try std.testing.expect(result != null);
-    try std.testing.expectEqualStrings("img", result.?.alt_text);
+    try std.testing.expectEqualStrings("img", result.?.text);
     try std.testing.expectEqualStrings("url", result.?.url);
 }
 
@@ -2280,7 +2263,7 @@ test "tryParseImage nested brackets in alt" {
     const text = "![text [nested]](url)";
     const result = Markdown.tryParseImage(text, 0);
     try std.testing.expect(result != null);
-    try std.testing.expectEqualStrings("text [nested]", result.?.alt_text);
+    try std.testing.expectEqualStrings("text [nested]", result.?.text);
 }
 
 test "tryParseImage nested parens in url" {
