@@ -333,10 +333,10 @@ We aim to implement all features from the Rich library that are feasible in Zig 
 | Word wrap | Y | Y | [x] | Long lines |
 | Theme selection | Y | Y | [x] | Color schemes |
 | Custom themes | Y | Y | [x] | User-defined |
-| Background color | Y | Y | [ ] | Code block bg |
-| Tab size | Y | Y | [ ] | Tab expansion |
-| Indent guides | Y | Y | [ ] | Visual guides |
-| Highlight lines | Y | Y | [ ] | Specific lines |
+| Background color | Y | Y | [x] | Code block bg |
+| Tab size | Y | Y | [x] | Tab expansion |
+| Indent guides | Y | Y | [x] | Visual guides |
+| Highlight lines | Y | Y | [x] | Specific lines |
 | Code from file | Y | Y | [x] | Load and display |
 
 **Note**: Uses keyword-based tokenization for Zig, JSON, Markdown. No external dependencies.
@@ -388,8 +388,8 @@ We aim to implement all features from the Rich library that are feasible in Zig 
 |---------|------|-----------|----------|-------|
 | Rich handler | Y | Y | [x] | Styled logs |
 | Tracebacks | Y | Y | [x] | Formatted errors |
-| Syntax in tracebacks | Y | Y | [ ] | Code context |
-| Local variables | Y | Y | [ ] | Show locals |
+| Syntax in tracebacks | Y | Y | [x] | Code context |
+| Local variables | Y | Y | [x] | Show locals |
 
 ---
 
@@ -437,7 +437,7 @@ Track weekly:
 |--------|--------|---------|
 | P0 Features Implemented | 100% | 100% |
 | P1 Features Implemented | 100% | 100% |
-| P2 Features Implemented | 80%+ | ~85% |
+| P2 Features Implemented | 80%+ | 100% |
 | Test Coverage | >85% | ~90% |
 | Documentation Coverage | 100% | 25% |
 

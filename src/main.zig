@@ -20,7 +20,7 @@ pub fn main() !void {
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
-    try stdout.writeAll("rich_zig v0.12.0 - Full Demo\n");
+    try stdout.writeAll("rich_zig v0.13.0 - Full Demo\n");
     try stdout.writeAll("============================\n\n");
 
     // Phase 1: Color, Style, Segment
@@ -620,6 +620,98 @@ pub fn main() !void {
         \\  rich.Prompt, IntPrompt, FloatPrompt, Confirm
         \\
     );
+
+    // v0.13.0 Features
+    try stdout.writeAll("\nv0.13.0 New Features\n");
+    try stdout.writeAll("--------------------\n");
+
+    // Syntax with theme (background color) - uses arena due to internal allocations
+    try stdout.writeAll("\nSyntax with Monokai theme (includes background):\n");
+    {
+        var arena = std.heap.ArenaAllocator.init(allocator);
+        defer arena.deinit();
+        const themed_code = "const x = 42;";
+        const themed_syntax = rich.Syntax.init(arena.allocator(), themed_code)
+            .withLanguage(.zig)
+            .withTheme(rich.SyntaxTheme.monokai);
+        const themed_segs = try themed_syntax.render(60, arena.allocator());
+        try renderSegments(themed_segs, stdout);
+    }
+
+    // Syntax with custom tab size - uses arena due to internal allocations
+    try stdout.writeAll("\nSyntax with custom tab size (2 spaces):\n");
+    {
+        var arena = std.heap.ArenaAllocator.init(allocator);
+        defer arena.deinit();
+        const tabbed_code = "fn foo() void {\n\tbar();\n}";
+        const tabbed_syntax = rich.Syntax.init(arena.allocator(), tabbed_code)
+            .withLanguage(.zig)
+            .withTabSize(2);
+        const tabbed_segs = try tabbed_syntax.render(60, arena.allocator());
+        try renderSegments(tabbed_segs, stdout);
+    }
+
+    // Syntax with indent guides - uses arena due to internal allocations
+    try stdout.writeAll("\nSyntax with indent guides:\n");
+    {
+        var arena = std.heap.ArenaAllocator.init(allocator);
+        defer arena.deinit();
+        const indented_code =
+            \\pub fn main() void {
+            \\    if (true) {
+            \\        doSomething();
+            \\    }
+            \\}
+        ;
+        const guided_syntax = rich.Syntax.init(arena.allocator(), indented_code)
+            .withLanguage(.zig)
+            .withIndentGuides();
+        const guided_segs = try guided_syntax.render(60, arena.allocator());
+        try renderSegments(guided_segs, stdout);
+    }
+
+    // Syntax with highlighted lines (uses arena due to internal allocations)
+    try stdout.writeAll("\nSyntax with highlighted lines (line 2):\n");
+    {
+        var arena = std.heap.ArenaAllocator.init(allocator);
+        defer arena.deinit();
+        const highlight_code =
+            \\const a = 1;
+            \\const b = 2;  // This line is highlighted
+            \\const c = 3;
+        ;
+        const highlight_lines = [_]usize{2};
+        const hl_syntax = rich.Syntax.init(arena.allocator(), highlight_code)
+            .withLanguage(.zig)
+            .withLineNumbers()
+            .withHighlightLines(&highlight_lines);
+        const hl_segs = try hl_syntax.render(60, arena.allocator());
+        try renderSegments(hl_segs, stdout);
+    }
+
+    // Traceback support (uses arena due to internal allocations in logging.zig)
+    try stdout.writeAll("\nTraceback rendering:\n");
+    {
+        var arena = std.heap.ArenaAllocator.init(allocator);
+        defer arena.deinit();
+        var tb = rich.Traceback.init(arena.allocator());
+        tb = tb.withMessage("Example error occurred")
+            .withErrorName("DemoError");
+        try tb.addFrame(rich.StackFrame{
+            .function = "innerFunction",
+            .file = "src/module.zig",
+            .line = 42,
+            .column = 5,
+        });
+        try tb.addFrame(rich.StackFrame{
+            .function = "outerFunction",
+            .file = "src/main.zig",
+            .line = 100,
+            .column = 10,
+        });
+        const tb_segs = try tb.render(70, arena.allocator());
+        try renderSegments(tb_segs, stdout);
+    }
 
     try stdout.writeAll("\nAll phases complete!\n");
     try stdout.flush();
