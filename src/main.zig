@@ -1,6 +1,12 @@
 const std = @import("std");
 const rich = @import("rich_zig");
 
+fn renderSegments(segments: []const rich.Segment, writer: anytype) !void {
+    for (segments) |seg| {
+        try seg.render(writer, .truecolor);
+    }
+}
+
 pub fn main() !void {
     // Enable UTF-8 output on Windows
     _ = rich.terminal.enableUtf8();
@@ -63,9 +69,7 @@ pub fn main() !void {
     defer allocator.free(segments);
 
     try stdout.writeAll("Markup: ");
-    for (segments) |seg| {
-        try seg.render(stdout, .truecolor);
-    }
+    try renderSegments(segments, stdout);
     try stdout.writeAll("\n");
 
     // Box styles
@@ -115,39 +119,30 @@ pub fn main() !void {
     const panel = rich.Panel.fromText(allocator, "Panel content").withTitle("Title").withWidth(30);
     const panel_segs = try panel.render(80, allocator);
     defer allocator.free(panel_segs);
-    for (panel_segs) |seg| {
-        try seg.render(stdout, .truecolor);
-    }
+    try renderSegments(panel_segs, stdout);
 
     // Rule
     try stdout.writeAll("\nRule:\n");
     const rule = rich.Rule.init().withTitle("Section");
     const rule_segs = try rule.render(30, allocator);
     defer allocator.free(rule_segs);
-    for (rule_segs) |seg| {
-        try seg.render(stdout, .truecolor);
-    }
+    try renderSegments(rule_segs, stdout);
 
     // Progress bar
     try stdout.writeAll("\nProgress bar (50%):\n");
     const bar = rich.ProgressBar.init().withCompleted(50).withTotal(100).withWidth(30);
     const bar_segs = try bar.render(80, allocator);
     defer allocator.free(bar_segs);
-    for (bar_segs) |seg| {
-        try seg.render(stdout, .truecolor);
-    }
+    try renderSegments(bar_segs, stdout);
     try stdout.writeAll("\n");
 
     // Spinner
     try stdout.writeAll("\nSpinner frames: ");
     var spinner = rich.Spinner.init();
-    var i: usize = 0;
-    while (i < 5) : (i += 1) {
+    for (0..5) |_| {
         const spin_segs = try spinner.render(allocator);
         defer allocator.free(spin_segs);
-        for (spin_segs) |seg| {
-            try seg.render(stdout, .truecolor);
-        }
+        try renderSegments(spin_segs, stdout);
         try stdout.writeAll(" ");
         spinner.advance();
     }
@@ -164,9 +159,7 @@ pub fn main() !void {
     const tree = rich.Tree.init(root);
     const tree_segs = try tree.render(80, allocator);
     defer allocator.free(tree_segs);
-    for (tree_segs) |seg| {
-        try seg.render(stdout, .truecolor);
-    }
+    try renderSegments(tree_segs, stdout);
 
     // Table
     try stdout.writeAll("\nTable:\n");
@@ -178,9 +171,7 @@ pub fn main() !void {
 
     const table_segs = try table.render(40, allocator);
     defer allocator.free(table_segs);
-    for (table_segs) |seg| {
-        try seg.render(stdout, .truecolor);
-    }
+    try renderSegments(table_segs, stdout);
 
     // v0.7.0 Features
     try stdout.writeAll("\nv0.7.0 New Features\n");
@@ -191,17 +182,13 @@ pub fn main() !void {
     const panel_left = rich.Panel.fromText(allocator, "Left title").withTitle("Left").withTitleAlignment(.left).withWidth(30);
     const panel_left_segs = try panel_left.render(80, allocator);
     defer allocator.free(panel_left_segs);
-    for (panel_left_segs) |seg| {
-        try seg.render(stdout, .truecolor);
-    }
+    try renderSegments(panel_left_segs, stdout);
 
     try stdout.writeAll("\nPanel with right-aligned title:\n");
     const panel_right = rich.Panel.fromText(allocator, "Right title").withTitle("Right").withTitleAlignment(.right).withWidth(30);
     const panel_right_segs = try panel_right.render(80, allocator);
     defer allocator.free(panel_right_segs);
-    for (panel_right_segs) |seg| {
-        try seg.render(stdout, .truecolor);
-    }
+    try renderSegments(panel_right_segs, stdout);
 
     // Table with caption
     try stdout.writeAll("\nTable with caption:\n");
@@ -213,9 +200,7 @@ pub fn main() !void {
 
     const table2_segs = try table2.render(40, allocator);
     defer allocator.free(table2_segs);
-    for (table2_segs) |seg| {
-        try seg.render(stdout, .truecolor);
-    }
+    try renderSegments(table2_segs, stdout);
 
     // Padding - wrap content in a styled background to show padding
     try stdout.writeAll("\nPadding (uniform=1, with background):\n");
@@ -224,9 +209,7 @@ pub fn main() !void {
     const padding = rich.Padding.init(&pad_content).uniform(1).withStyle(bg_style);
     const pad_segs = try padding.render(20, allocator);
     defer allocator.free(pad_segs);
-    for (pad_segs) |seg| {
-        try seg.render(stdout, .truecolor);
-    }
+    try renderSegments(pad_segs, stdout);
 
     // Align - horizontal alignment within a width
     try stdout.writeAll("\nAlign (width=20, showing left/center/right):\n");
@@ -281,9 +264,7 @@ pub fn main() !void {
             .withColumnCount(3)
             .withEqualWidth(true);
         const col_segs = try columns.render(60, arena.allocator());
-        for (col_segs) |seg| {
-            try seg.render(stdout, .truecolor);
-        }
+        try renderSegments(col_segs, stdout);
     }
 
     // Table with alternating row styles
@@ -297,9 +278,7 @@ pub fn main() !void {
     try alt_table.addRow(&.{ "3", "Carol", "Active" });
     const alt_table_segs = try alt_table.render(40, allocator);
     defer allocator.free(alt_table_segs);
-    for (alt_table_segs) |seg| {
-        try seg.render(stdout, .truecolor);
-    }
+    try renderSegments(alt_table_segs, stdout);
 
     // Panel with height constraint
     try stdout.writeAll("\nPanel with height constraint (4 lines max):\n");
@@ -309,9 +288,7 @@ pub fn main() !void {
         .withVerticalOverflow(.ellipsis);
     const cp_segs = try constrained_panel.render(30, allocator);
     defer allocator.free(cp_segs);
-    for (cp_segs) |seg| {
-        try seg.render(stdout, .truecolor);
-    }
+    try renderSegments(cp_segs, stdout);
 
     // v0.9.0 Features
     try stdout.writeAll("\nv0.9.0 New Features\n");
@@ -364,9 +341,7 @@ pub fn main() !void {
 
     const table3_segs = try table3.render(30, allocator);
     defer allocator.free(table3_segs);
-    for (table3_segs) |seg| {
-        try seg.render(stdout, .truecolor);
-    }
+    try renderSegments(table3_segs, stdout);
 
     // Progress with timing
     try stdout.writeAll("\nProgress with timing info:\n");
@@ -380,9 +355,7 @@ pub fn main() !void {
             .withWidth(20)
             .withTiming();
         const timed_segs = try timed_bar.render(80, arena.allocator());
-        for (timed_segs) |seg| {
-            try seg.render(stdout, .truecolor);
-        }
+        try renderSegments(timed_segs, stdout);
     }
     try stdout.writeAll("\n");
 
@@ -394,9 +367,7 @@ pub fn main() !void {
         .withWidth(20);
     const indet_segs = try indet_bar.render(80, allocator);
     defer allocator.free(indet_segs);
-    for (indet_segs) |seg| {
-        try seg.render(stdout, .truecolor);
-    }
+    try renderSegments(indet_segs, stdout);
     try stdout.writeAll("\n");
 
     // Progress Group
@@ -410,9 +381,7 @@ pub fn main() !void {
 
     const group_segs = try group.render(60, allocator);
     defer allocator.free(group_segs);
-    for (group_segs) |seg| {
-        try seg.render(stdout, .truecolor);
-    }
+    try renderSegments(group_segs, stdout);
     try stdout.writeAll("\n");
 
     // Tree with styled label
@@ -428,9 +397,7 @@ pub fn main() !void {
     const styled_tree = rich.Tree.init(styled_root);
     const styled_tree_segs = try styled_tree.render(80, allocator);
     defer allocator.free(styled_tree_segs);
-    for (styled_tree_segs) |seg| {
-        try seg.render(stdout, .truecolor);
-    }
+    try renderSegments(styled_tree_segs, stdout);
 
     // Layout Split - show vertical split stacking two regions
     try stdout.writeAll("\nLayout split (vertical):\n");
@@ -446,9 +413,7 @@ pub fn main() !void {
 
     const split_segs = try split.render(40, allocator);
     defer allocator.free(split_segs);
-    for (split_segs) |seg| {
-        try seg.render(stdout, .truecolor);
-    }
+    try renderSegments(split_segs, stdout);
 
     // JSON pretty-print
     try stdout.writeAll("\nJSON pretty-printing:\n");
@@ -456,28 +421,8 @@ pub fn main() !void {
     defer json.deinit();
 
     const json_segs = try json.render(80, allocator);
-    defer {
-        for (json_segs) |seg| {
-            if (seg.style != null and seg.text.len > 0) {
-                const is_literal = std.mem.eql(u8, seg.text, "\"") or
-                    std.mem.eql(u8, seg.text, "{") or
-                    std.mem.eql(u8, seg.text, "}") or
-                    std.mem.eql(u8, seg.text, ": ") or
-                    std.mem.eql(u8, seg.text, ",") or
-                    std.mem.eql(u8, seg.text, "true") or
-                    std.mem.eql(u8, seg.text, "false") or
-                    std.mem.eql(u8, seg.text, "null");
-                if (!is_literal) {
-                    const is_json_string = seg.text.len > 0 and seg.text[0] != ' ';
-                    _ = is_json_string;
-                }
-            }
-        }
-        allocator.free(json_segs);
-    }
-    for (json_segs) |seg| {
-        try seg.render(stdout, .truecolor);
-    }
+    defer allocator.free(json_segs);
+    try renderSegments(json_segs, stdout);
     try stdout.writeAll("\n");
 
     // v0.10.0 Features
@@ -489,36 +434,28 @@ pub fn main() !void {
     const md_headers = rich.Markdown.init("# Heading 1\n## Heading 2\n### Heading 3");
     const md_header_segs = try md_headers.render(60, allocator);
     defer allocator.free(md_header_segs);
-    for (md_header_segs) |seg| {
-        try seg.render(stdout, .truecolor);
-    }
+    try renderSegments(md_header_segs, stdout);
 
     // Markdown with bold and italic inline styles
     try stdout.writeAll("\nMarkdown inline styles:\n");
     const md_styles = rich.Markdown.init("This has **bold**, *italic*, and ***bold italic*** text.");
     const md_style_segs = try md_styles.render(80, allocator);
     defer allocator.free(md_style_segs);
-    for (md_style_segs) |seg| {
-        try seg.render(stdout, .truecolor);
-    }
+    try renderSegments(md_style_segs, stdout);
 
     // Markdown with underscore syntax
     try stdout.writeAll("\nMarkdown underscore syntax:\n");
     const md_under = rich.Markdown.init("Also works with __bold__ and _italic_ using underscores.");
     const md_under_segs = try md_under.render(80, allocator);
     defer allocator.free(md_under_segs);
-    for (md_under_segs) |seg| {
-        try seg.render(stdout, .truecolor);
-    }
+    try renderSegments(md_under_segs, stdout);
 
     // Combined: header with inline styles
     try stdout.writeAll("\nMarkdown combined:\n");
     const md_combined = rich.Markdown.init("## Features\n\nSupports **bold** and *italic* in paragraphs.");
     const md_combined_segs = try md_combined.render(60, allocator);
     defer allocator.free(md_combined_segs);
-    for (md_combined_segs) |seg| {
-        try seg.render(stdout, .truecolor);
-    }
+    try renderSegments(md_combined_segs, stdout);
 
     // Markdown lists (uses arena due to internal allocations)
     try stdout.writeAll("\nMarkdown lists:\n");
@@ -527,9 +464,7 @@ pub fn main() !void {
         defer arena.deinit();
         const md_lists = rich.Markdown.init("- First item\n- Second item\n- Third item\n\n1. Numbered one\n2. Numbered two");
         const md_lists_segs = try md_lists.render(60, arena.allocator());
-        for (md_lists_segs) |seg| {
-            try seg.render(stdout, .truecolor);
-        }
+        try renderSegments(md_lists_segs, stdout);
     }
 
     // Markdown blockquotes (uses arena due to internal allocations)
@@ -539,9 +474,7 @@ pub fn main() !void {
         defer arena.deinit();
         const md_quote = rich.Markdown.init("> This is a quote\n> with multiple lines\n>> Nested quote");
         const md_quote_segs = try md_quote.render(60, arena.allocator());
-        for (md_quote_segs) |seg| {
-            try seg.render(stdout, .truecolor);
-        }
+        try renderSegments(md_quote_segs, stdout);
     }
 
     // Markdown inline code
@@ -549,27 +482,21 @@ pub fn main() !void {
     const md_code = rich.Markdown.init("Use `std.debug.print` for debugging.");
     const md_code_segs = try md_code.render(60, allocator);
     defer allocator.free(md_code_segs);
-    for (md_code_segs) |seg| {
-        try seg.render(stdout, .truecolor);
-    }
+    try renderSegments(md_code_segs, stdout);
 
     // Markdown links
     try stdout.writeAll("\nMarkdown links:\n");
     const md_link = rich.Markdown.init("Check out [rich_zig](https://github.com/example/rich_zig) for more.");
     const md_link_segs = try md_link.render(70, allocator);
     defer allocator.free(md_link_segs);
-    for (md_link_segs) |seg| {
-        try seg.render(stdout, .truecolor);
-    }
+    try renderSegments(md_link_segs, stdout);
 
     // Markdown horizontal rule
     try stdout.writeAll("\nMarkdown horizontal rule:\n");
     const md_hr = rich.Markdown.init("Above the line\n\n---\n\nBelow the line");
     const md_hr_segs = try md_hr.render(40, allocator);
     defer allocator.free(md_hr_segs);
-    for (md_hr_segs) |seg| {
-        try seg.render(stdout, .truecolor);
-    }
+    try renderSegments(md_hr_segs, stdout);
 
     // Markdown fenced code block (uses arena due to renderDuped allocations)
     try stdout.writeAll("\nMarkdown fenced code block:\n");
@@ -578,9 +505,7 @@ pub fn main() !void {
         defer arena.deinit();
         const md_fenced = rich.Markdown.init("```zig\nconst x: u32 = 42;\nstd.debug.print(\"{}\", .{x});\n```");
         const md_fenced_segs = try md_fenced.render(60, arena.allocator());
-        for (md_fenced_segs) |seg| {
-            try seg.render(stdout, .truecolor);
-        }
+        try renderSegments(md_fenced_segs, stdout);
     }
 
     // v0.11.0 Features
@@ -599,18 +524,14 @@ pub fn main() !void {
     const syntax = rich.Syntax.init(allocator, zig_code).withLanguage(.zig);
     const syntax_segs = try syntax.render(60, allocator);
     defer allocator.free(syntax_segs);
-    for (syntax_segs) |seg| {
-        try seg.render(stdout, .truecolor);
-    }
+    try renderSegments(syntax_segs, stdout);
 
     // Syntax auto-detection
     try stdout.writeAll("\nSyntax auto-detection (from extension):\n");
-    const detected_lang = rich.SyntaxLanguage.fromExtension(".py");
-    try stdout.print("  .py -> {s}\n", .{@tagName(detected_lang)});
-    const detected_lang2 = rich.SyntaxLanguage.fromExtension(".rs");
-    try stdout.print("  .rs -> {s}\n", .{@tagName(detected_lang2)});
-    const detected_lang3 = rich.SyntaxLanguage.fromExtension(".zig");
-    try stdout.print("  .zig -> {s}\n", .{@tagName(detected_lang3)});
+    for ([_][]const u8{ ".py", ".rs", ".zig" }) |ext| {
+        const lang = rich.SyntaxLanguage.fromExtension(ext);
+        try stdout.print("  {s} -> {s}\n", .{ ext, @tagName(lang) });
+    }
 
     // Logging module
     try stdout.writeAll("\nLogging module (RichHandler):\n");
