@@ -2,11 +2,7 @@ const std = @import("std");
 const Style = @import("style.zig").Style;
 const Color = @import("color.zig").Color;
 const ColorSystem = @import("color.zig").ColorSystem;
-const Text = @import("text.zig").Text;
-const Segment = @import("segment.zig").Segment;
-const segment = @import("segment.zig");
 const terminal = @import("terminal.zig");
-const cells = @import("cells.zig");
 
 /// Log level matching std.log.Level for compatibility
 pub const Level = enum {
@@ -335,13 +331,7 @@ pub fn stdLogFn(
 
     // Write level
     level_style.renderAnsi(.truecolor, stderr) catch return;
-    const level_str = switch (level) {
-        .debug => "DEBUG",
-        .info => "INFO",
-        .warn => "WARN",
-        .err => "ERROR",
-    };
-    stderr.print("[{s}]", .{level_str}) catch return;
+    stderr.print("[{s}]", .{Level.fromStdLevel(level).toString()}) catch return;
     Style.renderReset(stderr) catch return;
 
     // Write scope if present
