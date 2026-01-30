@@ -392,26 +392,19 @@ pub const Markdown = struct {
         var depth: usize = 0;
 
         while (pos < line.len) {
-            // Skip leading spaces
             while (pos < line.len and line[pos] == ' ') : (pos += 1) {}
+            if (pos >= line.len or line[pos] != '>') break;
 
-            // Check for >
-            if (pos < line.len and line[pos] == '>') {
-                depth += 1;
-                pos += 1;
-                // Skip optional space after >
-                if (pos < line.len and line[pos] == ' ') {
-                    pos += 1;
-                }
-            } else {
-                break;
-            }
+            depth += 1;
+            pos += 1;
+
+            if (pos < line.len and line[pos] == ' ') pos += 1;
         }
 
         if (depth == 0) return null;
 
         return .{
-            .text = if (pos < line.len) line[pos..] else "",
+            .text = line[pos..],
             .depth = depth,
         };
     }
@@ -464,12 +457,10 @@ pub const Markdown = struct {
         segments: *std.ArrayList(Segment),
         allocator: std.mem.Allocator,
     ) !void {
-        // Render border characters for each depth level
         for (0..item.depth) |_| {
             const border_with_space = try std.fmt.allocPrint(allocator, "{s} ", .{self.theme.blockquote_border_char});
             try segments.append(allocator, Segment.styled(border_with_space, self.theme.blockquote_border_style));
 
-            // Add additional indent after border
             if (self.theme.blockquote_indent > 0) {
                 const indent_str = try allocator.alloc(u8, self.theme.blockquote_indent);
                 @memset(indent_str, ' ');
@@ -477,7 +468,6 @@ pub const Markdown = struct {
             }
         }
 
-        // Render the text content with blockquote styling
         if (item.text.len > 0) {
             try self.renderInlineText(item.text, self.theme.blockquote_style, segments, allocator);
         }
