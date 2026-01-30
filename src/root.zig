@@ -122,6 +122,16 @@ pub const TracebackOptions = logging.TracebackOptions;
 pub const traceHere = logging.traceHere;
 pub const traceError = logging.traceError;
 
+// Input prompts
+pub const prompt = @import("prompt.zig");
+pub const Prompt = prompt.Prompt;
+pub const IntPrompt = prompt.IntPrompt;
+pub const FloatPrompt = prompt.FloatPrompt;
+pub const Confirm = prompt.Confirm;
+pub const PromptError = prompt.PromptError;
+pub const ValidationResult = prompt.ValidationResult;
+pub const ValidatorFn = prompt.ValidatorFn;
+
 // Re-export tests from all modules
 test {
     // Phase 1
@@ -147,6 +157,9 @@ test {
 
     // Logging
     _ = @import("logging.zig");
+
+    // Prompts
+    _ = @import("prompt.zig");
 }
 
 // Basic library functionality tests

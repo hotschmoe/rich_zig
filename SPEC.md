@@ -45,7 +45,6 @@ This document defines the technical requirements for rich_zig to achieve 100% fe
 |---------|-------|
 | SVG export | Complex, low priority |
 | Pager support | Requires terminal raw mode handling |
-| Input prompts | Requires input handling subsystem |
 
 ---
 
@@ -458,7 +457,6 @@ All features in FEATURE_PARITY.md marked P0 must be complete:
 
 - SVG export
 - Pager support
-- Input prompts
 - Logging integration (std.log handler)
 - Full syntax highlighting (all languages)
 - Full Markdown (GFM tables, task lists)
