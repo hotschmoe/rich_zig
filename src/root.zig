@@ -108,6 +108,12 @@ pub const HeaderLevel = renderables.HeaderLevel;
 // Emoji support
 pub const emoji = @import("emoji.zig");
 
+// Logging
+pub const logging = @import("logging.zig");
+pub const RichHandler = logging.RichHandler;
+pub const LogRecord = logging.LogRecord;
+pub const LevelStyles = logging.LevelStyles;
+
 // Re-export tests from all modules
 test {
     // Phase 1
@@ -130,6 +136,9 @@ test {
 
     // Emoji support
     _ = @import("emoji.zig");
+
+    // Logging
+    _ = @import("logging.zig");
 }
 
 // Basic library functionality tests
