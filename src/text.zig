@@ -220,13 +220,16 @@ pub const Text = struct {
             }
         }
 
+        // Capture count before toOwnedSlice (which sets items.len to 0)
+        const has_spans = relevant_spans.items.len > 0;
+
         return .{
             .plain = self.plain[actual_start..actual_end],
             .spans = relevant_spans.toOwnedSlice(self.allocator) catch &[_]Span{},
             .style = self.style,
             .allocator = self.allocator,
             .owns_plain = false,
-            .owns_spans = relevant_spans.items.len > 0,
+            .owns_spans = has_spans,
         };
     }
 

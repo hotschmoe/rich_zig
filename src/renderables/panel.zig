@@ -265,29 +265,78 @@ pub const Panel = struct {
     fn getContentLines(self: Panel, allocator: std.mem.Allocator, _: usize) ![][]const Segment {
         switch (self.content) {
             .text => |t| return self.splitTextIntoSegmentLines(allocator, t),
-            .styled_text => |txt| return self.splitTextIntoSegmentLines(allocator, txt.plain),
+            .styled_text => |txt| return self.splitStyledTextIntoSegmentLines(allocator, txt),
             .segments => |segs| return segment_mod.splitIntoLines(segs, allocator),
         }
     }
 
+    fn splitStyledTextIntoSegmentLines(_: Panel, allocator: std.mem.Allocator, txt: Text) ![][]const Segment {
+        var lines: std.ArrayList([]const Segment) = .empty;
+        errdefer {
+            for (lines.items) |line| allocator.free(line);
+            lines.deinit(allocator);
+        }
+
+        var line_start: usize = 0;
+
+        for (txt.plain, 0..) |c, idx| {
+            if (c == '\n') {
+                var line_text = txt.slice(line_start, idx);
+                defer line_text.deinit();
+                const segs = try line_text.render(allocator);
+                errdefer allocator.free(segs);
+                try lines.append(allocator, segs);
+                line_start = idx + 1;
+            }
+        }
+
+        if (line_start < txt.plain.len) {
+            var line_text = txt.slice(line_start, txt.plain.len);
+            defer line_text.deinit();
+            const segs = try line_text.render(allocator);
+            errdefer allocator.free(segs);
+            try lines.append(allocator, segs);
+        }
+
+        if (lines.items.len == 0) {
+            const empty = try allocator.alloc(Segment, 1);
+            errdefer allocator.free(empty);
+            empty[0] = Segment.styledOptional("", if (txt.style.isEmpty()) null else txt.style);
+            try lines.append(allocator, empty);
+        }
+
+        return lines.toOwnedSlice(allocator);
+    }
+
     fn splitTextIntoSegmentLines(self: Panel, allocator: std.mem.Allocator, text: []const u8) ![][]const Segment {
         var lines: std.ArrayList([]const Segment) = .empty;
+        errdefer {
+            for (lines.items) |line| allocator.free(line);
+            lines.deinit(allocator);
+        }
+
         const style_to_use: ?Style = if (self.style.isEmpty()) null else self.style;
         var line_start: usize = 0;
 
         for (text, 0..) |c, idx| {
             if (c == '\n') {
-                try lines.append(allocator, try self.makeSegmentLine(allocator, text[line_start..idx], style_to_use));
+                const segs = try self.makeSegmentLine(allocator, text[line_start..idx], style_to_use);
+                errdefer allocator.free(segs);
+                try lines.append(allocator, segs);
                 line_start = idx + 1;
             }
         }
 
         if (line_start < text.len) {
-            try lines.append(allocator, try self.makeSegmentLine(allocator, text[line_start..], style_to_use));
+            const segs = try self.makeSegmentLine(allocator, text[line_start..], style_to_use);
+            errdefer allocator.free(segs);
+            try lines.append(allocator, segs);
         }
 
         if (lines.items.len == 0) {
-            try lines.append(allocator, try self.makeSegmentLine(allocator, "", null));
+            const segs = try self.makeSegmentLine(allocator, "", null);
+            errdefer allocator.free(segs);
+            try lines.append(allocator, segs);
         }
 
         return lines.toOwnedSlice(allocator);
@@ -604,4 +653,54 @@ test "Panel.render with segments content" {
     }
     try std.testing.expect(found_hello);
     try std.testing.expect(found_world);
+}
+
+test "Panel.fromStyledText preserves styling" {
+    const allocator = std.testing.allocator;
+    var styled_text = try Text.fromMarkup(allocator, "[bold]Hello[/] World");
+    defer styled_text.deinit();
+
+    const panel = Panel.fromStyledText(allocator, styled_text).withWidth(30);
+    const segments = try panel.render(80, allocator);
+    defer allocator.free(segments);
+
+    var found_bold_hello = false;
+    var found_world = false;
+    for (segments) |seg| {
+        if (std.mem.indexOf(u8, seg.text, "Hello") != null) {
+            if (seg.style) |style| {
+                if (style.hasAttribute(.bold)) {
+                    found_bold_hello = true;
+                }
+            }
+        }
+        if (std.mem.indexOf(u8, seg.text, "World") != null) {
+            found_world = true;
+        }
+    }
+    try std.testing.expect(found_bold_hello);
+    try std.testing.expect(found_world);
+}
+
+test "Panel.fromStyledText with multiline" {
+    const allocator = std.testing.allocator;
+    var styled_text = try Text.fromMarkup(allocator, "[red]Line1[/]\n[blue]Line2[/]");
+    defer styled_text.deinit();
+
+    const panel = Panel.fromStyledText(allocator, styled_text).withWidth(30);
+    const segments = try panel.render(80, allocator);
+    defer allocator.free(segments);
+
+    var found_line1 = false;
+    var found_line2 = false;
+    for (segments) |seg| {
+        if (std.mem.indexOf(u8, seg.text, "Line1") != null) {
+            found_line1 = true;
+        }
+        if (std.mem.indexOf(u8, seg.text, "Line2") != null) {
+            found_line2 = true;
+        }
+    }
+    try std.testing.expect(found_line1);
+    try std.testing.expect(found_line2);
 }
