@@ -172,6 +172,7 @@ pub fn build(b: *std.Build) void {
         "advanced_panel",
         "advanced_progress",
         "advanced_syntax",
+        // "toon_demo",
     };
 
     // For chaining all examples in the "run" step (examples only, not main demo)

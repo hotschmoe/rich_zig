@@ -196,6 +196,7 @@ pub const Console = struct {
     pub fn initWithOptions(allocator: std.mem.Allocator, options: ConsoleOptions) Console {
         const info = terminal.detect();
         _ = terminal.enableVirtualTerminal();
+        _ = terminal.enableUtf8();
 
         const buffer = allocator.alloc(u8, DEFAULT_BUFFER_SIZE) catch unreachable;
 
