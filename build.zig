@@ -209,4 +209,26 @@ pub fn build(b: *std.Build) void {
 
     // run_step runs demo + all examples in sequence
     run_step.dependOn(prev_step);
+
+    // Fuzz testing support
+    const fuzz_exe = b.addExecutable(.{
+        .name = "fuzz",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/fuzz.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "rich_zig", .module = mod },
+            },
+        }),
+    });
+
+    const fuzz_tests = b.addTest(.{
+        .root_module = fuzz_exe.root_module,
+    });
+
+    const run_fuzz_tests = b.addRunArtifact(fuzz_tests);
+
+    const fuzz_step = b.step("fuzz", "Run fuzz tests");
+    fuzz_step.dependOn(&run_fuzz_tests.step);
 }
