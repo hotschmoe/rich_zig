@@ -1,10 +1,7 @@
 const std = @import("std");
 const Style = @import("style.zig").Style;
 const Color = @import("color.zig").Color;
-const Segment = @import("segment.zig").Segment;
 const Text = @import("text.zig").Text;
-const Span = @import("text.zig").Span;
-const cells = @import("cells.zig");
 
 /// Highlighter that applies styles to recognized patterns in text.
 pub const Highlighter = struct {

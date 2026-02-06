@@ -2,7 +2,6 @@ const std = @import("std");
 const Style = @import("style.zig").Style;
 const Color = @import("color.zig").Color;
 const Segment = @import("segment.zig").Segment;
-const cells = @import("cells.zig");
 
 /// Theme for pretty-printed output.
 pub const PrettyTheme = struct {
@@ -74,14 +73,6 @@ pub const Pretty = struct {
     }
 
     fn emit(self: *Pretty, text: []const u8, style: ?Style) !void {
-        if (style) |s| {
-            try self.segments.append(Segment.styled(text, s));
-        } else {
-            try self.segments.append(Segment.plain(text));
-        }
-    }
-
-    fn emitOwned(self: *Pretty, text: []const u8, style: ?Style) !void {
         const owned = try self.allocator.dupe(u8, text);
         if (style) |s| {
             try self.segments.append(Segment.styled(owned, s));
@@ -119,12 +110,12 @@ pub const Pretty = struct {
             .int, .comptime_int => {
                 var buf: [32]u8 = undefined;
                 const text = std.fmt.bufPrint(&buf, "{d}", .{value}) catch "?";
-                try self.emitOwned(text, self.options.theme.number);
+                try self.emit(text, self.options.theme.number);
             },
             .float, .comptime_float => {
                 var buf: [64]u8 = undefined;
                 const text = std.fmt.bufPrint(&buf, "{d:.4}", .{value}) catch "?";
-                try self.emitOwned(text, self.options.theme.number);
+                try self.emit(text, self.options.theme.number);
             },
             .null => try self.emit("null", self.options.theme.null_style),
             .optional => {
@@ -182,7 +173,7 @@ pub const Pretty = struct {
                             try self.emitIndent();
                             var buf: [32]u8 = undefined;
                             const remaining = std.fmt.bufPrint(&buf, "... {d} more fields", .{struct_info.fields.len - i}) catch "...";
-                            try self.emitOwned(remaining, self.options.theme.punctuation);
+                            try self.emit(remaining, self.options.theme.punctuation);
                             try self.emit("\n", null);
                             break;
                         }
@@ -259,13 +250,13 @@ pub const Pretty = struct {
 
         if (str.len > self.options.max_string_length) {
             const truncated = str[0..self.options.max_string_length];
-            try self.emitOwned(truncated, self.options.theme.string);
+            try self.emit(truncated, self.options.theme.string);
 
             var buf: [32]u8 = undefined;
             const remaining = std.fmt.bufPrint(&buf, "... +{d}", .{str.len - self.options.max_string_length}) catch "...";
-            try self.emitOwned(remaining, self.options.theme.punctuation);
+            try self.emit(remaining, self.options.theme.punctuation);
         } else {
-            try self.emitOwned(str, self.options.theme.string);
+            try self.emit(str, self.options.theme.string);
         }
 
         try self.emit("\"", self.options.theme.string);
@@ -288,7 +279,7 @@ pub const Pretty = struct {
                     try self.emitIndent();
                     var buf: [32]u8 = undefined;
                     const remaining = std.fmt.bufPrint(&buf, "... {d} more", .{slice.len - i}) catch "...";
-                    try self.emitOwned(remaining, self.options.theme.punctuation);
+                    try self.emit(remaining, self.options.theme.punctuation);
                     try self.emit("\n", null);
                     break;
                 }
@@ -352,7 +343,12 @@ test "pretty print integer" {
 test "pretty print bool" {
     const allocator = std.testing.allocator;
     const segments = try pretty(allocator, true);
-    defer allocator.free(segments);
+    defer {
+        for (segments) |seg| {
+            allocator.free(seg.text);
+        }
+        allocator.free(segments);
+    }
 
     try std.testing.expectEqual(@as(usize, 1), segments.len);
     try std.testing.expectEqualStrings("true", segments[0].text);
@@ -362,7 +358,12 @@ test "pretty print null" {
     const allocator = std.testing.allocator;
     const val: ?i32 = null;
     const segments = try pretty(allocator, val);
-    defer allocator.free(segments);
+    defer {
+        for (segments) |seg| {
+            allocator.free(seg.text);
+        }
+        allocator.free(segments);
+    }
 
     try std.testing.expectEqual(@as(usize, 1), segments.len);
     try std.testing.expectEqualStrings("null", segments[0].text);
@@ -402,7 +403,12 @@ test "pretty print enum" {
     const TestEnum = enum { foo, bar };
     const allocator = std.testing.allocator;
     const segments = try pretty(allocator, TestEnum.foo);
-    defer allocator.free(segments);
+    defer {
+        for (segments) |seg| {
+            allocator.free(seg.text);
+        }
+        allocator.free(segments);
+    }
 
     try std.testing.expectEqual(@as(usize, 2), segments.len);
     try std.testing.expectEqualStrings(".", segments[0].text);
@@ -415,22 +421,11 @@ test "pretty print struct small" {
     const segments = try pretty(allocator, val);
     defer {
         for (segments) |seg| {
-            // Check if text was dynamically allocated
-            var is_static = false;
-            for ([_][]const u8{ ".{", " ", ".", "x", " = ", ", ", "y", "}" }) |lit| {
-                if (std.mem.eql(u8, seg.text, lit)) {
-                    is_static = true;
-                    break;
-                }
-            }
-            if (!is_static and seg.text.len > 0) {
-                allocator.free(seg.text);
-            }
+            allocator.free(seg.text);
         }
         allocator.free(segments);
     }
 
-    // Should contain ".{" and field names and values
     try std.testing.expect(segments.len > 0);
     try std.testing.expectEqualStrings(".{", segments[0].text);
 }
@@ -438,7 +433,12 @@ test "pretty print struct small" {
 test "pretty print void" {
     const allocator = std.testing.allocator;
     const segments = try pretty(allocator, {});
-    defer allocator.free(segments);
+    defer {
+        for (segments) |seg| {
+            allocator.free(seg.text);
+        }
+        allocator.free(segments);
+    }
 
     try std.testing.expectEqual(@as(usize, 1), segments.len);
     try std.testing.expectEqualStrings("void", segments[0].text);
@@ -448,11 +448,15 @@ test "pretty print empty slice" {
     const allocator = std.testing.allocator;
     const empty: []const i32 = &.{};
     const segments = try pretty(allocator, empty);
-    defer allocator.free(segments);
+    defer {
+        for (segments) |seg| {
+            allocator.free(seg.text);
+        }
+        allocator.free(segments);
+    }
 
-    try std.testing.expectEqual(@as(usize, 2), segments.len);
-    try std.testing.expectEqualStrings("[", segments[0].text);
-    try std.testing.expectEqualStrings("]", segments[1].text);
+    try std.testing.expectEqual(@as(usize, 1), segments.len);
+    try std.testing.expectEqualStrings("[]", segments[0].text);
 }
 
 test "PrettyTheme.default" {

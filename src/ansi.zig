@@ -1,6 +1,5 @@
 const std = @import("std");
 const Style = @import("style.zig").Style;
-const StyleAttribute = @import("style.zig").StyleAttribute;
 const Color = @import("color.zig").Color;
 const Text = @import("text.zig").Text;
 const Span = @import("text.zig").Span;
@@ -161,6 +160,15 @@ fn applySgr(base: Style, params: []const u16) Style {
         return Style.empty;
     }
 
+    const standard_colors = [_]Color{
+        Color.black, Color.red, Color.green, Color.yellow,
+        Color.blue, Color.magenta, Color.cyan, Color.white,
+    };
+    const bright_colors = [_]Color{
+        Color.bright_black, Color.bright_red, Color.bright_green, Color.bright_yellow,
+        Color.bright_blue, Color.bright_magenta, Color.bright_cyan, Color.bright_white,
+    };
+
     var i: usize = 0;
     while (i < params.len) {
         const code = params[i];
@@ -174,12 +182,7 @@ fn applySgr(base: Style, params: []const u16) Style {
             7 => style = style.reverse(),
             8 => style = style.conceal(),
             9 => style = style.strike(),
-            21 => {
-                // Try to call underline2 if it exists
-                if (@hasDecl(Style, "underline2")) {
-                    style = style.underline2();
-                }
-            },
+            21 => style = style.underline2(),
             22 => style = style.notBold().notDim(),
             23 => style = style.notItalic(),
             24 => style = style.notUnderline(),
@@ -190,188 +193,18 @@ fn applySgr(base: Style, params: []const u16) Style {
             53 => style = style.overline(),
             55 => style = style.notOverline(),
 
-            // Standard foreground colors
-            30 => {
-                var s = style;
-                s.color = Color.black;
-                style = s;
-            },
-            31 => {
-                var s = style;
-                s.color = Color.red;
-                style = s;
-            },
-            32 => {
-                var s = style;
-                s.color = Color.green;
-                style = s;
-            },
-            33 => {
-                var s = style;
-                s.color = Color.yellow;
-                style = s;
-            },
-            34 => {
-                var s = style;
-                s.color = Color.blue;
-                style = s;
-            },
-            35 => {
-                var s = style;
-                s.color = Color.magenta;
-                style = s;
-            },
-            36 => {
-                var s = style;
-                s.color = Color.cyan;
-                style = s;
-            },
-            37 => {
-                var s = style;
-                s.color = Color.white;
-                style = s;
-            },
+            30...37 => style.color = standard_colors[code - 30],
+            40...47 => style.bgcolor = standard_colors[code - 40],
+            90...97 => style.color = bright_colors[code - 90],
+            100...107 => style.bgcolor = bright_colors[code - 100],
 
-            // Standard background colors
-            40 => {
-                var s = style;
-                s.bgcolor = Color.black;
-                style = s;
-            },
-            41 => {
-                var s = style;
-                s.bgcolor = Color.red;
-                style = s;
-            },
-            42 => {
-                var s = style;
-                s.bgcolor = Color.green;
-                style = s;
-            },
-            43 => {
-                var s = style;
-                s.bgcolor = Color.yellow;
-                style = s;
-            },
-            44 => {
-                var s = style;
-                s.bgcolor = Color.blue;
-                style = s;
-            },
-            45 => {
-                var s = style;
-                s.bgcolor = Color.magenta;
-                style = s;
-            },
-            46 => {
-                var s = style;
-                s.bgcolor = Color.cyan;
-                style = s;
-            },
-            47 => {
-                var s = style;
-                s.bgcolor = Color.white;
-                style = s;
-            },
-
-            // Bright foreground colors
-            90 => {
-                var s = style;
-                s.color = Color.bright_black;
-                style = s;
-            },
-            91 => {
-                var s = style;
-                s.color = Color.bright_red;
-                style = s;
-            },
-            92 => {
-                var s = style;
-                s.color = Color.bright_green;
-                style = s;
-            },
-            93 => {
-                var s = style;
-                s.color = Color.bright_yellow;
-                style = s;
-            },
-            94 => {
-                var s = style;
-                s.color = Color.bright_blue;
-                style = s;
-            },
-            95 => {
-                var s = style;
-                s.color = Color.bright_magenta;
-                style = s;
-            },
-            96 => {
-                var s = style;
-                s.color = Color.bright_cyan;
-                style = s;
-            },
-            97 => {
-                var s = style;
-                s.color = Color.bright_white;
-                style = s;
-            },
-
-            // Bright background colors
-            100 => {
-                var s = style;
-                s.bgcolor = Color.bright_black;
-                style = s;
-            },
-            101 => {
-                var s = style;
-                s.bgcolor = Color.bright_red;
-                style = s;
-            },
-            102 => {
-                var s = style;
-                s.bgcolor = Color.bright_green;
-                style = s;
-            },
-            103 => {
-                var s = style;
-                s.bgcolor = Color.bright_yellow;
-                style = s;
-            },
-            104 => {
-                var s = style;
-                s.bgcolor = Color.bright_blue;
-                style = s;
-            },
-            105 => {
-                var s = style;
-                s.bgcolor = Color.bright_magenta;
-                style = s;
-            },
-            106 => {
-                var s = style;
-                s.bgcolor = Color.bright_cyan;
-                style = s;
-            },
-            107 => {
-                var s = style;
-                s.bgcolor = Color.bright_white;
-                style = s;
-            },
-
-            // Extended colors
             38 => {
                 if (i + 1 < params.len) {
                     if (params[i + 1] == 5 and i + 2 < params.len) {
-                        // 256 color: ESC[38;5;Nm
-                        var s = style;
-                        s.color = Color.from256(@truncate(params[i + 2]));
-                        style = s;
+                        style.color = Color.from256(@truncate(params[i + 2]));
                         i += 2;
                     } else if (params[i + 1] == 2 and i + 4 < params.len) {
-                        // Truecolor: ESC[38;2;R;G;Bm
-                        var s = style;
-                        s.color = Color.fromRgb(@truncate(params[i + 2]), @truncate(params[i + 3]), @truncate(params[i + 4]));
-                        style = s;
+                        style.color = Color.fromRgb(@truncate(params[i + 2]), @truncate(params[i + 3]), @truncate(params[i + 4]));
                         i += 4;
                     }
                 }
@@ -379,29 +212,17 @@ fn applySgr(base: Style, params: []const u16) Style {
             48 => {
                 if (i + 1 < params.len) {
                     if (params[i + 1] == 5 and i + 2 < params.len) {
-                        var s = style;
-                        s.bgcolor = Color.from256(@truncate(params[i + 2]));
-                        style = s;
+                        style.bgcolor = Color.from256(@truncate(params[i + 2]));
                         i += 2;
                     } else if (params[i + 1] == 2 and i + 4 < params.len) {
-                        var s = style;
-                        s.bgcolor = Color.fromRgb(@truncate(params[i + 2]), @truncate(params[i + 3]), @truncate(params[i + 4]));
-                        style = s;
+                        style.bgcolor = Color.fromRgb(@truncate(params[i + 2]), @truncate(params[i + 3]), @truncate(params[i + 4]));
                         i += 4;
                     }
                 }
             },
 
-            39 => {
-                var s = style;
-                s.color = null;
-                style = s;
-            }, // default fg
-            49 => {
-                var s = style;
-                s.bgcolor = null;
-                style = s;
-            }, // default bg
+            39 => style.color = null,
+            49 => style.bgcolor = null,
             else => {},
         }
         i += 1;

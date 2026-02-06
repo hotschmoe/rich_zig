@@ -118,14 +118,12 @@ pub const Measurement = struct {
     /// Measure a renderable if it supports the measure protocol.
     /// Falls back to rendering and measuring the output if not.
     pub fn measureRenderable(renderable: anytype, max_width: usize, allocator: std.mem.Allocator) !Measurement {
-        const T = @TypeOf(renderable);
-        if (@hasDecl(T, "measure")) {
+        if (@hasDecl(@TypeOf(renderable), "measure")) {
             return renderable.measure(max_width, allocator);
         }
-        // Fallback: render and measure the segments
-        const Segment = @import("segment.zig").Segment;
         const segment_mod = @import("segment.zig");
-        const segments: []Segment = try renderable.render(max_width, allocator);
+        const segments = try renderable.render(max_width, allocator);
+        defer allocator.free(segments);
         const lines = try segment_mod.splitIntoLines(segments, allocator);
         defer allocator.free(lines);
         const width = segment_mod.maxLineWidth(lines);
