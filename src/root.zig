@@ -42,6 +42,8 @@ pub const Color = color.Color;
 pub const ColorType = color.ColorType;
 pub const ColorSystem = color.ColorSystem;
 pub const ColorTriplet = color.ColorTriplet;
+pub const AdaptiveColor = color.AdaptiveColor;
+pub const gradient = color.gradient;
 
 pub const cells = @import("cells.zig");
 
@@ -80,6 +82,11 @@ pub const stripAnsi = ansi.stripAnsi;
 // Phase 3: Terminal and Console
 pub const terminal = @import("terminal.zig");
 pub const TerminalInfo = terminal.TerminalInfo;
+pub const BackgroundMode = terminal.BackgroundMode;
+pub const beginSyncOutput = terminal.beginSyncOutput;
+pub const endSyncOutput = terminal.endSyncOutput;
+pub const sync_output_begin = terminal.sync_output_begin;
+pub const sync_output_end = terminal.sync_output_end;
 
 pub const console = @import("console.zig");
 pub const Console = console.Console;

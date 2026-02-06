@@ -40,6 +40,127 @@ pub const ColorTriplet = struct {
     pub fn eql(self: ColorTriplet, other: ColorTriplet) bool {
         return self.r == other.r and self.g == other.g and self.b == other.b;
     }
+
+    pub fn toHsl(self: ColorTriplet) struct { h: f32, s: f32, l: f32 } {
+        const r_f: f32 = @as(f32, @floatFromInt(self.r)) / 255.0;
+        const g_f: f32 = @as(f32, @floatFromInt(self.g)) / 255.0;
+        const b_f: f32 = @as(f32, @floatFromInt(self.b)) / 255.0;
+
+        const max_c = @max(r_f, @max(g_f, b_f));
+        const min_c = @min(r_f, @min(g_f, b_f));
+        const delta = max_c - min_c;
+
+        const l = (max_c + min_c) / 2.0;
+
+        const s: f32 = if (delta == 0.0) 0.0 else delta / (1.0 - @abs(2.0 * l - 1.0));
+
+        var h: f32 = 0.0;
+        if (delta != 0.0) {
+            if (max_c == r_f) {
+                h = 60.0 * @mod((g_f - b_f) / delta, 6.0);
+            } else if (max_c == g_f) {
+                h = 60.0 * ((b_f - r_f) / delta + 2.0);
+            } else {
+                h = 60.0 * ((r_f - g_f) / delta + 4.0);
+            }
+        }
+        if (h < 0.0) h += 360.0;
+
+        return .{ .h = h, .s = s, .l = l };
+    }
+
+    pub fn fromHsl(h: f32, s: f32, l: f32) ColorTriplet {
+        const c = (1.0 - @abs(2.0 * l - 1.0)) * s;
+        const x = c * (1.0 - @abs(@mod(h / 60.0, 2.0) - 1.0));
+        const m = l - c / 2.0;
+
+        var r1: f32 = 0.0;
+        var g1: f32 = 0.0;
+        var b1: f32 = 0.0;
+
+        if (h < 60.0) {
+            r1 = c;
+            g1 = x;
+        } else if (h < 120.0) {
+            r1 = x;
+            g1 = c;
+        } else if (h < 180.0) {
+            g1 = c;
+            b1 = x;
+        } else if (h < 240.0) {
+            g1 = x;
+            b1 = c;
+        } else if (h < 300.0) {
+            r1 = x;
+            b1 = c;
+        } else {
+            r1 = c;
+            b1 = x;
+        }
+
+        return .{
+            .r = @intFromFloat(@round((r1 + m) * 255.0)),
+            .g = @intFromFloat(@round((g1 + m) * 255.0)),
+            .b = @intFromFloat(@round((b1 + m) * 255.0)),
+        };
+    }
+
+    pub fn blendHsl(c1: ColorTriplet, c2: ColorTriplet, t: f32) ColorTriplet {
+        const clamped_t = @max(0.0, @min(1.0, t));
+        const hsl1 = c1.toHsl();
+        const hsl2 = c2.toHsl();
+
+        var dh = hsl2.h - hsl1.h;
+        if (dh > 180.0) dh -= 360.0;
+        if (dh < -180.0) dh += 360.0;
+
+        var h = hsl1.h + dh * clamped_t;
+        if (h < 0.0) h += 360.0;
+        if (h >= 360.0) h -= 360.0;
+
+        return ColorTriplet.fromHsl(
+            h,
+            hsl1.s + (hsl2.s - hsl1.s) * clamped_t,
+            hsl1.l + (hsl2.l - hsl1.l) * clamped_t,
+        );
+    }
+
+    pub fn luminance(self: ColorTriplet) f64 {
+        const r = linearize(@as(f64, @floatFromInt(self.r)) / 255.0);
+        const g = linearize(@as(f64, @floatFromInt(self.g)) / 255.0);
+        const b = linearize(@as(f64, @floatFromInt(self.b)) / 255.0);
+        return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    }
+
+    fn linearize(v: f64) f64 {
+        return if (v <= 0.04045)
+            v / 12.92
+        else
+            std.math.pow(f64, (v + 0.055) / 1.055, 2.4);
+    }
+
+    pub fn contrastRatio(self: ColorTriplet, other: ColorTriplet) f64 {
+        const l1 = self.luminance();
+        const l2 = other.luminance();
+        const lighter = @max(l1, l2);
+        const darker = @min(l1, l2);
+        return (lighter + 0.05) / (darker + 0.05);
+    }
+
+    pub const WcagLevel = enum {
+        fail,
+        aa_large,
+        aa,
+        aaa,
+    };
+
+    pub fn wcagLevel(self: ColorTriplet, other: ColorTriplet) WcagLevel {
+        const ratio = self.contrastRatio(other);
+        if (ratio >= 7.0) return .aaa;
+        if (ratio >= 4.5) return .aa;
+        if (ratio >= 3.0) return .aa_large;
+        return .fail;
+    }
 };
 
 pub const Color = struct {
@@ -201,6 +322,53 @@ pub const Color = struct {
         return tripletFrom256(n);
     }
 };
+
+pub const AdaptiveColor = struct {
+    truecolor: Color,
+    eight_bit: ?Color = null,
+    standard: ?Color = null,
+
+    pub fn resolve(self: AdaptiveColor, system: ColorSystem) Color {
+        return switch (system) {
+            .truecolor => self.truecolor,
+            .eight_bit => self.eight_bit orelse self.truecolor.downgrade(.eight_bit),
+            .standard => self.standard orelse self.truecolor.downgrade(.standard),
+        };
+    }
+
+    pub fn fromRgb(r: u8, g: u8, b: u8) AdaptiveColor {
+        return .{ .truecolor = Color.fromRgb(r, g, b) };
+    }
+
+    pub fn init(truecolor: Color, eight_bit: ?Color, standard_color: ?Color) AdaptiveColor {
+        return .{
+            .truecolor = truecolor,
+            .eight_bit = eight_bit,
+            .standard = standard_color,
+        };
+    }
+};
+
+pub fn gradient(stops: []const ColorTriplet, output: []ColorTriplet, comptime use_hsl: bool) void {
+    if (stops.len == 0 or output.len == 0) return;
+    if (stops.len == 1) {
+        for (output) |*c| c.* = stops[0];
+        return;
+    }
+
+    const n = output.len;
+    for (0..n) |i| {
+        const t: f32 = if (n == 1) 0.0 else @as(f32, @floatFromInt(i)) / @as(f32, @floatFromInt(n - 1));
+        const scaled = t * @as(f32, @floatFromInt(stops.len - 1));
+        const idx = @min(@as(usize, @intFromFloat(scaled)), stops.len - 2);
+        const local_t = scaled - @as(f32, @floatFromInt(idx));
+
+        output[i] = if (use_hsl)
+            ColorTriplet.blendHsl(stops[idx], stops[idx + 1], local_t)
+        else
+            ColorTriplet.blend(stops[idx], stops[idx + 1], local_t);
+    }
+}
 
 pub fn rgbTo256(r: u8, g: u8, b: u8) u8 {
     // Check for grayscale
@@ -430,4 +598,89 @@ test "named_colors lookup" {
     try std.testing.expect(named_colors.get("green").?.eql(Color.green));
     try std.testing.expect(named_colors.get("gray").?.eql(Color.bright_black));
     try std.testing.expect(named_colors.get("invalid") == null);
+}
+
+test "AdaptiveColor auto-downgrade" {
+    const ac = AdaptiveColor.fromRgb(255, 100, 50);
+    const resolved = ac.resolve(.standard);
+    try std.testing.expectEqual(ColorType.standard, resolved.color_type);
+}
+
+test "AdaptiveColor explicit fallback" {
+    const ac = AdaptiveColor.init(
+        Color.fromRgb(255, 100, 50),
+        Color.from256(208),
+        Color.yellow,
+    );
+    try std.testing.expect(ac.resolve(.standard).eql(Color.yellow));
+    try std.testing.expect(ac.resolve(.eight_bit).eql(Color.from256(208)));
+}
+
+test "AdaptiveColor truecolor passthrough" {
+    const ac = AdaptiveColor.fromRgb(100, 200, 50);
+    const resolved = ac.resolve(.truecolor);
+    try std.testing.expectEqual(ColorType.truecolor, resolved.color_type);
+    try std.testing.expectEqual(@as(u8, 100), resolved.triplet.?.r);
+    try std.testing.expectEqual(@as(u8, 200), resolved.triplet.?.g);
+    try std.testing.expectEqual(@as(u8, 50), resolved.triplet.?.b);
+}
+
+test "ColorTriplet HSL round-trip" {
+    const original = ColorTriplet{ .r = 200, .g = 100, .b = 50 };
+    const hsl = original.toHsl();
+    const recovered = ColorTriplet.fromHsl(hsl.h, hsl.s, hsl.l);
+    try std.testing.expect(@abs(@as(i16, original.r) - @as(i16, recovered.r)) <= 1);
+    try std.testing.expect(@abs(@as(i16, original.g) - @as(i16, recovered.g)) <= 1);
+    try std.testing.expect(@abs(@as(i16, original.b) - @as(i16, recovered.b)) <= 1);
+}
+
+test "blendHsl red to green goes through yellow" {
+    const red = ColorTriplet{ .r = 255, .g = 0, .b = 0 };
+    const green_c = ColorTriplet{ .r = 0, .g = 255, .b = 0 };
+    const mid = ColorTriplet.blendHsl(red, green_c, 0.5);
+    try std.testing.expect(mid.r > 100);
+    try std.testing.expect(mid.g > 100);
+    try std.testing.expect(mid.b < 50);
+}
+
+test "gradient produces correct count" {
+    const stops = [_]ColorTriplet{
+        .{ .r = 255, .g = 0, .b = 0 },
+        .{ .r = 0, .g = 255, .b = 0 },
+        .{ .r = 0, .g = 0, .b = 255 },
+    };
+    var output: [5]ColorTriplet = undefined;
+    gradient(&stops, &output, false);
+    try std.testing.expectEqual(@as(u8, 255), output[0].r);
+    try std.testing.expectEqual(@as(u8, 255), output[4].b);
+}
+
+test "gradient HSL mode" {
+    const stops = [_]ColorTriplet{
+        .{ .r = 255, .g = 0, .b = 0 },
+        .{ .r = 0, .g = 0, .b = 255 },
+    };
+    var output: [3]ColorTriplet = undefined;
+    gradient(&stops, &output, true);
+    try std.testing.expectEqual(@as(u8, 255), output[0].r);
+    try std.testing.expectEqual(@as(u8, 255), output[2].b);
+}
+
+test "contrastRatio black on white is ~21" {
+    const black = ColorTriplet{ .r = 0, .g = 0, .b = 0 };
+    const white = ColorTriplet{ .r = 255, .g = 255, .b = 255 };
+    const ratio = black.contrastRatio(white);
+    try std.testing.expect(ratio > 20.5 and ratio < 21.5);
+}
+
+test "contrastRatio same color is 1" {
+    const c = ColorTriplet{ .r = 128, .g = 128, .b = 128 };
+    const ratio = c.contrastRatio(c);
+    try std.testing.expect(ratio > 0.99 and ratio < 1.01);
+}
+
+test "wcagLevel black on white is AAA" {
+    const black = ColorTriplet{ .r = 0, .g = 0, .b = 0 };
+    const white = ColorTriplet{ .r = 255, .g = 255, .b = 255 };
+    try std.testing.expectEqual(ColorTriplet.WcagLevel.aaa, black.wcagLevel(white));
 }

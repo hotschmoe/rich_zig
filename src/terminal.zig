@@ -2,6 +2,12 @@ const std = @import("std");
 const builtin = @import("builtin");
 const ColorSystem = @import("color.zig").ColorSystem;
 
+pub const BackgroundMode = enum {
+    dark,
+    light,
+    unknown,
+};
+
 pub const TerminalInfo = struct {
     width: u16 = 80,
     height: u16 = 24,
@@ -11,6 +17,8 @@ pub const TerminalInfo = struct {
     supports_hyperlinks: bool = false,
     term: ?[]const u8 = null,
     term_program: ?[]const u8 = null,
+    supports_sync_output: bool = false,
+    background_mode: BackgroundMode = .unknown,
 };
 
 const TerminalSize = struct { width: u16, height: u16 };
@@ -49,6 +57,9 @@ pub fn detect() TerminalInfo {
 
     // Detect hyperlink support
     info.supports_hyperlinks = detectHyperlinks();
+
+    info.supports_sync_output = detectSyncOutput();
+    info.background_mode = detectBackground();
 
     return info;
 }
@@ -188,6 +199,43 @@ fn detectHyperlinks() bool {
     return false;
 }
 
+fn detectSyncOutput() bool {
+    if (getEnv("TERM_PROGRAM")) |prog| {
+        defer std.heap.page_allocator.free(prog);
+        const supported = [_][]const u8{
+            "WezTerm", "kitty", "Alacritty", "contour", "mintty",
+        };
+        for (supported) |t| {
+            if (std.mem.eql(u8, prog, t)) return true;
+        }
+    }
+    if (getEnv("WT_SESSION")) |wt| {
+        defer std.heap.page_allocator.free(wt);
+        return true;
+    }
+    if (getEnv("TERM")) |term| {
+        defer std.heap.page_allocator.free(term);
+        if (std.mem.startsWith(u8, term, "foot")) return true;
+    }
+    return false;
+}
+
+fn detectBackground() BackgroundMode {
+    if (getEnv("COLORFGBG")) |fgbg| {
+        defer std.heap.page_allocator.free(fgbg);
+        if (std.mem.lastIndexOfScalar(u8, fgbg, ';')) |sep| {
+            const bg_str = fgbg[sep + 1 ..];
+            const bg = std.fmt.parseInt(u8, bg_str, 10) catch return .unknown;
+            return if (bg < 7) .dark else .light;
+        }
+    }
+    if (getEnv("TERM_PROGRAM")) |prog| {
+        defer std.heap.page_allocator.free(prog);
+        if (std.mem.eql(u8, prog, "Apple_Terminal")) return .light;
+    }
+    return .dark;
+}
+
 pub fn enableVirtualTerminal() bool {
     if (builtin.os.tag == .windows) {
         const handle = std.os.windows.GetStdHandle(std.os.windows.STD_OUTPUT_HANDLE) catch return false;
@@ -211,6 +259,19 @@ pub fn enableUtf8() bool {
     return true; // POSIX terminals typically use UTF-8 by default
 }
 
+// Synchronized output (DEC private mode 2026)
+// Wraps terminal writes so the terminal buffers and renders atomically
+pub const sync_output_begin = "\x1b[?2026h";
+pub const sync_output_end = "\x1b[?2026l";
+
+pub fn beginSyncOutput(writer: anytype) !void {
+    try writer.writeAll(sync_output_begin);
+}
+
+pub fn endSyncOutput(writer: anytype) !void {
+    try writer.writeAll(sync_output_end);
+}
+
 // Tests
 test "TerminalInfo defaults" {
     const info = TerminalInfo{};
@@ -223,4 +284,34 @@ test "detect returns valid info" {
     const info = detect();
     try std.testing.expect(info.width > 0);
     try std.testing.expect(info.height > 0);
+}
+
+test "sync output escape sequences" {
+    try std.testing.expectEqualStrings("\x1b[?2026h", sync_output_begin);
+    try std.testing.expectEqualStrings("\x1b[?2026l", sync_output_end);
+}
+
+test "beginSyncOutput writes correct sequence" {
+    var buf: [32]u8 = undefined;
+    var stream = std.io.fixedBufferStream(&buf);
+    try beginSyncOutput(stream.writer());
+    try std.testing.expectEqualStrings("\x1b[?2026h", stream.getWritten());
+}
+
+test "endSyncOutput writes correct sequence" {
+    var buf: [32]u8 = undefined;
+    var stream = std.io.fixedBufferStream(&buf);
+    try endSyncOutput(stream.writer());
+    try std.testing.expectEqualStrings("\x1b[?2026l", stream.getWritten());
+}
+
+test "BackgroundMode enum" {
+    const mode: BackgroundMode = .dark;
+    try std.testing.expectEqual(BackgroundMode.dark, mode);
+}
+
+test "TerminalInfo new fields defaults" {
+    const info = TerminalInfo{};
+    try std.testing.expectEqual(false, info.supports_sync_output);
+    try std.testing.expectEqual(BackgroundMode.unknown, info.background_mode);
 }
