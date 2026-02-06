@@ -10,6 +10,11 @@
 //! - Comptime pretty printer for Zig types
 //! - Auto-highlighter for numbers, URLs, paths, UUIDs
 //! - ANSI escape sequence parsing and stripping
+//! - Adaptive colors with automatic terminal downgrading
+//! - HSL color space conversion, blending, and gradients
+//! - WCAG contrast ratio checking for accessibility
+//! - Synchronized output (DEC mode 2026) for flicker-free rendering
+//! - Dark/light background detection
 //!
 //! ## Quick Start
 //! ```zig
