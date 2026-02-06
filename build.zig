@@ -172,6 +172,7 @@ pub fn build(b: *std.Build) void {
         "advanced_panel",
         "advanced_progress",
         "advanced_syntax",
+        "color_features",
         // "toon_demo",
     };
 
