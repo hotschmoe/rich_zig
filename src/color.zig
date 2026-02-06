@@ -74,9 +74,9 @@ pub const ColorTriplet = struct {
         const x = c * (1.0 - @abs(@mod(h / 60.0, 2.0) - 1.0));
         const m = l - c / 2.0;
 
-        var r1: f32 = 0;
-        var g1: f32 = 0;
-        var b1: f32 = 0;
+        var r1: f32 = 0.0;
+        var g1: f32 = 0.0;
+        var b1: f32 = 0.0;
 
         if (h < 60.0) {
             r1 = c;
@@ -128,8 +128,8 @@ pub const ColorTriplet = struct {
     pub fn luminance(self: ColorTriplet) f64 {
         const r = linearize(@as(f64, @floatFromInt(self.r)) / 255.0);
         const g = linearize(@as(f64, @floatFromInt(self.g)) / 255.0);
-        const b_val = linearize(@as(f64, @floatFromInt(self.b)) / 255.0);
-        return 0.2126 * r + 0.7152 * g + 0.0722 * b_val;
+        const b = linearize(@as(f64, @floatFromInt(self.b)) / 255.0);
+        return 0.2126 * r + 0.7152 * g + 0.0722 * b;
     }
 
     fn linearize(v: f64) f64 {
