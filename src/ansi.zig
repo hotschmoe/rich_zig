@@ -161,12 +161,12 @@ fn applySgr(base: Style, params: []const u16) Style {
     }
 
     const standard_colors = [_]Color{
-        Color.black, Color.red, Color.green, Color.yellow,
-        Color.blue, Color.magenta, Color.cyan, Color.white,
+        Color.black, Color.red,     Color.green, Color.yellow,
+        Color.blue,  Color.magenta, Color.cyan,  Color.white,
     };
     const bright_colors = [_]Color{
-        Color.bright_black, Color.bright_red, Color.bright_green, Color.bright_yellow,
-        Color.bright_blue, Color.bright_magenta, Color.bright_cyan, Color.bright_white,
+        Color.bright_black, Color.bright_red,     Color.bright_green, Color.bright_yellow,
+        Color.bright_blue,  Color.bright_magenta, Color.bright_cyan,  Color.bright_white,
     };
 
     var i: usize = 0;

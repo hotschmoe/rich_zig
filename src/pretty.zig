@@ -53,7 +53,7 @@ pub const Pretty = struct {
         return .{
             .allocator = allocator,
             .options = options,
-            .segments = std.ArrayList(Segment).init(allocator),
+            .segments = .empty,
             .current_depth = 0,
         };
     }
@@ -62,7 +62,7 @@ pub const Pretty = struct {
     pub fn format(self: *Pretty, value: anytype) ![]Segment {
         self.segments.clearRetainingCapacity();
         try self.formatValue(value);
-        return self.segments.toOwnedSlice();
+        return self.segments.toOwnedSlice(self.allocator);
     }
 
     /// Render as a renderable (matches the render(width, allocator) protocol).
@@ -75,9 +75,9 @@ pub const Pretty = struct {
     fn emit(self: *Pretty, text: []const u8, style: ?Style) !void {
         const owned = try self.allocator.dupe(u8, text);
         if (style) |s| {
-            try self.segments.append(Segment.styled(owned, s));
+            try self.segments.append(self.allocator, Segment.styled(owned, s));
         } else {
-            try self.segments.append(Segment.plain(owned));
+            try self.segments.append(self.allocator, Segment.plain(owned));
         }
     }
 
@@ -86,7 +86,7 @@ pub const Pretty = struct {
         const indent_size = self.current_depth * self.options.indent;
         const spaces = try self.allocator.alloc(u8, indent_size);
         @memset(spaces, ' ');
-        try self.segments.append(Segment.plain(spaces));
+        try self.segments.append(self.allocator, Segment.plain(spaces));
     }
 
     fn formatValue(self: *Pretty, value: anytype) !void {
@@ -208,15 +208,14 @@ pub const Pretty = struct {
             },
             .pointer => |ptr| {
                 switch (ptr.size) {
-                    .Slice => {
+                    .slice => {
                         if (ptr.child == u8) {
-                            // []const u8 -> render as string
                             try self.formatString(value);
                             return;
                         }
                         try self.formatSlice(value);
                     },
-                    .One => {
+                    .one => {
                         if (ptr.child == anyopaque) {
                             try self.emit("*opaque", self.options.theme.pointer);
                         } else {
@@ -224,7 +223,7 @@ pub const Pretty = struct {
                             try self.formatValue(value.*);
                         }
                     },
-                    .Many, .C => {
+                    .many, .c => {
                         try self.emit("[*]...", self.options.theme.pointer);
                     },
                 }
@@ -309,7 +308,7 @@ pub const Pretty = struct {
         _ = other;
         // Placeholder for stored value rendering
         try self.emit("Pretty{...}", self.options.theme.type_name);
-        return self.segments.toOwnedSlice();
+        return self.segments.toOwnedSlice(self.allocator);
     }
 };
 
