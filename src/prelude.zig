@@ -32,6 +32,11 @@ const text_mod = @import("text.zig");
 const box_mod = @import("box.zig");
 const console_mod = @import("console.zig");
 const renderables_mod = @import("renderables/mod.zig");
+const measure_mod = @import("measure.zig");
+const theme_mod = @import("theme.zig");
+const pretty_mod = @import("pretty.zig");
+const highlighter_mod = @import("highlighter.zig");
+const ansi_mod = @import("ansi.zig");
 
 // Core types
 pub const Color = color_mod.Color;
@@ -40,6 +45,14 @@ pub const ColorTriplet = color_mod.ColorTriplet;
 pub const Style = style_mod.Style;
 pub const Text = text_mod.Text;
 pub const Span = text_mod.Span;
+pub const Measurement = measure_mod.Measurement;
+pub const Theme = theme_mod.Theme;
+pub const Pretty = pretty_mod.Pretty;
+pub const Highlighter = highlighter_mod.Highlighter;
+
+// ANSI parsing
+pub const fromAnsi = ansi_mod.fromAnsi;
+pub const stripAnsi = ansi_mod.stripAnsi;
 
 // Console
 pub const Console = console_mod.Console;

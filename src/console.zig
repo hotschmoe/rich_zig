@@ -8,6 +8,7 @@ const ColorSystem = @import("color.zig").ColorSystem;
 const Color = @import("color.zig").Color;
 const terminal = @import("terminal.zig");
 const markup = @import("markup.zig");
+const Theme = @import("theme.zig").Theme;
 
 pub const PagerOptions = struct {
     use_external: bool = true,
@@ -174,6 +175,7 @@ pub const ConsoleOptions = struct {
     no_color: bool = false,
     tab_size: u8 = 8,
     record: bool = false,
+    theme: ?Theme = null,
 };
 
 pub const Console = struct {
@@ -186,6 +188,7 @@ pub const Console = struct {
     write_buffer_owned: bool,
     status_line_active: bool = false,
     status_line_length: usize = 0,
+    theme: ?Theme,
 
     const DEFAULT_BUFFER_SIZE = 4096;
 
@@ -208,6 +211,7 @@ pub const Console = struct {
             .capture_buffer = if (options.record) std.ArrayList(u8).empty else null,
             .write_buffer = buffer,
             .write_buffer_owned = true,
+            .theme = options.theme,
         };
     }
 
@@ -242,10 +246,24 @@ pub const Console = struct {
     }
 
     pub fn print(self: *Console, text_markup: []const u8) !void {
-        var txt = try Text.fromMarkup(self.allocator, text_markup);
-        defer txt.deinit();
-        try self.printText(txt);
+        if (self.theme) |t| {
+            var txt = try Text.fromMarkupWithTheme(self.allocator, text_markup, t);
+            defer txt.deinit();
+            try self.printText(txt);
+        } else {
+            var txt = try Text.fromMarkup(self.allocator, text_markup);
+            defer txt.deinit();
+            try self.printText(txt);
+        }
         try self.writeLine();
+    }
+
+    /// Resolve a theme style name. Returns null if no theme or name not found.
+    pub fn resolveThemeStyle(self: Console, name: []const u8) ?Style {
+        if (self.theme) |t| {
+            return t.get(name);
+        }
+        return null;
     }
 
     pub fn printPlain(self: *Console, text: []const u8) !void {
@@ -718,6 +736,9 @@ pub const Console = struct {
             .{ .underline, "text-decoration: underline" },
             .{ .strike, "text-decoration: line-through" },
             .{ .overline, "text-decoration: overline" },
+            .{ .underline2, "text-decoration: underline double" },
+            .{ .frame, "border: 1px solid currentColor" },
+            .{ .encircle, "border: 1px solid currentColor; border-radius: 50%" },
         }) |pair| {
             if (style.hasAttribute(pair[0])) {
                 if (needs_sep) try writer.writeAll("; ");
@@ -917,6 +938,9 @@ pub const Console = struct {
             .{ .underline, "text-decoration:underline" },
             .{ .strike, "text-decoration:line-through" },
             .{ .overline, "text-decoration:overline" },
+            .{ .underline2, "text-decoration:underline" },
+            .{ .frame, "stroke:currentColor;stroke-width:1" },
+            .{ .encircle, "stroke:currentColor;stroke-width:1" },
         }) |pair| {
             if (style.hasAttribute(pair[0])) {
                 if (needs_sep) try writer.writeByte(';');

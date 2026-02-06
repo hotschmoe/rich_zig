@@ -14,6 +14,9 @@ pub const StyleAttribute = enum(u4) {
     conceal = 7,
     strike = 8,
     overline = 9,
+    underline2 = 10,
+    frame = 11,
+    encircle = 12,
 };
 
 pub const Style = struct {
@@ -99,6 +102,35 @@ pub const Style = struct {
 
     pub fn notOverline(self: Style) Style {
         return self.setAttribute(.overline, false);
+    }
+
+    pub fn underline2(self: Style) Style {
+        return self.setAttribute(.underline2, true);
+    }
+
+    pub fn notUnderline2(self: Style) Style {
+        return self.setAttribute(.underline2, false);
+    }
+
+    pub fn frame(self: Style) Style {
+        return self.setAttribute(.frame, true);
+    }
+
+    pub fn notFrame(self: Style) Style {
+        return self.setAttribute(.frame, false);
+    }
+
+    pub fn encircle(self: Style) Style {
+        return self.setAttribute(.encircle, true);
+    }
+
+    pub fn notEncircle(self: Style) Style {
+        return self.setAttribute(.encircle, false);
+    }
+
+    /// Alias for conceal
+    pub fn hidden(self: Style) Style {
+        return self.conceal();
     }
 
     fn setAttribute(self: Style, attr: StyleAttribute, value: bool) Style {
@@ -224,6 +256,10 @@ pub const Style = struct {
             .{ "strikethrough", .strike },
             .{ "overline", .overline },
             .{ "o", .overline },
+            .{ "underline2", .underline2 },
+            .{ "uu", .underline2 },
+            .{ "frame", .frame },
+            .{ "encircle", .encircle },
         });
 
         return attr_map.get(token);
@@ -276,12 +312,12 @@ pub const Style = struct {
 
         try writer.writeAll("\x1b[");
 
-        // SGR enable codes: 1=bold, 2=dim, 3=italic, 4=underline, 5=blink, 6=blink2, 7=reverse, 8=conceal, 9=strike, 53=overline
-        const sgr_enable = [_]u8{ 1, 2, 3, 4, 5, 6, 7, 8, 9, 53 };
-        // SGR disable codes: 22=not bold/dim, 23=not italic, 24=not underline, 25=not blink, 27=not reverse, 28=not conceal, 29=not strike, 55=not overline
-        const sgr_disable = [_]u8{ 22, 22, 23, 24, 25, 25, 27, 28, 29, 55 };
+        // SGR enable codes: 1=bold, 2=dim, 3=italic, 4=underline, 5=blink, 6=blink2, 7=reverse, 8=conceal, 9=strike, 53=overline, 21=underline2, 51=frame, 52=encircle
+        const sgr_enable = [_]u8{ 1, 2, 3, 4, 5, 6, 7, 8, 9, 53, 21, 51, 52 };
+        // SGR disable codes
+        const sgr_disable = [_]u8{ 22, 22, 23, 24, 25, 25, 27, 28, 29, 55, 24, 54, 54 };
 
-        inline for (0..10) |i| {
+        inline for (0..13) |i| {
             const bit: u16 = @as(u16, 1) << @intCast(i);
             if ((self.set_attributes & bit) != 0) {
                 if (!first) try writer.writeByte(';');
@@ -502,4 +538,39 @@ test "Style.eql" {
 
     try std.testing.expect(s1.eql(s2));
     try std.testing.expect(!s1.eql(s3));
+}
+
+test "Style.underline2" {
+    const style = Style.empty.underline2();
+    try std.testing.expect(style.hasAttribute(.underline2));
+    try std.testing.expect(!style.hasAttribute(.underline));
+}
+
+test "Style.frame" {
+    const style = Style.empty.frame();
+    try std.testing.expect(style.hasAttribute(.frame));
+}
+
+test "Style.encircle" {
+    const style = Style.empty.encircle();
+    try std.testing.expect(style.hasAttribute(.encircle));
+}
+
+test "Style.hidden alias" {
+    const style = Style.empty.hidden();
+    try std.testing.expect(style.hasAttribute(.conceal));
+}
+
+test "Style.parse underline2" {
+    const style = try Style.parse("uu red");
+    try std.testing.expect(style.hasAttribute(.underline2));
+    try std.testing.expect(style.color.?.eql(Color.red));
+}
+
+test "Style.renderAnsi underline2" {
+    var buf: [128]u8 = undefined;
+    var stream = std.io.fixedBufferStream(&buf);
+    const style = Style.empty.underline2();
+    try style.renderAnsi(.truecolor, stream.writer());
+    try std.testing.expectEqualStrings("\x1b[21m", stream.getWritten());
 }

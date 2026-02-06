@@ -3,6 +3,7 @@ const Style = @import("style.zig").Style;
 const Segment = @import("segment.zig").Segment;
 const markup = @import("markup.zig");
 const cells = @import("cells.zig");
+const Theme = @import("theme.zig").Theme;
 
 pub const Span = struct {
     start: usize,
@@ -80,6 +81,61 @@ pub const Text = struct {
                 .open_tag => |tag| {
                     const current_style = style_stack.getLast();
                     const new_style = Style.parse(tag.name) catch continue;
+                    try style_stack.append(allocator, current_style.combine(new_style));
+                },
+                .close_tag => {
+                    if (style_stack.items.len > 1) {
+                        _ = style_stack.pop();
+                    }
+                },
+            }
+        }
+
+        return .{
+            .plain = try plain_buf.toOwnedSlice(allocator),
+            .spans = try spans_buf.toOwnedSlice(allocator),
+            .style = Style.empty,
+            .allocator = allocator,
+            .owns_plain = true,
+            .owns_spans = true,
+        };
+    }
+
+    pub fn fromMarkupWithTheme(allocator: std.mem.Allocator, text: []const u8, theme: Theme) !Text {
+        const tokens = try markup.parseMarkup(text, allocator);
+        defer allocator.free(tokens);
+
+        var plain_buf: std.ArrayList(u8) = .empty;
+        defer plain_buf.deinit(allocator);
+
+        var spans_buf: std.ArrayList(Span) = .empty;
+        defer spans_buf.deinit(allocator);
+
+        var style_stack: std.ArrayList(Style) = .empty;
+        defer style_stack.deinit(allocator);
+        try style_stack.append(allocator, Style.empty);
+
+        for (tokens) |token| {
+            switch (token) {
+                .text => |txt| {
+                    const start = plain_buf.items.len;
+                    try plain_buf.appendSlice(allocator, txt);
+                    const end = plain_buf.items.len;
+
+                    const current_style = style_stack.getLast();
+                    if (!current_style.isEmpty()) {
+                        try spans_buf.append(allocator, .{
+                            .start = start,
+                            .end = end,
+                            .style = current_style,
+                        });
+                    }
+                },
+                .open_tag => |tag| {
+                    const current_style = style_stack.getLast();
+                    // Try theme lookup first, then standard style parsing
+                    const new_style = theme.get(tag.name) orelse
+                        (Style.parse(tag.name) catch continue);
                     try style_stack.append(allocator, current_style.combine(new_style));
                 },
                 .close_tag => {

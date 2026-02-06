@@ -198,6 +198,27 @@ pub const Panel = struct {
         return p;
     }
 
+    pub fn measure(self: Panel, max_width: usize, _: std.mem.Allocator) !@import("../measure.zig").Measurement {
+        const Meas = @import("../measure.zig").Measurement;
+        const border_width: usize = 4; // left border + space + space + right border
+
+        if (self.width) |w| {
+            const clamped = @min(@as(usize, w), max_width);
+            return Meas.init(clamped, clamped);
+        }
+
+        const content_measurement = Meas.fromText(switch (self.content) {
+            .text => |t| t,
+            .styled_text => |st| st.text,
+            .segments => return Meas.init(border_width + 1, max_width),
+        });
+
+        return Meas.init(
+            content_measurement.minimum + border_width,
+            @min(content_measurement.maximum + border_width, max_width),
+        );
+    }
+
     pub fn render(self: Panel, max_width: usize, allocator: std.mem.Allocator) ![]Segment {
         var segments: std.ArrayList(Segment) = .empty;
         const b = self.box_style;
