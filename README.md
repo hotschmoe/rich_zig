@@ -66,6 +66,17 @@ rich_zig brings rich text and beautiful formatting to Zig terminal applications.
 | Syntax | Syntax highlighting | Complete |
 | Markdown | Terminal markdown rendering | Complete |
 
+### Color & Terminal (v1.4.0+)
+
+| Component | Description | Status |
+|-----------|-------------|--------|
+| AdaptiveColor | Colors that auto-downgrade across color systems | Complete |
+| HSL Blending | Perceptually smooth color transitions via HSL | Complete |
+| Multi-stop Gradient | Generate N colors across arbitrary color stops | Complete |
+| WCAG Contrast | Accessibility-aware contrast ratio checking | Complete |
+| Synchronized Output | Flicker-free rendering via DEC mode 2026 | Complete |
+| Background Detection | Dark/light terminal background heuristic | Complete |
+
 ## Installation
 
 ### Using Zig Package Manager (Recommended)
@@ -122,7 +133,7 @@ pub fn build(b: *std.Build) void {
 ### Using a Specific Version (Recommended)
 
 ```bash
-zig fetch --save git+https://github.com/hotschmoe/rich_zig.git#v1.1.0
+zig fetch --save git+https://github.com/hotschmoe/rich_zig.git#v1.4.1
 ```
 
 Or manually in `build.zig.zon`:
@@ -130,7 +141,7 @@ Or manually in `build.zig.zon`:
 ```zig
 .dependencies = .{
     .rich_zig = .{
-        .url = "git+https://github.com/hotschmoe/rich_zig.git#v1.1.0",
+        .url = "git+https://github.com/hotschmoe/rich_zig.git#v1.4.1",
         .hash = "...",
     },
 },
@@ -163,7 +174,7 @@ pub fn main() !void {
     const allocator = gpa.allocator();
 
     var console = rich.Console.init(allocator);
-    try console.print("[bold green]rich_zig v1.0.0 installed successfully![/]");
+    try console.print("[bold green]rich_zig v1.4.1 installed successfully![/]");
 }
 ```
 
@@ -223,7 +234,7 @@ Output:
 ```zig
 const panel = rich.Panel.fromText(allocator, "Welcome to the system!")
     .withTitle("Message")
-    .withSubtitle("v1.0.0")
+    .withSubtitle("v1.4.1")
     .withWidth(50)
     .rounded();
 
@@ -292,6 +303,9 @@ project
 | Horizontal rule | `Rule.init().withTitle("Section")` |
 | Tree node | `TreeNode.init(alloc, "root")` |
 | Style composition | `Style.empty.bold().fg(Color.red)` |
+| Adaptive color | `AdaptiveColor.fromRgb(255, 128, 0).resolve(.standard)` |
+| HSL gradient | `gradient(&stops, &output, true)` |
+| WCAG contrast | `color1.contrastRatio(color2)` |
 | Prelude import | `const rich = @import("rich_zig").prelude;` |
 
 ## Architecture
@@ -337,6 +351,12 @@ src/
 +-- markup.zig         # Markup parser [bold]...[/]
 +-- terminal.zig       # Terminal detection
 +-- console.zig        # Output management
++-- measure.zig        # Measurement protocol
++-- theme.zig          # Named style registry
++-- highlighter.zig    # Auto-highlighting
++-- ansi.zig           # ANSI escape parsing
++-- emoji.zig          # Emoji shortcodes
++-- pretty.zig         # Comptime pretty printer
 +-- box.zig            # Box drawing characters
 +-- renderables/
     +-- panel.zig      # Bordered panels
@@ -365,6 +385,61 @@ const style = Style.empty
 
 // Named colors
 const warning = Style.empty.foreground(Color.yellow).bold();
+```
+
+### Adaptive Colors
+
+Colors that automatically downgrade to match terminal capabilities:
+
+```zig
+const rich = @import("rich_zig");
+
+// Bundle colors for different terminal capabilities
+const sunset = rich.AdaptiveColor.init(
+    rich.Color.fromRgb(255, 100, 50),  // Truecolor
+    rich.Color.from256(208),            // 256-color fallback
+    rich.Color.yellow,                  // 16-color fallback
+);
+
+// Resolve for the current terminal
+const color = sunset.resolve(console.colorSystem());
+
+// Quick adaptive from RGB (auto-computes fallbacks)
+const sky = rich.AdaptiveColor.fromRgb(0, 180, 255);
+```
+
+### HSL Blending & Gradients
+
+Perceptually smooth color transitions through HSL color space:
+
+```zig
+const rich = @import("rich_zig");
+
+// HSL blend between two colors
+const red = rich.ColorTriplet{ .r = 255, .g = 0, .b = 0 };
+const blue = rich.ColorTriplet{ .r = 0, .g = 0, .b = 255 };
+const mid = rich.ColorTriplet.blendHsl(red, blue, 0.5);
+
+// Multi-stop gradient
+const stops = [_]rich.ColorTriplet{
+    .{ .r = 255, .g = 0, .b = 0 },
+    .{ .r = 0, .g = 255, .b = 0 },
+    .{ .r = 0, .g = 0, .b = 255 },
+};
+var output: [30]rich.ColorTriplet = undefined;
+rich.gradient(&stops, &output, true); // true = HSL interpolation
+```
+
+### WCAG Contrast Checking
+
+Validate color pair accessibility per WCAG 2.0 guidelines:
+
+```zig
+const fg = rich.ColorTriplet{ .r = 255, .g = 255, .b = 255 };
+const bg = rich.ColorTriplet{ .r = 0, .g = 0, .b = 0 };
+
+const ratio = fg.contrastRatio(bg);  // 21.0:1
+const level = fg.wcagLevel(bg);      // .aaa
 ```
 
 ## Building
@@ -406,6 +481,7 @@ We track 100% feature parity with Rich/rich_rust. See [docs/FEATURE_PARITY.md](d
 |-------|------------|--------|
 | Core (P0) | Color, Style, Segment, Cells, Markup, Text | 100% Complete |
 | Console (P0) | Terminal detection, Console I/O | 100% Complete |
+| Color/Terminal (P0) | AdaptiveColor, HSL, WCAG, Gradients, Sync Output | 100% Complete |
 | Renderables (P1) | Panel, Table, Rule, Progress, Tree, Layout | 100% Complete |
 | Optional (P2) | JSON, Syntax, Markdown | 100% Complete |
 
@@ -427,7 +503,7 @@ Automated testing via GitHub Actions on PRs and release tags:
 **Release Workflow**:
 1. Update version in `build.zig.zon`
 2. Commit and push to master
-3. Create and push tag: `git tag v1.0.2 && git push origin v1.0.2`
+3. Create and push tag: `git tag v1.4.1 && git push origin v1.4.1`
 4. CI runs full test suite
 5. If tests pass, GitHub Release is created automatically
 

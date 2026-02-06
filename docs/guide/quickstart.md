@@ -7,7 +7,7 @@ Get up and running with rich_zig in 5 minutes.
 Add rich_zig to your project using `zig fetch`:
 
 ```bash
-zig fetch --save https://github.com/yourusername/rich_zig/archive/refs/tags/v1.0.0.tar.gz
+zig fetch --save git+https://github.com/hotschmoe/rich_zig.git#v1.4.1
 ```
 
 Then add to your `build.zig`:

@@ -67,6 +67,12 @@ pub const ColorTriplet = struct {
     pub fn hex(self: ColorTriplet) [7]u8;
     pub fn blend(c1: ColorTriplet, c2: ColorTriplet, t: f32) ColorTriplet;
     pub fn eql(self: ColorTriplet, other: ColorTriplet) bool;
+    pub fn toHsl(self: ColorTriplet) struct { h: f32, s: f32, l: f32 };
+    pub fn fromHsl(h: f32, s: f32, l: f32) ColorTriplet;
+    pub fn blendHsl(c1: ColorTriplet, c2: ColorTriplet, t: f32) ColorTriplet;
+    pub fn luminance(self: ColorTriplet) f64;
+    pub fn contrastRatio(self: ColorTriplet, other: ColorTriplet) f64;
+    pub fn wcagLevel(self: ColorTriplet, other: ColorTriplet) WcagLevel;
 };
 ```
 
@@ -89,6 +95,171 @@ const salmon = Color.from256(210);
 
 // Downgrade for compatibility
 const downgraded = orange.downgrade(.standard); // Converts to nearest 16-color
+```
+
+---
+
+### AdaptiveColor
+
+**Module:** `rich_zig.AdaptiveColor`
+**File:** `src/color.zig`
+
+#### Overview
+
+Colors that bundle multiple representations (truecolor, 256-color, standard) and resolve to the best match for a given terminal's color system. When a higher-fidelity representation isn't available, falls back gracefully.
+
+#### Construction
+
+| Constructor | Description |
+|------------|-------------|
+| `AdaptiveColor.init(truecolor, eight_bit, standard)` | Create with explicit fallbacks |
+| `AdaptiveColor.fromRgb(r, g, b)` | Create from RGB with auto-computed fallbacks |
+
+#### Methods
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `resolve(system: ColorSystem)` | `Color` | Get the best color for the given system |
+
+#### Example
+
+```zig
+const rich = @import("rich_zig");
+
+// Explicit fallback chain
+const sunset = rich.AdaptiveColor.init(
+    rich.Color.fromRgb(255, 100, 50),  // Truecolor
+    rich.Color.from256(208),            // 256-color
+    rich.Color.yellow,                  // 16-color
+);
+const resolved = sunset.resolve(.standard); // Returns Color.yellow
+
+// Auto-computed fallbacks from RGB
+const sky = rich.AdaptiveColor.fromRgb(0, 180, 255);
+const best = sky.resolve(console.colorSystem());
+```
+
+---
+
+### HSL Color Operations
+
+**Module:** `rich_zig.ColorTriplet`
+**File:** `src/color.zig`
+
+#### Overview
+
+HSL (Hue, Saturation, Lightness) color space operations on `ColorTriplet` for perceptually smooth color blending and manipulation. Uses shortest-arc hue interpolation for natural transitions.
+
+#### Methods
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `toHsl()` | `struct { h, s, l: f32 }` | Convert RGB to HSL (h: 0-360, s/l: 0-1) |
+| `fromHsl(h, s, l)` | `ColorTriplet` | Convert HSL back to RGB |
+| `blendHsl(c1, c2, t)` | `ColorTriplet` | Blend two colors in HSL space (t: 0.0-1.0) |
+
+#### Example
+
+```zig
+const rich = @import("rich_zig");
+
+const red = rich.ColorTriplet{ .r = 255, .g = 0, .b = 0 };
+const green = rich.ColorTriplet{ .r = 0, .g = 255, .b = 0 };
+
+// HSL blend produces perceptually smooth transitions
+const mid = rich.ColorTriplet.blendHsl(red, green, 0.5);
+
+// Convert to/from HSL
+const hsl = red.toHsl(); // h=0, s=1, l=0.5
+const back = rich.ColorTriplet.fromHsl(hsl.h, hsl.s, hsl.l);
+```
+
+---
+
+### Multi-Stop Gradient
+
+**Module:** `rich_zig.gradient`
+**File:** `src/color.zig`
+
+#### Overview
+
+Generates N colors distributed across arbitrary color stops, with support for both RGB and HSL interpolation modes.
+
+#### Function
+
+```zig
+pub fn gradient(
+    stops: []const ColorTriplet,
+    output: []ColorTriplet,
+    comptime use_hsl: bool,
+) void
+```
+
+| Parameter | Description |
+|-----------|-------------|
+| `stops` | Array of color stops to interpolate between |
+| `output` | Output buffer filled with interpolated colors |
+| `use_hsl` | `true` for HSL interpolation (smoother), `false` for RGB |
+
+#### Example
+
+```zig
+const rich = @import("rich_zig");
+
+const stops = [_]rich.ColorTriplet{
+    .{ .r = 255, .g = 0, .b = 0 },   // Red
+    .{ .r = 255, .g = 255, .b = 0 }, // Yellow
+    .{ .r = 0, .g = 255, .b = 0 },   // Green
+    .{ .r = 0, .g = 0, .b = 255 },   // Blue
+};
+
+var rainbow: [40]rich.ColorTriplet = undefined;
+rich.gradient(&stops, &rainbow, true); // HSL interpolation
+```
+
+---
+
+### WCAG Contrast
+
+**Module:** `rich_zig.ColorTriplet`
+**File:** `src/color.zig`
+
+#### Overview
+
+WCAG 2.0 contrast ratio calculation and accessibility level checking. Useful for ensuring text/background color pairs meet accessibility standards.
+
+#### Methods
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `luminance()` | `f64` | Relative luminance per sRGB spec (0.0-1.0) |
+| `contrastRatio(other)` | `f64` | WCAG contrast ratio (1.0-21.0) |
+| `wcagLevel(other)` | `WcagLevel` | Accessibility conformance level |
+
+#### WcagLevel
+
+```zig
+pub const WcagLevel = enum { fail, aa_large, aa, aaa };
+```
+
+| Level | Minimum Ratio | Use Case |
+|-------|--------------|----------|
+| `aaa` | 7.0:1 | Enhanced contrast (all text) |
+| `aa` | 4.5:1 | Normal text |
+| `aa_large` | 3.0:1 | Large text only (18pt+ or 14pt+ bold) |
+| `fail` | Below 3.0:1 | Does not meet WCAG requirements |
+
+#### Example
+
+```zig
+const white = rich.ColorTriplet{ .r = 255, .g = 255, .b = 255 };
+const black = rich.ColorTriplet{ .r = 0, .g = 0, .b = 0 };
+
+const ratio = white.contrastRatio(black);  // 21.0
+const level = white.wcagLevel(black);      // .aaa
+
+const gray = rich.ColorTriplet{ .r = 128, .g = 128, .b = 128 };
+const level2 = gray.wcagLevel(white);      // .aa (ratio ~3.95:1)
 ```
 
 ---
@@ -517,8 +688,30 @@ pub const TerminalInfo = struct {
     supports_hyperlinks: bool = false,
     term: ?[]const u8 = null,
     term_program: ?[]const u8 = null,
+    supports_sync_output: bool = false,
+    background_mode: BackgroundMode = .unknown,
 };
 ```
+
+#### BackgroundMode
+
+```zig
+pub const BackgroundMode = enum { dark, light, unknown };
+```
+
+Terminal background detection based on environment heuristics (COLORFGBG, TERM_PROGRAM). Useful for choosing light-on-dark vs dark-on-light color schemes.
+
+#### Synchronized Output
+
+```zig
+pub const sync_output_begin: []const u8 = "\x1b[?2026h";
+pub const sync_output_end: []const u8 = "\x1b[?2026l";
+
+pub fn beginSyncOutput(writer: anytype) !void;
+pub fn endSyncOutput(writer: anytype) !void;
+```
+
+DEC private mode 2026 for atomic frame rendering. Console uses this opportunistically on TTY output to prevent screen tearing during multi-segment writes. Terminals that don't support it safely ignore the sequences.
 
 #### Environment Variables
 
@@ -593,6 +786,8 @@ pub const ConsoleOptions = struct {
 | `rule(title_opt: ?[]const u8)` | Print horizontal rule with optional title |
 | `clear()` | Clear screen |
 | `bell()` | Emit terminal bell |
+
+> **Note:** `printSegments` automatically wraps output with synchronized output sequences (DEC mode 2026) when writing to a TTY. This prevents screen tearing during multi-line renders. Non-TTY output (pipes, files) is unaffected.
 
 #### Cursor & Screen Control
 
@@ -1644,8 +1839,10 @@ const result = base.combine(overlay);
 
 ## Version History
 
+- **v1.4.1**: Documentation updates, opportunistic sync output on TTY
+- **v1.4.0**: AdaptiveColor, HSL blending, multi-stop gradients, WCAG contrast, synchronized output, background detection
+- **v1.3.0**: Markdown rendering, syntax highlighting, JSON pretty-printing
 - **v1.0.0**: First stable release
-- **v0.10.0**: Current development version
 
 For detailed change history, see CHANGELOG.md.
 
