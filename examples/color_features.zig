@@ -1,5 +1,15 @@
+//! Color Features Example - Adaptive colors, HSL blending, gradients, WCAG contrast
+//!
+//! Run with: zig build example-color_features
+
 const std = @import("std");
 const rich = @import("rich_zig");
+
+fn writeColorBar(writer: anytype, colors: []const rich.ColorTriplet) void {
+    for (colors) |c| {
+        writer.print("\x1b[48;2;{d};{d};{d}m \x1b[0m", .{ c.r, c.g, c.b }) catch return;
+    }
+}
 
 pub fn main() !void {
     _ = rich.terminal.enableUtf8();
@@ -12,11 +22,8 @@ pub fn main() !void {
     var console = rich.Console.init(allocator);
     defer console.deinit();
 
-    // -- Header --
-    const header = rich.Panel.fromText(allocator, "rich_zig v1.4.0 - Color Features Demo")
-        .withTitle("Color Features")
-        .withWidth(60);
-    try console.printRenderable(header);
+    try console.print("");
+    try console.printRenderable(rich.Rule.init().withTitle("Color Features").withCharacters("="));
     try console.print("");
 
     // -- 1. Adaptive Colors --
@@ -30,25 +37,23 @@ pub fn main() !void {
         rich.Color.yellow,
     );
 
-    const color_systems = [_]struct { name: []const u8, sys: rich.ColorSystem }{
+    var buf: [512]u8 = undefined;
+    const systems = [_]struct { name: []const u8, sys: rich.ColorSystem }{
         .{ .name = "truecolor", .sys = .truecolor },
         .{ .name = "eight_bit", .sys = .eight_bit },
         .{ .name = "standard ", .sys = .standard },
     };
 
-    var buf: [512]u8 = undefined;
-    for (color_systems) |cs| {
+    for (systems) |cs| {
         const resolved = sunset.resolve(cs.sys);
         var ansi_buf: [128]u8 = undefined;
         var stream = std.io.fixedBufferStream(&ansi_buf);
-        const style = rich.Style.empty.foreground(resolved);
-        try style.renderAnsi(cs.sys, stream.writer());
-        const line = std.fmt.bufPrint(&buf, "   {s}: {s}sunset orange\x1b[0m", .{ cs.name, stream.getWritten() }) catch "";
+        try rich.Style.empty.foreground(resolved).renderAnsi(cs.sys, stream.writer());
+        const line = std.fmt.bufPrint(&buf, "   {s}: {s}sunset orange\x1b[0m", .{ cs.name, stream.getWritten() }) catch continue;
         try console.printPlain(line);
     }
 
-    const auto_ac = rich.AdaptiveColor.fromRgb(0, 180, 255);
-    const auto_resolved = auto_ac.resolve(.standard);
+    const auto_resolved = rich.AdaptiveColor.fromRgb(0, 180, 255).resolve(.standard);
     const auto_line = std.fmt.bufPrint(&buf, "   auto-downgrade: RGB(0,180,255) -> standard color #{d}", .{auto_resolved.number.?}) catch "";
     try console.printPlain(auto_line);
     try console.print("");
@@ -61,34 +66,26 @@ pub fn main() !void {
     const red_c = rich.ColorTriplet{ .r = 255, .g = 0, .b = 0 };
     const green_c = rich.ColorTriplet{ .r = 0, .g = 255, .b = 0 };
 
-    // RGB blend line
+    var blend_rgb: [20]rich.ColorTriplet = undefined;
+    var blend_hsl: [20]rich.ColorTriplet = undefined;
+    for (0..20) |i| {
+        const t: f32 = @as(f32, @floatFromInt(i)) / 19.0;
+        blend_rgb[i] = rich.ColorTriplet.blend(red_c, green_c, t);
+        blend_hsl[i] = rich.ColorTriplet.blendHsl(red_c, green_c, t);
+    }
+
     var big_buf: [2048]u8 = undefined;
-    var pos: usize = 0;
-    const rgb_prefix = "   RGB blend (red->green): ";
-    @memcpy(big_buf[pos..][0..rgb_prefix.len], rgb_prefix);
-    pos += rgb_prefix.len;
+    var stream = std.io.fixedBufferStream(&big_buf);
+    var writer = stream.writer();
 
-    for (0..20) |i| {
-        const t: f32 = @as(f32, @floatFromInt(i)) / 19.0;
-        const c = rich.ColorTriplet.blend(red_c, green_c, t);
-        const written = std.fmt.bufPrint(big_buf[pos..], "\x1b[48;2;{d};{d};{d}m \x1b[0m", .{ c.r, c.g, c.b }) catch break;
-        pos += written.len;
-    }
-    try console.printPlain(big_buf[0..pos]);
+    writer.writeAll("   RGB blend (red->green): ") catch {};
+    writeColorBar(writer, &blend_rgb);
+    try console.printPlain(stream.getWritten());
 
-    // HSL blend line
-    pos = 0;
-    const hsl_prefix = "   HSL blend (red->green): ";
-    @memcpy(big_buf[pos..][0..hsl_prefix.len], hsl_prefix);
-    pos += hsl_prefix.len;
-
-    for (0..20) |i| {
-        const t: f32 = @as(f32, @floatFromInt(i)) / 19.0;
-        const c = rich.ColorTriplet.blendHsl(red_c, green_c, t);
-        const written = std.fmt.bufPrint(big_buf[pos..], "\x1b[48;2;{d};{d};{d}m \x1b[0m", .{ c.r, c.g, c.b }) catch break;
-        pos += written.len;
-    }
-    try console.printPlain(big_buf[0..pos]);
+    stream.reset();
+    writer.writeAll("   HSL blend (red->green): ") catch {};
+    writeColorBar(writer, &blend_hsl);
+    try console.printPlain(stream.getWritten());
     try console.print("");
 
     // -- 3. Multi-Stop Gradient --
@@ -110,27 +107,15 @@ pub fn main() !void {
     rich.gradient(&stops, &rgb_grad, false);
     rich.gradient(&stops, &hsl_grad, true);
 
-    // RGB gradient
-    pos = 0;
-    const rgb_grad_prefix = "   RGB gradient: ";
-    @memcpy(big_buf[pos..][0..rgb_grad_prefix.len], rgb_grad_prefix);
-    pos += rgb_grad_prefix.len;
-    for (rgb_grad) |c| {
-        const written = std.fmt.bufPrint(big_buf[pos..], "\x1b[48;2;{d};{d};{d}m \x1b[0m", .{ c.r, c.g, c.b }) catch break;
-        pos += written.len;
-    }
-    try console.printPlain(big_buf[0..pos]);
+    stream.reset();
+    writer.writeAll("   RGB gradient: ") catch {};
+    writeColorBar(writer, &rgb_grad);
+    try console.printPlain(stream.getWritten());
 
-    // HSL gradient
-    pos = 0;
-    const hsl_grad_prefix = "   HSL gradient: ";
-    @memcpy(big_buf[pos..][0..hsl_grad_prefix.len], hsl_grad_prefix);
-    pos += hsl_grad_prefix.len;
-    for (hsl_grad) |c| {
-        const written = std.fmt.bufPrint(big_buf[pos..], "\x1b[48;2;{d};{d};{d}m \x1b[0m", .{ c.r, c.g, c.b }) catch break;
-        pos += written.len;
-    }
-    try console.printPlain(big_buf[0..pos]);
+    stream.reset();
+    writer.writeAll("   HSL gradient: ") catch {};
+    writeColorBar(writer, &hsl_grad);
+    try console.printPlain(stream.getWritten());
     try console.print("");
 
     // -- 4. WCAG Contrast --
@@ -148,19 +133,19 @@ pub fn main() !void {
 
     for (pairs) |p| {
         const ratio = p.fg.contrastRatio(p.bg);
-        const level = p.fg.wcagLevel(p.bg);
-        const level_str = switch (level) {
+        const level_str: []const u8 = switch (p.fg.wcagLevel(p.bg)) {
             .aaa => "AAA     ",
             .aa => "AA      ",
             .aa_large => "AA-large",
             .fail => "FAIL    ",
         };
-        const line = std.fmt.bufPrint(&big_buf, "   \x1b[38;2;{d};{d};{d}m\x1b[48;2;{d};{d};{d}m {s} \x1b[0m  ratio: {d:.1}:1  level: {s}", .{
+        stream.reset();
+        writer.print("   \x1b[38;2;{d};{d};{d}m\x1b[48;2;{d};{d};{d}m {s} \x1b[0m  ratio: {d:.1}:1  level: {s}", .{
             p.fg.r, p.fg.g, p.fg.b,
             p.bg.r, p.bg.g, p.bg.b,
             p.name, ratio,  level_str,
-        }) catch "";
-        try console.printPlain(line);
+        }) catch continue;
+        try console.printPlain(stream.getWritten());
     }
     try console.print("");
 
@@ -176,10 +161,10 @@ pub fn main() !void {
     try console.print("");
 
     // -- 6. Background Detection --
-    try console.print("[bold cyan]6. Dark Background Detection[/]");
+    try console.print("[bold cyan]6. Background Detection[/]");
     try console.print("");
 
-    const mode_str = switch (info.background_mode) {
+    const mode_str: []const u8 = switch (info.background_mode) {
         .dark => "dark",
         .light => "light",
         .unknown => "unknown",
