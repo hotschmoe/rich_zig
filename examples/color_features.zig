@@ -155,9 +155,10 @@ pub fn main() !void {
     try console.print("");
 
     const info = rich.terminal.detect();
-    const sync_str = std.fmt.bufPrint(&buf, "   Terminal sync support: {s}", .{if (info.supports_sync_output) "yes" else "no"}) catch "";
+    try console.printPlain("   Console now uses sync output opportunistically on TTY.");
+    const sync_str = std.fmt.bufPrint(&buf, "   Detected sync support: {s} (informational only)", .{if (info.supports_sync_output) "yes" else "no"}) catch "";
     try console.printPlain(sync_str);
-    try console.printPlain("   Sequence: ESC[?2026h (begin) / ESC[?2026l (end)");
+    try console.printPlain("   Sequences are harmless on terminals that don't support them.");
     try console.print("");
 
     // -- 6. Background Detection --

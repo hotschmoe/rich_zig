@@ -295,9 +295,20 @@ pub const Console = struct {
 
     pub fn printSegments(self: *Console, segments: []const Segment) !void {
         var writer = self.getWriter();
+
+        // Use synchronized output on TTY to reduce flicker
+        if (self.isTty()) {
+            try writer.interface.writeAll(terminal.sync_output_begin);
+        }
+
         for (segments) |seg| {
             try self.printSegment(seg, &writer.interface);
         }
+
+        if (self.isTty()) {
+            try writer.interface.writeAll(terminal.sync_output_end);
+        }
+
         try writer.interface.flush();
     }
 
