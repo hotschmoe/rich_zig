@@ -3,8 +3,13 @@
 //! This library provides beautiful terminal output with:
 //! - Styled text with colors and attributes
 //! - Unicode-aware text handling
-//! - Markup parsing for easy styling
+//! - Markup parsing for easy styling (theme-aware)
 //! - Renderables: panels, tables, progress bars, trees
+//! - Theme system for named, reusable styles
+//! - Measurement protocol for smart auto-sizing
+//! - Comptime pretty printer for Zig types
+//! - Auto-highlighter for numbers, URLs, paths, UUIDs
+//! - ANSI escape sequence parsing and stripping
 //!
 //! ## Quick Start
 //! ```zig
@@ -44,10 +49,16 @@ pub const style = @import("style.zig");
 pub const Style = style.Style;
 pub const StyleAttribute = style.StyleAttribute;
 
+pub const theme = @import("theme.zig");
+pub const Theme = theme.Theme;
+
 pub const segment = @import("segment.zig");
 pub const Segment = segment.Segment;
 pub const ControlCode = segment.ControlCode;
 pub const ControlType = segment.ControlType;
+
+pub const measure = @import("measure.zig");
+pub const Measurement = measure.Measurement;
 
 // Phase 2: Text and Markup
 pub const box = @import("box.zig");
@@ -58,6 +69,13 @@ pub const markup = @import("markup.zig");
 pub const text = @import("text.zig");
 pub const Text = text.Text;
 pub const Span = text.Span;
+
+pub const highlighter = @import("highlighter.zig");
+pub const Highlighter = highlighter.Highlighter;
+
+pub const ansi = @import("ansi.zig");
+pub const fromAnsi = ansi.fromAnsi;
+pub const stripAnsi = ansi.stripAnsi;
 
 // Phase 3: Terminal and Console
 pub const terminal = @import("terminal.zig");
@@ -140,6 +158,12 @@ pub const PromptError = prompt.PromptError;
 pub const ValidationResult = prompt.ValidationResult;
 pub const ValidatorFn = prompt.ValidatorFn;
 
+// Pretty printing
+pub const pretty = @import("pretty.zig");
+pub const Pretty = pretty.Pretty;
+pub const PrettyTheme = pretty.PrettyTheme;
+pub const PrettyOptions = pretty.PrettyOptions;
+
 // Prelude: convenience module for rapid prototyping
 pub const prelude = @import("prelude.zig");
 
@@ -151,14 +175,26 @@ test {
     _ = @import("style.zig");
     _ = @import("segment.zig");
 
+    // Measurement
+    _ = @import("measure.zig");
+
     // Phase 2
     _ = @import("box.zig");
     _ = @import("markup.zig");
     _ = @import("text.zig");
 
+    // Highlighter
+    _ = @import("highlighter.zig");
+
+    // ANSI parsing
+    _ = @import("ansi.zig");
+
     // Phase 3
     _ = @import("terminal.zig");
     _ = @import("console.zig");
+
+    // Theme
+    _ = @import("theme.zig");
 
     // Phase 4
     _ = @import("renderables/mod.zig");
@@ -171,6 +207,9 @@ test {
 
     // Prompts
     _ = @import("prompt.zig");
+
+    // Pretty printing
+    _ = @import("pretty.zig");
 }
 
 // Basic library functionality tests

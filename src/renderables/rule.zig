@@ -59,6 +59,12 @@ pub const Rule = struct {
         return r;
     }
 
+    pub fn measure(self: Rule, max_width: usize, _: std.mem.Allocator) !@import("../measure.zig").Measurement {
+        _ = self;
+        const Meas = @import("../measure.zig").Measurement;
+        return Meas.init(1, max_width);
+    }
+
     pub fn render(self: Rule, width: usize, allocator: std.mem.Allocator) ![]Segment {
         var segments: std.ArrayList(Segment) = .empty;
 

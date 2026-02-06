@@ -133,7 +133,7 @@ we love you, Claude! do your best today
 
 A full-featured Zig port of Python's Rich library. Provides beautiful terminal output with styled text, tables, panels, progress bars, trees, and more.
 
-- **Version**: 0.10.0
+- **Version**: 1.3.0
 - **Minimum Zig**: 0.15.2
 - **No external dependencies** - uses only Zig standard library
 
@@ -162,16 +162,21 @@ rich_zig/
 │   ├── main.zig        # Demo executable
 │   │
 │   ├── color.zig       # Color types and conversion
-│   ├── style.zig       # Text styling attributes
+│   ├── style.zig       # Text styling attributes (13 attrs incl underline2/frame/encircle)
 │   ├── segment.zig     # Atomic rendering unit
 │   ├── cells.zig       # Unicode width calculation
+│   ├── measure.zig     # Measurement protocol (min/max width reporting)
+│   ├── theme.zig       # Named style registry for theming
 │   │
 │   ├── markup.zig      # BBCode-like syntax parsing
 │   ├── text.zig        # Styled text with spans
 │   ├── box.zig         # Box drawing styles
+│   ├── pretty.zig      # Comptime pretty printer for Zig types
+│   ├── highlighter.zig # Pattern-based auto-highlighting (numbers, URLs, paths)
+│   ├── ansi.zig        # ANSI escape sequence parsing and stripping
 │   │
 │   ├── terminal.zig    # Terminal detection
-│   ├── console.zig     # Main console interface
+│   ├── console.zig     # Main console interface (theme-aware)
 │   ├── emoji.zig       # Emoji support
 │   │
 │   └── renderables/    # Complex UI components
@@ -199,12 +204,13 @@ rich_zig/
 
 ## Architecture: 4 Phases
 
-**Phase 1 - Core Types**: `color`, `style`, `segment`, `cells`
-**Phase 2 - Text/Markup**: `markup`, `text`, `box`
+**Phase 1 - Core Types**: `color`, `style`, `segment`, `cells`, `measure`, `theme`
+**Phase 2 - Text/Markup**: `markup`, `text`, `box`, `pretty`, `highlighter`, `ansi`
 **Phase 3 - Terminal/Console**: `terminal`, `console`, `emoji`
 **Phase 4 - Renderables**: `panel`, `table`, `rule`, `progress`, `tree`, `layout`, `json`, `syntax`, etc.
 
 All renderables implement: `render(width, allocator) ![]Segment`
+Renderables may also implement: `measure(max_width, allocator) !Measurement`
 
 ---
 
