@@ -29,6 +29,7 @@ pub const SpeedUnit = enum {
 };
 
 pub const ProgressBar = struct {
+    io: std.Io,
     completed: usize = 0,
     total: usize = 100,
     width: usize = 40,
@@ -41,7 +42,7 @@ pub const ProgressBar = struct {
 
     description: ?[]const u8 = null,
     description_style: Style = Style.empty,
-    start_time: ?i128 = null,
+    start_time: ?i96 = null,
     show_percentage: bool = true,
     show_elapsed: bool = false,
     show_eta: bool = false,
@@ -55,8 +56,8 @@ pub const ProgressBar = struct {
     pulse_style: Style = Style.empty.foreground(Color.cyan),
     transient: bool = false,
 
-    pub fn init() ProgressBar {
-        return .{};
+    pub fn init(io: std.Io) ProgressBar {
+        return .{ .io = io };
     }
 
     pub fn withCompleted(self: ProgressBar, c: usize) ProgressBar {
@@ -103,7 +104,7 @@ pub const ProgressBar = struct {
 
     pub fn withTiming(self: ProgressBar) ProgressBar {
         var p = self;
-        p.start_time = std.time.nanoTimestamp();
+        p.start_time = std.Io.Timestamp.now(p.io, .awake).toNanoseconds();
         p.show_elapsed = true;
         p.show_eta = true;
         return p;
@@ -112,7 +113,7 @@ pub const ProgressBar = struct {
     pub fn withElapsed(self: ProgressBar) ProgressBar {
         var p = self;
         if (p.start_time == null) {
-            p.start_time = std.time.nanoTimestamp();
+            p.start_time = std.Io.Timestamp.now(p.io, .awake).toNanoseconds();
         }
         p.show_elapsed = true;
         return p;
@@ -121,7 +122,7 @@ pub const ProgressBar = struct {
     pub fn withEta(self: ProgressBar) ProgressBar {
         var p = self;
         if (p.start_time == null) {
-            p.start_time = std.time.nanoTimestamp();
+            p.start_time = std.Io.Timestamp.now(p.io, .awake).toNanoseconds();
         }
         p.show_eta = true;
         return p;
@@ -130,7 +131,7 @@ pub const ProgressBar = struct {
     pub fn withSpeed(self: ProgressBar) ProgressBar {
         var p = self;
         if (p.start_time == null) {
-            p.start_time = std.time.nanoTimestamp();
+            p.start_time = std.Io.Timestamp.now(p.io, .awake).toNanoseconds();
         }
         p.show_speed = true;
         return p;
@@ -141,7 +142,7 @@ pub const ProgressBar = struct {
         p.speed_unit = unit;
         p.speed_suffix = suffix;
         if (p.start_time == null) {
-            p.start_time = std.time.nanoTimestamp();
+            p.start_time = std.Io.Timestamp.now(p.io, .awake).toNanoseconds();
         }
         p.show_speed = true;
         return p;
@@ -177,7 +178,7 @@ pub const ProgressBar = struct {
 
     pub fn calculateElapsed(self: ProgressBar) u64 {
         const start = self.start_time orelse return 0;
-        const now = std.time.nanoTimestamp();
+        const now = std.Io.Timestamp.now(self.io, .awake).toNanoseconds();
         const diff = now - start;
         if (diff <= 0) return 0;
         return @as(u64, @intCast(diff)) / std.time.ns_per_s;
@@ -238,7 +239,7 @@ pub const ProgressBar = struct {
 
     pub fn reset(self: *ProgressBar) void {
         self.completed = 0;
-        self.start_time = std.time.nanoTimestamp();
+        self.start_time = std.Io.Timestamp.now(self.io, .awake).toNanoseconds();
         self.pulse_position = 0;
     }
 
@@ -337,31 +338,31 @@ pub const ProgressBar = struct {
 };
 
 test "ProgressBar.init" {
-    const bar = ProgressBar.init();
+    const bar = ProgressBar.init(std.testing.io);
     try std.testing.expectEqual(@as(usize, 0), bar.completed);
     try std.testing.expectEqual(@as(usize, 100), bar.total);
 }
 
 test "ProgressBar.percentage" {
-    const bar = ProgressBar.init().withCompleted(50).withTotal(100);
+    const bar = ProgressBar.init(std.testing.io).withCompleted(50).withTotal(100);
     try std.testing.expectEqual(@as(f64, 50.0), bar.percentage());
 }
 
 test "ProgressBar.percentage zero total" {
-    const bar = ProgressBar.init().withTotal(0);
+    const bar = ProgressBar.init(std.testing.io).withTotal(0);
     try std.testing.expectEqual(@as(f64, 0.0), bar.percentage());
 }
 
 test "ProgressBar.isFinished" {
-    const incomplete = ProgressBar.init().withCompleted(50).withTotal(100);
+    const incomplete = ProgressBar.init(std.testing.io).withCompleted(50).withTotal(100);
     try std.testing.expect(!incomplete.isFinished());
 
-    const complete = ProgressBar.init().withCompleted(100).withTotal(100);
+    const complete = ProgressBar.init(std.testing.io).withCompleted(100).withTotal(100);
     try std.testing.expect(complete.isFinished());
 }
 
 test "ProgressBar.advance" {
-    var bar = ProgressBar.init().withCompleted(0).withTotal(100);
+    var bar = ProgressBar.init(std.testing.io).withCompleted(0).withTotal(100);
     bar.advance(10);
     try std.testing.expectEqual(@as(usize, 10), bar.completed);
 
@@ -371,7 +372,7 @@ test "ProgressBar.advance" {
 
 test "ProgressBar.render" {
     const allocator = std.testing.allocator;
-    const bar = ProgressBar.init().withCompleted(50).withTotal(100).withWidth(10);
+    const bar = ProgressBar.init(std.testing.io).withCompleted(50).withTotal(100).withWidth(10);
 
     const segments = try bar.render(80, allocator);
     defer allocator.free(segments);
@@ -380,13 +381,13 @@ test "ProgressBar.render" {
 }
 
 test "ProgressBar.withDescription" {
-    const bar = ProgressBar.init().withDescription("Loading");
+    const bar = ProgressBar.init(std.testing.io).withDescription("Loading");
     try std.testing.expectEqualStrings("Loading", bar.description.?);
 }
 
 test "ProgressBar.render with description" {
     const allocator = std.testing.allocator;
-    const bar = ProgressBar.init()
+    const bar = ProgressBar.init(std.testing.io)
         .withDescription("Loading")
         .withCompleted(50)
         .withTotal(100)
@@ -435,12 +436,12 @@ test "ProgressBar.formatSpeed items" {
 }
 
 test "ProgressBar.asIndeterminate" {
-    const bar = ProgressBar.init().asIndeterminate();
+    const bar = ProgressBar.init(std.testing.io).asIndeterminate();
     try std.testing.expect(bar.indeterminate);
 }
 
 test "ProgressBar.advancePulse" {
-    var bar = ProgressBar.init().asIndeterminate().withWidth(10);
+    var bar = ProgressBar.init(std.testing.io).asIndeterminate().withWidth(10);
     try std.testing.expectEqual(@as(usize, 0), bar.pulse_position);
 
     bar.advancePulse();
@@ -449,7 +450,7 @@ test "ProgressBar.advancePulse" {
 
 test "ProgressBar.render indeterminate" {
     const allocator = std.testing.allocator;
-    const bar = ProgressBar.init().asIndeterminate().withWidth(10);
+    const bar = ProgressBar.init(std.testing.io).asIndeterminate().withWidth(10);
 
     const segments = try bar.render(80, allocator);
     defer allocator.free(segments);
@@ -458,37 +459,37 @@ test "ProgressBar.render indeterminate" {
 }
 
 test "ProgressBar.withTiming" {
-    const bar = ProgressBar.init().withTiming();
+    const bar = ProgressBar.init(std.testing.io).withTiming();
     try std.testing.expect(bar.start_time != null);
     try std.testing.expect(bar.show_elapsed);
     try std.testing.expect(bar.show_eta);
 }
 
 test "ProgressBar.withSpeed" {
-    const bar = ProgressBar.init().withSpeed();
+    const bar = ProgressBar.init(std.testing.io).withSpeed();
     try std.testing.expect(bar.start_time != null);
     try std.testing.expect(bar.show_speed);
 }
 
 test "ProgressBar.withSpeedUnit" {
-    const bar = ProgressBar.init().withSpeedUnit(.bytes, "B/s");
+    const bar = ProgressBar.init(std.testing.io).withSpeedUnit(.bytes, "B/s");
     try std.testing.expectEqual(SpeedUnit.bytes, bar.speed_unit);
     try std.testing.expectEqualStrings("B/s", bar.speed_suffix);
 }
 
 test "ProgressBar.withTransient" {
-    const bar = ProgressBar.init().withTransient(true);
+    const bar = ProgressBar.init(std.testing.io).withTransient(true);
     try std.testing.expect(bar.transient);
 }
 
 test "ProgressBar.shouldHide" {
-    const incomplete = ProgressBar.init().withTransient(true).withCompleted(50).withTotal(100);
+    const incomplete = ProgressBar.init(std.testing.io).withTransient(true).withCompleted(50).withTotal(100);
     try std.testing.expect(!incomplete.shouldHide());
 
-    const complete = ProgressBar.init().withTransient(true).withCompleted(100).withTotal(100);
+    const complete = ProgressBar.init(std.testing.io).withTransient(true).withCompleted(100).withTotal(100);
     try std.testing.expect(complete.shouldHide());
 
-    const non_transient = ProgressBar.init().withCompleted(100).withTotal(100);
+    const non_transient = ProgressBar.init(std.testing.io).withCompleted(100).withTotal(100);
     try std.testing.expect(!non_transient.shouldHide());
 }
 
@@ -497,7 +498,7 @@ test "ProgressBar.render with timing enabled" {
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
 
-    const bar = ProgressBar.init()
+    const bar = ProgressBar.init(std.testing.io)
         .withCompleted(50)
         .withTotal(100)
         .withWidth(10)
@@ -518,7 +519,7 @@ test "ProgressBar.render with elapsed only" {
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
 
-    const bar = ProgressBar.init()
+    const bar = ProgressBar.init(std.testing.io)
         .withCompleted(75)
         .withTotal(100)
         .withWidth(10)
@@ -536,7 +537,7 @@ test "ProgressBar.render with speed" {
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
 
-    const bar = ProgressBar.init()
+    const bar = ProgressBar.init(std.testing.io)
         .withCompleted(100)
         .withTotal(100)
         .withWidth(10)

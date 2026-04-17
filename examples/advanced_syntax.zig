@@ -5,12 +5,11 @@
 const std = @import("std");
 const rich = @import("rich_zig");
 
-pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
-    const allocator = gpa.allocator();
+pub fn main(init: std.process.Init) !void {
+    const allocator = init.gpa;
+    const io = init.io;
 
-    var console = rich.Console.init(allocator);
+    var console = rich.Console.init(allocator, io);
     defer console.deinit();
 
     try console.print("");

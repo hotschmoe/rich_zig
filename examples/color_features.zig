@@ -5,21 +5,20 @@
 const std = @import("std");
 const rich = @import("rich_zig");
 
-fn writeColorBar(writer: anytype, colors: []const rich.ColorTriplet) void {
+fn writeColorBar(writer: *std.Io.Writer, colors: []const rich.ColorTriplet) void {
     for (colors) |c| {
         writer.print("\x1b[48;2;{d};{d};{d}m \x1b[0m", .{ c.r, c.g, c.b }) catch return;
     }
 }
 
-pub fn main() !void {
+pub fn main(init: std.process.Init) !void {
     _ = rich.terminal.enableUtf8();
     _ = rich.terminal.enableVirtualTerminal();
 
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
-    const allocator = gpa.allocator();
+    const allocator = init.gpa;
+    const io = init.io;
 
-    var console = rich.Console.init(allocator);
+    var console = rich.Console.init(allocator, io);
     defer console.deinit();
 
     try console.print("");
@@ -47,9 +46,9 @@ pub fn main() !void {
     for (systems) |cs| {
         const resolved = sunset.resolve(cs.sys);
         var ansi_buf: [128]u8 = undefined;
-        var stream = std.io.fixedBufferStream(&ansi_buf);
-        try rich.Style.empty.foreground(resolved).renderAnsi(cs.sys, stream.writer());
-        const line = std.fmt.bufPrint(&buf, "   {s}: {s}sunset orange\x1b[0m", .{ cs.name, stream.getWritten() }) catch continue;
+        var stream = std.Io.Writer.fixed(&ansi_buf);
+        try rich.Style.empty.foreground(resolved).renderAnsi(cs.sys, &stream);
+        const line = std.fmt.bufPrint(&buf, "   {s}: {s}sunset orange\x1b[0m", .{ cs.name, stream.buffered() }) catch continue;
         try console.printPlain(line);
     }
 
@@ -75,17 +74,16 @@ pub fn main() !void {
     }
 
     var big_buf: [2048]u8 = undefined;
-    var stream = std.io.fixedBufferStream(&big_buf);
-    var writer = stream.writer();
+    var stream = std.Io.Writer.fixed(&big_buf);
 
-    writer.writeAll("   RGB blend (red->green): ") catch {};
-    writeColorBar(writer, &blend_rgb);
-    try console.printPlain(stream.getWritten());
+    stream.writeAll("   RGB blend (red->green): ") catch {};
+    writeColorBar(&stream, &blend_rgb);
+    try console.printPlain(stream.buffered());
 
-    stream.reset();
-    writer.writeAll("   HSL blend (red->green): ") catch {};
-    writeColorBar(writer, &blend_hsl);
-    try console.printPlain(stream.getWritten());
+    stream.end = 0;
+    stream.writeAll("   HSL blend (red->green): ") catch {};
+    writeColorBar(&stream, &blend_hsl);
+    try console.printPlain(stream.buffered());
     try console.print("");
 
     // -- 3. Multi-Stop Gradient --
@@ -107,15 +105,15 @@ pub fn main() !void {
     rich.gradient(&stops, &rgb_grad, false);
     rich.gradient(&stops, &hsl_grad, true);
 
-    stream.reset();
-    writer.writeAll("   RGB gradient: ") catch {};
-    writeColorBar(writer, &rgb_grad);
-    try console.printPlain(stream.getWritten());
+    stream.end = 0;
+    stream.writeAll("   RGB gradient: ") catch {};
+    writeColorBar(&stream, &rgb_grad);
+    try console.printPlain(stream.buffered());
 
-    stream.reset();
-    writer.writeAll("   HSL gradient: ") catch {};
-    writeColorBar(writer, &hsl_grad);
-    try console.printPlain(stream.getWritten());
+    stream.end = 0;
+    stream.writeAll("   HSL gradient: ") catch {};
+    writeColorBar(&stream, &hsl_grad);
+    try console.printPlain(stream.buffered());
     try console.print("");
 
     // -- 4. WCAG Contrast --
@@ -139,13 +137,13 @@ pub fn main() !void {
             .aa_large => "AA-large",
             .fail => "FAIL    ",
         };
-        stream.reset();
-        writer.print("   \x1b[38;2;{d};{d};{d}m\x1b[48;2;{d};{d};{d}m {s} \x1b[0m  ratio: {d:.1}:1  level: {s}", .{
+        stream.end = 0;
+        stream.print("   \x1b[38;2;{d};{d};{d}m\x1b[48;2;{d};{d};{d}m {s} \x1b[0m  ratio: {d:.1}:1  level: {s}", .{
             p.fg.r, p.fg.g, p.fg.b,
             p.bg.r, p.bg.g, p.bg.b,
             p.name, ratio,  level_str,
         }) catch continue;
-        try console.printPlain(stream.getWritten());
+        try console.printPlain(stream.buffered());
     }
     try console.print("");
 

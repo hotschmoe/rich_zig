@@ -67,11 +67,13 @@ pub const Syntax = struct {
     }
 
     /// Load code from filesystem and create syntax highlighter (auto-detects language)
-    pub fn loadFile(allocator: std.mem.Allocator, path: []const u8) !Syntax {
-        const file = try std.fs.cwd().openFile(path, .{});
-        defer file.close();
+    pub fn loadFile(allocator: std.mem.Allocator, io: std.Io, path: []const u8) !Syntax {
+        const file = try std.Io.Dir.openFile(.cwd(), io, path, .{});
+        defer file.close(io);
 
-        const code = try file.readToEndAlloc(allocator, std.math.maxInt(usize));
+        var read_buf: [4096]u8 = undefined;
+        var file_reader = file.reader(io, &read_buf);
+        const code = try file_reader.interface.allocRemaining(allocator, .unlimited);
 
         return Syntax{
             .code = code,
@@ -1365,9 +1367,10 @@ test "wrapSegments zero width returns input" {
 
 test "Syntax.loadFile reads file and detects language" {
     const allocator = std.testing.allocator;
+    const io = std.testing.io;
 
     // Load this source file itself
-    var syntax = try Syntax.loadFile(allocator, "src/renderables/syntax/highlighter.zig");
+    var syntax = try Syntax.loadFile(allocator, io, "src/renderables/syntax/highlighter.zig");
     defer syntax.deinit();
 
     // Should detect as Zig from extension
@@ -1380,18 +1383,20 @@ test "Syntax.loadFile reads file and detects language" {
 
 test "Syntax.loadFile error on non-existent file" {
     const allocator = std.testing.allocator;
+    const io = std.testing.io;
 
-    const result = Syntax.loadFile(allocator, "non_existent_file_xyz123.zig");
+    const result = Syntax.loadFile(allocator, io, "non_existent_file_xyz123.zig");
     try std.testing.expectError(error.FileNotFound, result);
 }
 
 test "Syntax.loadFile renders correctly" {
     const allocator = std.testing.allocator;
+    const io = std.testing.io;
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
 
     // Load build.zig.zon (small file)
-    var syntax = try Syntax.loadFile(arena.allocator(), "build.zig.zon");
+    var syntax = try Syntax.loadFile(arena.allocator(), io, "build.zig.zon");
     // No need for deinit since arena handles cleanup
 
     // Should detect as Zig from extension

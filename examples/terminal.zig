@@ -5,16 +5,15 @@
 const std = @import("std");
 const rich = @import("rich_zig");
 
-pub fn main() !void {
+pub fn main(init: std.process.Init) !void {
     // Enable UTF-8 and virtual terminal on Windows
     _ = rich.terminal.enableUtf8();
     _ = rich.terminal.enableVirtualTerminal();
 
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
-    const allocator = gpa.allocator();
+    const allocator = init.gpa;
+    const io = init.io;
 
-    var console = rich.Console.init(allocator);
+    var console = rich.Console.init(allocator, io);
     defer console.deinit();
 
     try console.print("");
@@ -62,15 +61,15 @@ pub fn main() !void {
     // Color ANSI code generation
     try console.print("[bold]Color ANSI Codes:[/]");
     var code_buf: [64]u8 = undefined;
-    var stream = std.io.fixedBufferStream(&code_buf);
+    var stream = std.Io.Writer.fixed(&code_buf);
 
-    try rich.Color.red.getAnsiCodes(true, stream.writer());
-    const red_str = std.fmt.bufPrint(&buf, "  Red foreground codes: {s}", .{stream.getWritten()}) catch "";
+    try rich.Color.red.getAnsiCodes(true, &stream);
+    const red_str = std.fmt.bufPrint(&buf, "  Red foreground codes: {s}", .{stream.buffered()}) catch "";
     try console.printPlain(red_str);
 
-    stream.reset();
-    try rich.Color.fromRgb(100, 200, 50).getAnsiCodes(true, stream.writer());
-    const rgb_str = std.fmt.bufPrint(&buf, "  RGB(100,200,50) codes: {s}", .{stream.getWritten()}) catch "";
+    stream.end = 0;
+    try rich.Color.fromRgb(100, 200, 50).getAnsiCodes(true, &stream);
+    const rgb_str = std.fmt.bufPrint(&buf, "  RGB(100,200,50) codes: {s}", .{stream.buffered()}) catch "";
     try console.printPlain(rgb_str);
     try console.print("");
 

@@ -20,6 +20,7 @@ pub const PagerOptions = struct {
 
 pub const Pager = struct {
     allocator: std.mem.Allocator,
+    io: std.Io,
     options: PagerOptions,
     terminal_height: u16,
     terminal_width: u16,
@@ -32,6 +33,7 @@ pub const Pager = struct {
     pub fn initWithOptions(allocator: std.mem.Allocator, console: *const Console, options: PagerOptions) Pager {
         return .{
             .allocator = allocator,
+            .io = console.io,
             .options = options,
             .terminal_height = console.height(),
             .terminal_width = console.width(),
@@ -41,8 +43,10 @@ pub const Pager = struct {
 
     pub fn page(self: *Pager, content: []const u8) !void {
         if (!self.is_tty) {
-            const stdout = std.io.getStdOut().writer();
-            try stdout.writeAll(content);
+            var buf: [4096]u8 = undefined;
+            var stdout = std.Io.File.stdout().writer(self.io, &buf);
+            try stdout.interface.writeAll(content);
+            try stdout.interface.flush();
             return;
         }
 
@@ -76,8 +80,10 @@ pub const Pager = struct {
     }
 
     fn internalPager(self: *Pager, content: []const u8) !void {
-        const stdout = std.io.getStdOut().writer();
-        const stdin_file = std.io.getStdIn();
+        var out_buf: [4096]u8 = undefined;
+        var stdout = std.Io.File.stdout().writer(self.io, &out_buf);
+        var in_buf: [64]u8 = undefined;
+        var stdin_reader = std.Io.File.stdin().readerStreaming(self.io, &in_buf);
 
         const lines = try self.splitLines(content);
         defer self.allocator.free(lines);
@@ -91,8 +97,8 @@ pub const Pager = struct {
             const end_line = @min(current_line + page_size, lines.len);
 
             for (lines[current_line..end_line]) |line| {
-                try stdout.writeAll(line);
-                try stdout.writeByte('\n');
+                try stdout.interface.writeAll(line);
+                try stdout.interface.writeByte('\n');
             }
 
             current_line = end_line;
@@ -100,15 +106,19 @@ pub const Pager = struct {
             if (current_line >= lines.len) break;
 
             const remaining = lines.len - current_line;
-            try stdout.print("{s}({d} more lines, press Enter to continue, q to quit)", .{ self.options.prompt, remaining });
+            try stdout.interface.print("{s}({d} more lines, press Enter to continue, q to quit)", .{ self.options.prompt, remaining });
+            try stdout.interface.flush();
 
-            const input = stdin_file.reader().readByte() catch break;
+            const ch = stdin_reader.interface.takeByte() catch break;
 
-            try stdout.writeByte('\r');
-            try stdout.writeByteNTimes(' ', self.terminal_width);
-            try stdout.writeByte('\r');
+            try stdout.interface.writeByte('\r');
+            for (0..self.terminal_width) |_| {
+                try stdout.interface.writeByte(' ');
+            }
+            try stdout.interface.writeByte('\r');
+            try stdout.interface.flush();
 
-            if (std.mem.indexOfScalar(u8, self.options.quit_keys, input) != null) {
+            if (std.mem.indexOfScalar(u8, self.options.quit_keys, ch) != null) {
                 break;
             }
         }
@@ -180,6 +190,7 @@ pub const ConsoleOptions = struct {
 
 pub const Console = struct {
     allocator: std.mem.Allocator,
+    io: std.Io,
     options: ConsoleOptions,
     terminal_info: terminal.TerminalInfo,
     current_style: Style,
@@ -192,11 +203,11 @@ pub const Console = struct {
 
     const DEFAULT_BUFFER_SIZE = 4096;
 
-    pub fn init(allocator: std.mem.Allocator) Console {
-        return initWithOptions(allocator, .{});
+    pub fn init(allocator: std.mem.Allocator, io: std.Io) Console {
+        return initWithOptions(allocator, io, .{});
     }
 
-    pub fn initWithOptions(allocator: std.mem.Allocator, options: ConsoleOptions) Console {
+    pub fn initWithOptions(allocator: std.mem.Allocator, io: std.Io, options: ConsoleOptions) Console {
         const info = terminal.detect();
         _ = terminal.enableVirtualTerminal();
         _ = terminal.enableUtf8();
@@ -205,6 +216,7 @@ pub const Console = struct {
 
         return .{
             .allocator = allocator,
+            .io = io,
             .options = options,
             .terminal_info = info,
             .current_style = Style.empty,
@@ -241,8 +253,8 @@ pub const Console = struct {
         return self.options.force_terminal or self.terminal_info.is_tty;
     }
 
-    fn getWriter(self: *Console) std.fs.File.Writer {
-        return std.fs.File.stdout().writer(self.write_buffer);
+    fn getWriter(self: *Console) std.Io.File.Writer {
+        return std.Io.File.stdout().writer(self.io, self.write_buffer);
     }
 
     pub fn print(self: *Console, text_markup: []const u8) !void {
@@ -476,7 +488,7 @@ pub const Console = struct {
         var writer = self.getWriter();
 
         // Get current time
-        const timestamp = std.time.timestamp();
+        const timestamp = std.Io.Timestamp.now(self.io, .real).toSeconds();
         const epoch_seconds: std.time.epoch.EpochSeconds = .{ .secs = @intCast(timestamp) };
         const day_seconds = epoch_seconds.getDaySeconds();
         const hours = day_seconds.getHoursIntoDay();
@@ -624,12 +636,12 @@ pub const Console = struct {
     }
 
     fn readAndProcessInput(self: *Console, options: InputOptions) InputError![]u8 {
-        const stdin = std.io.getStdIn();
-        var input_buf: [4096]u8 = undefined;
-        const line = stdin.reader().readUntilDelimiterOrEof(&input_buf, '\n') catch |err| {
+        var in_buf: [4096]u8 = undefined;
+        var stdin_reader = std.Io.File.stdin().readerStreaming(self.io, &in_buf);
+        const line = stdin_reader.interface.takeDelimiter('\n') catch |err| {
             return switch (err) {
-                error.EndOfStream => InputError.EndOfStream,
-                else => InputError.OutOfMemory,
+                error.StreamTooLong => InputError.OutOfMemory,
+                error.ReadFailed => InputError.EndOfStream,
             };
         };
 
@@ -689,8 +701,9 @@ pub const Console = struct {
     }
 
     pub fn exportHtml(segments: []const Segment, allocator: std.mem.Allocator) ![]u8 {
-        var result: std.ArrayList(u8) = .empty;
-        var writer = result.writer(allocator);
+        var allocating: std.Io.Writer.Allocating = .init(allocator);
+        defer allocating.deinit();
+        const writer = &allocating.writer;
 
         try writer.writeAll("<pre style=\"font-family: monospace;\">");
 
@@ -719,7 +732,7 @@ pub const Console = struct {
 
         try writer.writeAll("</pre>");
 
-        return result.toOwnedSlice(allocator);
+        return try allocating.toOwnedSlice();
     }
 
     fn writeHtmlStyle(style: Style, writer: anytype) !void {
@@ -788,8 +801,9 @@ pub const Console = struct {
 
     pub fn exportSvg(segments: []const Segment, allocator: std.mem.Allocator, options: SvgOptions) ![]u8 {
         const cells = @import("cells.zig");
-        var result: std.ArrayList(u8) = .empty;
-        var writer = result.writer(allocator);
+        var allocating: std.Io.Writer.Allocating = .init(allocator);
+        errdefer allocating.deinit();
+        const writer = &allocating.writer;
 
         // Parse segments into lines for layout calculation
         var lines: std.ArrayList(std.ArrayList(LineSegment)) = .empty;
@@ -922,7 +936,7 @@ pub const Console = struct {
 
         try writer.writeAll("</g>\n</svg>");
 
-        return result.toOwnedSlice(allocator);
+        return try allocating.toOwnedSlice();
     }
 
     const LineSegment = struct {
@@ -967,7 +981,7 @@ pub const Console = struct {
 // Tests
 test "Console.init" {
     const allocator = std.testing.allocator;
-    var console = Console.init(allocator);
+    var console = Console.init(allocator, std.testing.io);
     defer console.deinit();
 
     try std.testing.expect(console.width() > 0);
@@ -976,7 +990,7 @@ test "Console.init" {
 
 test "Console.initWithOptions" {
     const allocator = std.testing.allocator;
-    var console = Console.initWithOptions(allocator, .{
+    var console = Console.initWithOptions(allocator, std.testing.io, .{
         .width = 120,
         .height = 40,
         .color_system = .truecolor,
@@ -990,7 +1004,7 @@ test "Console.initWithOptions" {
 
 test "Console.no_color option" {
     const allocator = std.testing.allocator;
-    var console = Console.initWithOptions(allocator, .{
+    var console = Console.initWithOptions(allocator, std.testing.io, .{
         .no_color = true,
         .color_system = .truecolor,
     });
@@ -1030,7 +1044,7 @@ test "LogLevel.style" {
 
 test "Console.status" {
     const allocator = std.testing.allocator;
-    var console = Console.init(allocator);
+    var console = Console.init(allocator, std.testing.io);
     defer console.deinit();
 
     try std.testing.expect(!console.status_line_active);
@@ -1038,7 +1052,7 @@ test "Console.status" {
 
 test "Console.clearStatus when inactive" {
     const allocator = std.testing.allocator;
-    var console = Console.init(allocator);
+    var console = Console.init(allocator, std.testing.io);
     defer console.deinit();
 
     try console.clearStatus();
@@ -1166,7 +1180,7 @@ test "Console.exportSvg with colors" {
 
 test "Pager.init" {
     const allocator = std.testing.allocator;
-    var console = Console.initWithOptions(allocator, .{
+    var console = Console.initWithOptions(allocator, std.testing.io, .{
         .width = 80,
         .height = 24,
     });
@@ -1179,7 +1193,7 @@ test "Pager.init" {
 
 test "Pager.initWithOptions" {
     const allocator = std.testing.allocator;
-    var console = Console.initWithOptions(allocator, .{
+    var console = Console.initWithOptions(allocator, std.testing.io, .{
         .width = 100,
         .height = 40,
     });
@@ -1198,7 +1212,7 @@ test "Pager.initWithOptions" {
 
 test "Pager.splitLines" {
     const allocator = std.testing.allocator;
-    var console = Console.initWithOptions(allocator, .{
+    var console = Console.initWithOptions(allocator, std.testing.io, .{
         .width = 80,
         .height = 24,
     });
@@ -1217,7 +1231,7 @@ test "Pager.splitLines" {
 
 test "Pager.splitLines empty" {
     const allocator = std.testing.allocator;
-    var console = Console.initWithOptions(allocator, .{
+    var console = Console.initWithOptions(allocator, std.testing.io, .{
         .width = 80,
         .height = 24,
     });
@@ -1233,7 +1247,7 @@ test "Pager.splitLines empty" {
 
 test "Console.pager" {
     const allocator = std.testing.allocator;
-    var console = Console.initWithOptions(allocator, .{
+    var console = Console.initWithOptions(allocator, std.testing.io, .{
         .width = 80,
         .height = 24,
     });
@@ -1246,7 +1260,7 @@ test "Console.pager" {
 
 test "Console.pagerWithOptions" {
     const allocator = std.testing.allocator;
-    var console = Console.initWithOptions(allocator, .{
+    var console = Console.initWithOptions(allocator, std.testing.io, .{
         .width = 80,
         .height = 24,
     });

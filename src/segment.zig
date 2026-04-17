@@ -447,18 +447,18 @@ test "totalCellLength" {
 
 test "ControlCode.toEscapeSequence" {
     var buf: [64]u8 = undefined;
-    var stream = std.io.fixedBufferStream(&buf);
+    var stream = std.Io.Writer.fixed(&buf);
 
-    try ControlCode.toEscapeSequence(.{ .cursor_up = 5 }, stream.writer());
-    try std.testing.expectEqualStrings("\x1b[5A", stream.getWritten());
+    try ControlCode.toEscapeSequence(.{ .cursor_up = 5 }, &stream);
+    try std.testing.expectEqualStrings("\x1b[5A", stream.buffered());
 
-    stream.reset();
-    try ControlCode.toEscapeSequence(.{ .cursor_move_to = .{ .x = 10, .y = 5 } }, stream.writer());
-    try std.testing.expectEqualStrings("\x1b[5;10H", stream.getWritten());
+    stream.end = 0;
+    try ControlCode.toEscapeSequence(.{ .cursor_move_to = .{ .x = 10, .y = 5 } }, &stream);
+    try std.testing.expectEqualStrings("\x1b[5;10H", stream.buffered());
 
-    stream.reset();
-    try ControlCode.toEscapeSequence(.clear, stream.writer());
-    try std.testing.expectEqualStrings("\x1b[2J", stream.getWritten());
+    stream.end = 0;
+    try ControlCode.toEscapeSequence(.clear, &stream);
+    try std.testing.expectEqualStrings("\x1b[2J", stream.buffered());
 }
 
 test "adjustLineLength padding" {

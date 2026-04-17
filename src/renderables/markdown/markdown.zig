@@ -43,7 +43,7 @@ pub const Markdown = struct {
         defer table_lines.deinit(allocator);
 
         while (lines.next()) |line| {
-            const trimmed = std.mem.trimLeft(u8, line, " \t");
+            const trimmed = std.mem.trimStart(u8, line, " \t");
 
             if (parseFenceOpen(trimmed)) |lang| {
                 if (!in_code_block) {
@@ -251,7 +251,7 @@ pub const Markdown = struct {
         if (line.len < 3) return null;
         if (!std.mem.startsWith(u8, line, "```")) return null;
 
-        const rest = std.mem.trimLeft(u8, line[3..], " \t");
+        const rest = std.mem.trimStart(u8, line[3..], " \t");
         if (rest.len == 0) return "";
 
         const lang_end = std.mem.indexOfAny(u8, rest, " \t") orelse rest.len;
@@ -260,7 +260,7 @@ pub const Markdown = struct {
 
     fn parseFenceClose(line: []const u8) bool {
         if (line.len < 3) return false;
-        const trimmed = std.mem.trimRight(u8, line, " \t");
+        const trimmed = std.mem.trimEnd(u8, line, " \t");
         return std.mem.eql(u8, trimmed, "```");
     }
 

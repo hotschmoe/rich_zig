@@ -1,15 +1,14 @@
 const std = @import("std");
 const rich = @import("rich_zig");
 
-pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
-    const allocator = gpa.allocator();
+pub fn main(init: std.process.Init) !void {
+    const allocator = init.gpa;
+    const io = init.io;
 
     // Demo 1: New style attributes (underline2, frame, encircle)
     std.debug.print("\n=== Demo 1: New Style Attributes ===\n", .{});
 
-    var console1 = rich.Console.init(allocator);
+    var console1 = rich.Console.init(allocator, io);
     defer console1.deinit();
 
     try console1.print("[underline2]Double underlined text[/]");
@@ -26,7 +25,7 @@ pub fn main() !void {
     defer theme.deinit();
 
     // Create console with theme
-    var console2 = rich.Console.initWithOptions(allocator, .{
+    var console2 = rich.Console.initWithOptions(allocator, io, .{
         .theme = theme,
     });
     defer console2.deinit();
@@ -65,7 +64,7 @@ pub fn main() !void {
     try custom_theme.define("highlight", rich.Style.empty.underline2().foreground(rich.Color.cyan));
     try custom_theme.define("special", rich.Style.empty.frame().foreground(rich.Color.magenta));
 
-    var console3 = rich.Console.initWithOptions(allocator, .{
+    var console3 = rich.Console.initWithOptions(allocator, io, .{
         .theme = custom_theme,
     });
     defer console3.deinit();
@@ -89,7 +88,7 @@ pub fn main() !void {
     // Merge overlay into base
     try base_theme.merge(overlay_theme);
 
-    var console4 = rich.Console.initWithOptions(allocator, .{
+    var console4 = rich.Console.initWithOptions(allocator, io, .{
         .theme = base_theme,
     });
     defer console4.deinit();
