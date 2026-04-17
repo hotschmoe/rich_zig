@@ -92,10 +92,15 @@ fn isTty() bool {
         const handle = std.os.windows.peb().ProcessParameters.hStdOutput;
         var mode: std.os.windows.DWORD = 0;
         return win32.GetConsoleMode(handle, &mode).toBool();
-    } else {
-        const fd = std.posix.STDOUT_FILENO;
-        return std.posix.isatty(fd);
     }
+    if (builtin.os.tag == .wasi or builtin.cpu.arch == .wasm32) return false;
+    // No libc: probe with TIOCGWINSZ. Non-terminals fail with ENOTTY.
+    if (@hasDecl(std.posix, "winsize")) {
+        var ws: std.posix.winsize = undefined;
+        const result = std.posix.system.ioctl(std.posix.STDOUT_FILENO, std.posix.T.IOCGWINSZ, @intFromPtr(&ws));
+        return result == 0;
+    }
+    return false;
 }
 
 fn getEnv(environ: std.process.Environ, name: []const u8) ?[]const u8 {
