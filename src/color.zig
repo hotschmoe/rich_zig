@@ -517,42 +517,41 @@ test "Color.downgrade standard stays standard" {
 
 test "Color.getAnsiCodes" {
     var buf: [64]u8 = undefined;
-    var stream = std.io.fixedBufferStream(&buf);
-    const writer = stream.writer();
+    var stream = std.Io.Writer.fixed(&buf);
 
     // Default foreground
-    try Color.default.getAnsiCodes(true, writer);
-    try std.testing.expectEqualStrings("39", stream.getWritten());
+    try Color.default.getAnsiCodes(true, &stream);
+    try std.testing.expectEqualStrings("39", stream.buffered());
 
-    stream.reset();
+    stream.end = 0;
 
     // Standard red foreground
-    try Color.red.getAnsiCodes(true, writer);
-    try std.testing.expectEqualStrings("31", stream.getWritten());
+    try Color.red.getAnsiCodes(true, &stream);
+    try std.testing.expectEqualStrings("31", stream.buffered());
 
-    stream.reset();
+    stream.end = 0;
 
     // Standard red background
-    try Color.red.getAnsiCodes(false, writer);
-    try std.testing.expectEqualStrings("41", stream.getWritten());
+    try Color.red.getAnsiCodes(false, &stream);
+    try std.testing.expectEqualStrings("41", stream.buffered());
 
-    stream.reset();
+    stream.end = 0;
 
     // Bright red foreground (number 9)
-    try Color.bright_red.getAnsiCodes(true, writer);
-    try std.testing.expectEqualStrings("91", stream.getWritten());
+    try Color.bright_red.getAnsiCodes(true, &stream);
+    try std.testing.expectEqualStrings("91", stream.buffered());
 
-    stream.reset();
+    stream.end = 0;
 
     // 256 color
-    try Color.from256(196).getAnsiCodes(true, writer);
-    try std.testing.expectEqualStrings("38;5;196", stream.getWritten());
+    try Color.from256(196).getAnsiCodes(true, &stream);
+    try std.testing.expectEqualStrings("38;5;196", stream.buffered());
 
-    stream.reset();
+    stream.end = 0;
 
     // Truecolor
-    try Color.fromRgb(255, 128, 64).getAnsiCodes(true, writer);
-    try std.testing.expectEqualStrings("38;2;255;128;64", stream.getWritten());
+    try Color.fromRgb(255, 128, 64).getAnsiCodes(true, &stream);
+    try std.testing.expectEqualStrings("38;2;255;128;64", stream.buffered());
 }
 
 test "rgbTo256 grayscale" {

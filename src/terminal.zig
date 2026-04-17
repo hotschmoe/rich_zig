@@ -2,6 +2,30 @@ const std = @import("std");
 const builtin = @import("builtin");
 const ColorSystem = @import("color.zig").ColorSystem;
 
+const win32 = if (builtin.os.tag == .windows) struct {
+    const w = std.os.windows;
+
+    const SMALL_RECT = extern struct {
+        Left: w.SHORT,
+        Top: w.SHORT,
+        Right: w.SHORT,
+        Bottom: w.SHORT,
+    };
+
+    const CONSOLE_SCREEN_BUFFER_INFO = extern struct {
+        dwSize: w.COORD,
+        dwCursorPosition: w.COORD,
+        wAttributes: w.WORD,
+        srWindow: SMALL_RECT,
+        dwMaximumWindowSize: w.COORD,
+    };
+
+    extern "kernel32" fn GetConsoleMode(hConsoleHandle: w.HANDLE, lpMode: *w.DWORD) callconv(.winapi) w.BOOL;
+    extern "kernel32" fn SetConsoleMode(hConsoleHandle: w.HANDLE, dwMode: w.DWORD) callconv(.winapi) w.BOOL;
+    extern "kernel32" fn SetConsoleOutputCP(wCodePageID: w.UINT) callconv(.winapi) w.BOOL;
+    extern "kernel32" fn GetConsoleScreenBufferInfo(hConsoleHandle: w.HANDLE, lpConsoleScreenBufferInfo: *CONSOLE_SCREEN_BUFFER_INFO) callconv(.winapi) w.BOOL;
+} else struct {};
+
 pub const BackgroundMode = enum {
     dark,
     light,
@@ -23,19 +47,18 @@ pub const TerminalInfo = struct {
 
 const TerminalSize = struct { width: u16, height: u16 };
 
-pub fn detect() TerminalInfo {
+pub fn detect(environ: std.process.Environ) TerminalInfo {
     var info = TerminalInfo{};
 
-    // Get environment variables (cross-platform)
-    info.term = std.process.getEnvVarOwned(std.heap.page_allocator, "TERM") catch null;
-    info.term_program = std.process.getEnvVarOwned(std.heap.page_allocator, "TERM_PROGRAM") catch null;
+    info.term = getEnv(environ, "TERM");
+    info.term_program = getEnv(environ, "TERM_PROGRAM");
 
     // Check if stdout is a TTY
     info.is_tty = isTty();
 
     if (!info.is_tty) {
         // Check FORCE_COLOR
-        if (getEnv("FORCE_COLOR")) |_| {
+        if (getEnv(environ, "FORCE_COLOR")) |_| {
             info.color_system = .truecolor;
         } else {
             info.color_system = .standard;
@@ -49,34 +72,54 @@ pub fn detect() TerminalInfo {
     info.height = size.height;
 
     // Detect color support
-    if (getEnv("NO_COLOR")) |_| {
+    if (getEnv(environ, "NO_COLOR")) |_| {
         info.color_system = .standard;
     } else {
-        info.color_system = detectColorSystem();
+        info.color_system = detectColorSystem(environ);
     }
 
     // Detect hyperlink support
-    info.supports_hyperlinks = detectHyperlinks();
+    info.supports_hyperlinks = detectHyperlinks(environ);
 
-    info.supports_sync_output = detectSyncOutput();
-    info.background_mode = detectBackground();
+    info.supports_sync_output = detectSyncOutput(environ);
+    info.background_mode = detectBackground(environ);
 
     return info;
 }
 
 fn isTty() bool {
     if (builtin.os.tag == .windows) {
-        const handle = std.os.windows.GetStdHandle(std.os.windows.STD_OUTPUT_HANDLE) catch return false;
+        const handle = std.os.windows.peb().ProcessParameters.hStdOutput;
         var mode: std.os.windows.DWORD = 0;
-        return std.os.windows.kernel32.GetConsoleMode(handle, &mode) != 0;
-    } else {
-        const fd = std.posix.STDOUT_FILENO;
-        return std.posix.isatty(fd);
+        return win32.GetConsoleMode(handle, &mode).toBool();
     }
+    if (builtin.os.tag == .wasi or builtin.cpu.arch == .wasm32) return false;
+    // No libc: probe with TIOCGWINSZ. Non-terminals fail with ENOTTY.
+    if (@hasDecl(std.posix, "winsize")) {
+        var ws: std.posix.winsize = undefined;
+        const result = std.posix.system.ioctl(std.posix.STDOUT_FILENO, std.posix.T.IOCGWINSZ, @intFromPtr(&ws));
+        return result == 0;
+    }
+    return false;
 }
 
-fn getEnv(name: []const u8) ?[]const u8 {
-    return std.process.getEnvVarOwned(std.heap.page_allocator, name) catch null;
+fn getEnv(environ: std.process.Environ, name: []const u8) ?[]const u8 {
+    if (builtin.os.tag == .windows) {
+        return getEnvWindows(environ, name);
+    }
+    return std.process.Environ.getPosix(environ, name);
+}
+
+fn getEnvWindows(environ: std.process.Environ, name: []const u8) ?[]const u8 {
+    var name_w: [256]u16 = undefined;
+    const w_len = std.unicode.utf8ToUtf16Le(&name_w, name) catch return null;
+    if (w_len >= name_w.len) return null;
+    name_w[w_len] = 0;
+    const name_w_z: [*:0]const u16 = name_w[0..w_len :0].ptr;
+
+    const w_val = std.process.Environ.getWindows(environ, name_w_z) orelse return null;
+
+    return std.unicode.utf16LeToUtf8Alloc(std.heap.page_allocator, w_val) catch null;
 }
 
 fn getTerminalSize() TerminalSize {
@@ -90,11 +133,10 @@ fn getTerminalSize() TerminalSize {
 }
 
 fn getTerminalSizeWindows() TerminalSize {
-    const handle = std.os.windows.GetStdHandle(std.os.windows.STD_OUTPUT_HANDLE) catch
-        return .{ .width = 80, .height = 24 };
+    const handle = std.os.windows.peb().ProcessParameters.hStdOutput;
 
-    var info: std.os.windows.CONSOLE_SCREEN_BUFFER_INFO = undefined;
-    if (std.os.windows.kernel32.GetConsoleScreenBufferInfo(handle, &info) != 0) {
+    var info: win32.CONSOLE_SCREEN_BUFFER_INFO = undefined;
+    if (win32.GetConsoleScreenBufferInfo(handle, &info).toBool()) {
         const width: u16 = @intCast(info.srWindow.Right - info.srWindow.Left + 1);
         const height: u16 = @intCast(info.srWindow.Bottom - info.srWindow.Top + 1);
         return .{ .width = width, .height = height };
@@ -114,18 +156,16 @@ fn getTerminalSizePosix() TerminalSize {
     return .{ .width = 80, .height = 24 };
 }
 
-fn detectColorSystem() ColorSystem {
+fn detectColorSystem(environ: std.process.Environ) ColorSystem {
     // Check COLORTERM
-    if (getEnv("COLORTERM")) |ct| {
-        defer std.heap.page_allocator.free(ct);
+    if (getEnv(environ, "COLORTERM")) |ct| {
         if (std.mem.eql(u8, ct, "truecolor") or std.mem.eql(u8, ct, "24bit")) {
             return .truecolor;
         }
     }
 
     // Check TERM
-    if (getEnv("TERM")) |term| {
-        defer std.heap.page_allocator.free(term);
+    if (getEnv(environ, "TERM")) |term| {
         if (std.mem.indexOf(u8, term, "256color") != null or
             std.mem.indexOf(u8, term, "256") != null)
         {
@@ -137,8 +177,7 @@ fn detectColorSystem() ColorSystem {
     }
 
     // Check terminal program
-    if (getEnv("TERM_PROGRAM")) |prog| {
-        defer std.heap.page_allocator.free(prog);
+    if (getEnv(environ, "TERM_PROGRAM")) |prog| {
         const truecolor_terminals = [_][]const u8{
             "iTerm.app",
             "Apple_Terminal",
@@ -156,14 +195,12 @@ fn detectColorSystem() ColorSystem {
     }
 
     // Windows Terminal
-    if (getEnv("WT_SESSION")) |wt| {
-        defer std.heap.page_allocator.free(wt);
+    if (getEnv(environ, "WT_SESSION")) |_| {
         return .truecolor;
     }
 
     // ConEmu
-    if (getEnv("ConEmuANSI")) |ce| {
-        defer std.heap.page_allocator.free(ce);
+    if (getEnv(environ, "ConEmuANSI")) |ce| {
         if (std.mem.eql(u8, ce, "ON")) {
             return .truecolor;
         }
@@ -173,10 +210,9 @@ fn detectColorSystem() ColorSystem {
     return .eight_bit;
 }
 
-fn detectHyperlinks() bool {
+fn detectHyperlinks(environ: std.process.Environ) bool {
     // OSC 8 hyperlink support detection
-    if (getEnv("TERM_PROGRAM")) |prog| {
-        defer std.heap.page_allocator.free(prog);
+    if (getEnv(environ, "TERM_PROGRAM")) |prog| {
         const supported = [_][]const u8{
             "iTerm.app",
             "WezTerm",
@@ -191,17 +227,15 @@ fn detectHyperlinks() bool {
     }
 
     // Windows Terminal supports hyperlinks
-    if (getEnv("WT_SESSION")) |wt| {
-        defer std.heap.page_allocator.free(wt);
+    if (getEnv(environ, "WT_SESSION")) |_| {
         return true;
     }
 
     return false;
 }
 
-fn detectSyncOutput() bool {
-    if (getEnv("TERM_PROGRAM")) |prog| {
-        defer std.heap.page_allocator.free(prog);
+fn detectSyncOutput(environ: std.process.Environ) bool {
+    if (getEnv(environ, "TERM_PROGRAM")) |prog| {
         const supported = [_][]const u8{
             "WezTerm", "kitty", "Alacritty", "contour", "mintty",
         };
@@ -209,28 +243,24 @@ fn detectSyncOutput() bool {
             if (std.mem.eql(u8, prog, t)) return true;
         }
     }
-    if (getEnv("WT_SESSION")) |wt| {
-        defer std.heap.page_allocator.free(wt);
+    if (getEnv(environ, "WT_SESSION")) |_| {
         return true;
     }
-    if (getEnv("TERM")) |term| {
-        defer std.heap.page_allocator.free(term);
+    if (getEnv(environ, "TERM")) |term| {
         if (std.mem.startsWith(u8, term, "foot")) return true;
     }
     return false;
 }
 
-fn detectBackground() BackgroundMode {
-    if (getEnv("COLORFGBG")) |fgbg| {
-        defer std.heap.page_allocator.free(fgbg);
+fn detectBackground(environ: std.process.Environ) BackgroundMode {
+    if (getEnv(environ, "COLORFGBG")) |fgbg| {
         if (std.mem.lastIndexOfScalar(u8, fgbg, ';')) |sep| {
             const bg_str = fgbg[sep + 1 ..];
             const bg = std.fmt.parseInt(u8, bg_str, 10) catch return .unknown;
             return if (bg < 7) .dark else .light;
         }
     }
-    if (getEnv("TERM_PROGRAM")) |prog| {
-        defer std.heap.page_allocator.free(prog);
+    if (getEnv(environ, "TERM_PROGRAM")) |prog| {
         if (std.mem.eql(u8, prog, "Apple_Terminal")) return .light;
     }
     return .dark;
@@ -238,25 +268,22 @@ fn detectBackground() BackgroundMode {
 
 pub fn enableVirtualTerminal() bool {
     if (builtin.os.tag == .windows) {
-        const handle = std.os.windows.GetStdHandle(std.os.windows.STD_OUTPUT_HANDLE) catch return false;
+        const handle = std.os.windows.peb().ProcessParameters.hStdOutput;
         var mode: std.os.windows.DWORD = 0;
-        if (std.os.windows.kernel32.GetConsoleMode(handle, &mode) == 0) {
+        if (!win32.GetConsoleMode(handle, &mode).toBool()) {
             return false;
         }
-        // ENABLE_VIRTUAL_TERMINAL_PROCESSING
         mode |= 0x0004;
-        return std.os.windows.kernel32.SetConsoleMode(handle, mode) != 0;
+        return win32.SetConsoleMode(handle, mode).toBool();
     }
-    return true; // Always supported on POSIX
+    return true;
 }
 
 pub fn enableUtf8() bool {
     if (builtin.os.tag == .windows) {
-        // Set console output code page to UTF-8 (65001)
-        const CP_UTF8 = 65001;
-        return std.os.windows.kernel32.SetConsoleOutputCP(CP_UTF8) != 0;
+        return win32.SetConsoleOutputCP(65001).toBool();
     }
-    return true; // POSIX terminals typically use UTF-8 by default
+    return true;
 }
 
 // Synchronized output (DEC private mode 2026)
@@ -281,7 +308,7 @@ test "TerminalInfo defaults" {
 }
 
 test "detect returns valid info" {
-    const info = detect();
+    const info = detect(std.testing.environ);
     try std.testing.expect(info.width > 0);
     try std.testing.expect(info.height > 0);
 }
@@ -293,16 +320,16 @@ test "sync output escape sequences" {
 
 test "beginSyncOutput writes correct sequence" {
     var buf: [32]u8 = undefined;
-    var stream = std.io.fixedBufferStream(&buf);
-    try beginSyncOutput(stream.writer());
-    try std.testing.expectEqualStrings("\x1b[?2026h", stream.getWritten());
+    var stream: std.Io.Writer = .fixed(&buf);
+    try beginSyncOutput(&stream);
+    try std.testing.expectEqualStrings("\x1b[?2026h", stream.buffered());
 }
 
 test "endSyncOutput writes correct sequence" {
     var buf: [32]u8 = undefined;
-    var stream = std.io.fixedBufferStream(&buf);
-    try endSyncOutput(stream.writer());
-    try std.testing.expectEqualStrings("\x1b[?2026l", stream.getWritten());
+    var stream: std.Io.Writer = .fixed(&buf);
+    try endSyncOutput(&stream);
+    try std.testing.expectEqualStrings("\x1b[?2026l", stream.buffered());
 }
 
 test "BackgroundMode enum" {

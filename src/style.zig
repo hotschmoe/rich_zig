@@ -485,43 +485,43 @@ test "Style.parse not modifier" {
 
 test "Style.renderAnsi bold red" {
     var buf: [128]u8 = undefined;
-    var stream = std.io.fixedBufferStream(&buf);
+    var stream = std.Io.Writer.fixed(&buf);
 
     const style = Style.empty.bold().foreground(Color.red);
-    try style.renderAnsi(.truecolor, stream.writer());
+    try style.renderAnsi(.truecolor, &stream);
 
-    try std.testing.expectEqualStrings("\x1b[1;31m", stream.getWritten());
+    try std.testing.expectEqualStrings("\x1b[1;31m", stream.buffered());
 }
 
 test "Style.renderAnsi truecolor" {
     var buf: [128]u8 = undefined;
-    var stream = std.io.fixedBufferStream(&buf);
+    var stream = std.Io.Writer.fixed(&buf);
 
     const style = Style.empty.foreground(Color.fromRgb(255, 128, 64));
-    try style.renderAnsi(.truecolor, stream.writer());
+    try style.renderAnsi(.truecolor, &stream);
 
-    try std.testing.expectEqualStrings("\x1b[38;2;255;128;64m", stream.getWritten());
+    try std.testing.expectEqualStrings("\x1b[38;2;255;128;64m", stream.buffered());
 }
 
 test "Style.renderAnsi with background" {
     var buf: [128]u8 = undefined;
-    var stream = std.io.fixedBufferStream(&buf);
+    var stream = std.Io.Writer.fixed(&buf);
 
     const style = Style.empty.foreground(Color.red).background(Color.white);
-    try style.renderAnsi(.truecolor, stream.writer());
+    try style.renderAnsi(.truecolor, &stream);
 
-    try std.testing.expectEqualStrings("\x1b[31;47m", stream.getWritten());
+    try std.testing.expectEqualStrings("\x1b[31;47m", stream.buffered());
 }
 
 test "Style.renderAnsi downgrade" {
     var buf: [128]u8 = undefined;
-    var stream = std.io.fixedBufferStream(&buf);
+    var stream = std.Io.Writer.fixed(&buf);
 
     const style = Style.empty.foreground(Color.fromRgb(255, 0, 0));
-    try style.renderAnsi(.standard, stream.writer()); // Downgrade to standard
+    try style.renderAnsi(.standard, &stream);
 
     // Should be standard red or bright_red
-    const written = stream.getWritten();
+    const written = stream.buffered();
     try std.testing.expect(std.mem.eql(u8, written, "\x1b[31m") or std.mem.eql(u8, written, "\x1b[91m"));
 }
 
@@ -569,8 +569,8 @@ test "Style.parse underline2" {
 
 test "Style.renderAnsi underline2" {
     var buf: [128]u8 = undefined;
-    var stream = std.io.fixedBufferStream(&buf);
+    var stream = std.Io.Writer.fixed(&buf);
     const style = Style.empty.underline2();
-    try style.renderAnsi(.truecolor, stream.writer());
-    try std.testing.expectEqualStrings("\x1b[21m", stream.getWritten());
+    try style.renderAnsi(.truecolor, &stream);
+    try std.testing.expectEqualStrings("\x1b[21m", stream.buffered());
 }

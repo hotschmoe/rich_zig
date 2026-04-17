@@ -91,11 +91,11 @@ pub const LogRecord = struct {
     path: ?[]const u8 = null,
     line: ?u32 = null,
 
-    pub fn init(level: Level, message: []const u8) LogRecord {
+    pub fn init(io: std.Io, level: Level, message: []const u8) LogRecord {
         return .{
             .level = level,
             .message = message,
-            .timestamp = std.time.timestamp(),
+            .timestamp = std.Io.Timestamp.now(io, .real).toSeconds(),
         };
     }
 
@@ -114,8 +114,9 @@ pub const LogRecord = struct {
 
 /// Rich-style log handler that formats and outputs log messages
 pub const RichHandler = struct {
+    io: std.Io,
     allocator: std.mem.Allocator,
-    writer: std.fs.File.Writer,
+    writer: std.Io.File.Writer,
     styles: LevelStyles,
     format: FormatOptions,
     color_system: ColorSystem,
@@ -124,21 +125,24 @@ pub const RichHandler = struct {
 
     const BUFFER_SIZE = 4096;
 
-    pub fn init(allocator: std.mem.Allocator) RichHandler {
-        return initWithOptions(allocator, .{}, .{});
+    pub fn init(io: std.Io, allocator: std.mem.Allocator, environ: std.process.Environ) RichHandler {
+        return initWithOptions(io, allocator, environ, .{}, .{});
     }
 
     pub fn initWithOptions(
+        io: std.Io,
         allocator: std.mem.Allocator,
+        environ: std.process.Environ,
         styles: LevelStyles,
         format: FormatOptions,
     ) RichHandler {
-        const term_info = terminal.detect();
+        const term_info = terminal.detect(environ);
         const buffer = allocator.alloc(u8, BUFFER_SIZE) catch @panic("failed to allocate logging buffer");
 
         return .{
+            .io = io,
             .allocator = allocator,
-            .writer = std.fs.File.stdout().writer(buffer),
+            .writer = std.Io.File.stdout().writer(io, buffer),
             .styles = styles,
             .format = format,
             .color_system = term_info.color_system,
@@ -275,19 +279,19 @@ pub const RichHandler = struct {
 
     // Convenience methods
     pub fn debug(self: *RichHandler, message: []const u8) !void {
-        try self.emit(LogRecord.init(.debug, message));
+        try self.emit(LogRecord.init(self.io, .debug, message));
     }
 
     pub fn info(self: *RichHandler, message: []const u8) !void {
-        try self.emit(LogRecord.init(.info, message));
+        try self.emit(LogRecord.init(self.io, .info, message));
     }
 
     pub fn warn(self: *RichHandler, message: []const u8) !void {
-        try self.emit(LogRecord.init(.warn, message));
+        try self.emit(LogRecord.init(self.io, .warn, message));
     }
 
     pub fn err(self: *RichHandler, message: []const u8) !void {
-        try self.emit(LogRecord.init(.err, message));
+        try self.emit(LogRecord.init(self.io, .err, message));
     }
 };
 
@@ -310,12 +314,14 @@ pub fn stdLogFn(
 
     const scope_str = if (scope == .default) "" else @tagName(scope);
 
-    // Format timestamp
-    const timestamp = std.time.timestamp();
+    var buf: [64]u8 = undefined;
+    const locked = std.debug.lockStderr(&buf);
+    defer std.debug.unlockStderr();
+    const stderr = &locked.file_writer.interface;
+
+    const timestamp = std.Io.Timestamp.now(std.Options.debug_io, .real).toSeconds();
     const epoch_seconds: std.time.epoch.EpochSeconds = .{ .secs = @intCast(timestamp) };
     const day_seconds = epoch_seconds.getDaySeconds();
-
-    const stderr = std.io.getStdErr().writer();
 
     // Write timestamp
     timestamp_style.renderAnsi(.truecolor, stderr) catch return;
@@ -345,6 +351,7 @@ pub fn stdLogFn(
     // Write message
     stderr.print(format, args) catch return;
     stderr.writeByte('\n') catch return;
+    stderr.flush() catch return;
 }
 
 /// Creates a scoped logger with Rich formatting
@@ -398,33 +405,38 @@ test "LevelStyles.styleFor" {
 }
 
 test "LogRecord.init" {
-    const record = LogRecord.init(.info, "test message");
+    const io = std.Options.debug_io;
+    const record = LogRecord.init(io, .info, "test message");
     try std.testing.expectEqual(Level.info, record.level);
     try std.testing.expectEqualStrings("test message", record.message);
     try std.testing.expect(record.timestamp > 0);
 }
 
 test "LogRecord.withPath" {
-    const record = LogRecord.init(.debug, "msg").withPath("src/main.zig");
+    const io = std.Options.debug_io;
+    const record = LogRecord.init(io, .debug, "msg").withPath("src/main.zig");
     try std.testing.expectEqualStrings("src/main.zig", record.path.?);
 }
 
 test "LogRecord.withLine" {
-    const record = LogRecord.init(.debug, "msg").withLine(42);
+    const io = std.Options.debug_io;
+    const record = LogRecord.init(io, .debug, "msg").withLine(42);
     try std.testing.expectEqual(@as(u32, 42), record.line.?);
 }
 
 test "RichHandler.init" {
+    const io = std.Options.debug_io;
     const allocator = std.testing.allocator;
-    var handler = RichHandler.init(allocator);
+    var handler = RichHandler.init(io, allocator, std.testing.environ);
     defer handler.deinit();
 
     try std.testing.expectEqual(Level.debug, handler.min_level);
 }
 
 test "RichHandler.setMinLevel" {
+    const io = std.Options.debug_io;
     const allocator = std.testing.allocator;
-    var handler = RichHandler.init(allocator);
+    var handler = RichHandler.init(io, allocator, std.testing.environ);
     defer handler.deinit();
 
     _ = handler.setMinLevel(.warn);
@@ -463,8 +475,9 @@ pub const StackFrame = struct {
     address: ?usize = null,
 
     pub fn format(self: StackFrame, allocator: std.mem.Allocator) ![]u8 {
-        var result: std.ArrayList(u8) = .empty;
-        const writer = result.writer(allocator);
+        var allocating: std.Io.Writer.Allocating = .init(allocator);
+        defer allocating.deinit();
+        const writer = &allocating.writer;
 
         if (self.function) |func| {
             try writer.writeAll(func);
@@ -486,7 +499,7 @@ pub const StackFrame = struct {
             try writer.print(" (0x{x})", .{addr});
         }
 
-        return result.toOwnedSlice(allocator);
+        return allocating.toOwnedSlice();
     }
 };
 
@@ -557,6 +570,7 @@ pub const TracebackOptions = struct {
 
 /// A formatted traceback with stack frames and optional source context
 pub const Traceback = struct {
+    io: std.Io,
     allocator: std.mem.Allocator,
     /// The error or exception message
     message: ?[]const u8 = null,
@@ -569,8 +583,9 @@ pub const Traceback = struct {
     /// Cached source lines (file path -> lines)
     source_cache: std.StringHashMap([]const []const u8),
 
-    pub fn init(allocator: std.mem.Allocator) Traceback {
+    pub fn init(io: std.Io, allocator: std.mem.Allocator) Traceback {
         return .{
+            .io = io,
             .allocator = allocator,
             .frames = std.ArrayList(StackFrame).empty,
             .source_cache = std.StringHashMap([]const []const u8).init(allocator),
@@ -742,10 +757,12 @@ pub const Traceback = struct {
         }
 
         // Try to read the file
-        const file = std.fs.cwd().openFile(file_path, .{}) catch return null;
-        defer file.close();
+        const file = std.Io.Dir.cwd().openFile(self.io, file_path, .{}) catch return null;
+        defer file.close(self.io);
 
-        const content = file.readToEndAlloc(self.allocator, 1024 * 1024) catch return null;
+        var read_buf: [4096]u8 = undefined;
+        var file_reader = file.reader(self.io, &read_buf);
+        const content = file_reader.interface.allocRemaining(self.allocator, .limited64(1024 * 1024)) catch return null;
         defer self.allocator.free(content);
 
         // Split into lines
@@ -1052,15 +1069,15 @@ fn blendHighlightStyle(syntax_style: ?Style, highlight_style: Style) Style {
 }
 
 /// Create a traceback from the current location
-pub fn traceHere(allocator: std.mem.Allocator) !Traceback {
-    var tb = Traceback.init(allocator);
+pub fn traceHere(io: std.Io, allocator: std.mem.Allocator) !Traceback {
+    var tb = Traceback.init(io, allocator);
     try tb.captureCurrentTrace(1); // Skip this function
     return tb;
 }
 
 /// Create a traceback from an error
-pub fn traceError(allocator: std.mem.Allocator, err: anyerror) !Traceback {
-    var tb = Traceback.init(allocator);
+pub fn traceError(io: std.Io, allocator: std.mem.Allocator, err: anyerror) !Traceback {
+    var tb = Traceback.init(io, allocator);
     tb.error_name = @errorName(err);
     try tb.captureCurrentTrace(1);
     return tb;
@@ -1109,8 +1126,9 @@ test "StackFrame.format unknown function" {
 }
 
 test "Traceback.init and deinit" {
+    const io = std.Options.debug_io;
     const allocator = std.testing.allocator;
-    var tb = Traceback.init(allocator);
+    var tb = Traceback.init(io, allocator);
     defer tb.deinit();
 
     try tb.addFrame(.{ .function = "test", .line = 1 });
@@ -1118,24 +1136,27 @@ test "Traceback.init and deinit" {
 }
 
 test "Traceback.withMessage" {
+    const io = std.Options.debug_io;
     const allocator = std.testing.allocator;
-    var tb = Traceback.init(allocator).withMessage("Something went wrong");
+    var tb = Traceback.init(io, allocator).withMessage("Something went wrong");
     defer tb.deinit();
 
     try std.testing.expectEqualStrings("Something went wrong", tb.message.?);
 }
 
 test "Traceback.withErrorName" {
+    const io = std.Options.debug_io;
     const allocator = std.testing.allocator;
-    var tb = Traceback.init(allocator).withErrorName("OutOfMemory");
+    var tb = Traceback.init(io, allocator).withErrorName("OutOfMemory");
     defer tb.deinit();
 
     try std.testing.expectEqualStrings("OutOfMemory", tb.error_name.?);
 }
 
 test "Traceback.parseZigTrace basic" {
+    const io = std.Options.debug_io;
     const allocator = std.testing.allocator;
-    var tb = Traceback.init(allocator);
+    var tb = Traceback.init(io, allocator);
     defer tb.deinit();
 
     const trace =
@@ -1171,8 +1192,9 @@ test "TracebackOptions defaults" {
 }
 
 test "Traceback.render basic" {
+    const io = std.Options.debug_io;
     const allocator = std.testing.allocator;
-    var tb = Traceback.init(allocator);
+    var tb = Traceback.init(io, allocator);
     defer tb.deinit();
 
     tb = tb.withMessage("Test error").withErrorName("TestError");
@@ -1265,8 +1287,9 @@ test "blendHighlightStyle handles null syntax style" {
 }
 
 test "Traceback.highlightSourceLine basic" {
+    const io = std.Options.debug_io;
     const allocator = std.testing.allocator;
-    var tb = Traceback.init(allocator);
+    var tb = Traceback.init(io, allocator);
     defer tb.deinit();
 
     const segments = try tb.highlightSourceLine(
@@ -1290,8 +1313,9 @@ test "Traceback.highlightSourceLine basic" {
 }
 
 test "Traceback.highlightSourceLine with custom theme" {
+    const io = std.Options.debug_io;
     const allocator = std.testing.allocator;
-    var tb = Traceback.init(allocator);
+    var tb = Traceback.init(io, allocator);
     defer tb.deinit();
 
     tb.options.syntax_theme = SyntaxTheme.monokai;

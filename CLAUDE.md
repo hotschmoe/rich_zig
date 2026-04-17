@@ -133,8 +133,8 @@ we love you, Claude! do your best today
 
 A full-featured Zig port of Python's Rich library. Provides beautiful terminal output with styled text, tables, panels, progress bars, trees, and more.
 
-- **Version**: 1.3.0
-- **Minimum Zig**: 0.15.2
+- **Version**: 2.0.0
+- **Minimum Zig**: 0.16.0
 - **No external dependencies** - uses only Zig standard library
 
 ---

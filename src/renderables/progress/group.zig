@@ -7,11 +7,13 @@ const ProgressBar = @import("bar.zig").ProgressBar;
 pub const ProgressGroup = struct {
     bars: std.ArrayList(ProgressBar),
     allocator: std.mem.Allocator,
+    io: std.Io,
 
-    pub fn init(allocator: std.mem.Allocator) ProgressGroup {
+    pub fn init(allocator: std.mem.Allocator, io: std.Io) ProgressGroup {
         return .{
             .bars = std.ArrayList(ProgressBar).empty,
             .allocator = allocator,
+            .io = io,
         };
     }
 
@@ -20,14 +22,14 @@ pub const ProgressGroup = struct {
     }
 
     pub fn addTask(self: *ProgressGroup, description: []const u8, total: usize) !*ProgressBar {
-        try self.bars.append(self.allocator, ProgressBar.init()
+        try self.bars.append(self.allocator, ProgressBar.init(self.io)
             .withDescription(description)
             .withTotal(total));
         return &self.bars.items[self.bars.items.len - 1];
     }
 
     pub fn addTaskWithTiming(self: *ProgressGroup, description: []const u8, total: usize) !*ProgressBar {
-        try self.bars.append(self.allocator, ProgressBar.init()
+        try self.bars.append(self.allocator, ProgressBar.init(self.io)
             .withDescription(description)
             .withTotal(total)
             .withTiming());
@@ -83,12 +85,14 @@ pub const ProgressDisplay = struct {
     should_stop: std.atomic.Value(bool) = std.atomic.Value(bool).init(false),
     refresh_ms: u64 = 100,
     allocator: std.mem.Allocator,
-    mutex: std.Thread.Mutex = .{},
+    io: std.Io,
+    mutex: std.Io.Mutex = .init,
 
-    pub fn init(allocator: std.mem.Allocator, group: *ProgressGroup) ProgressDisplay {
+    pub fn init(allocator: std.mem.Allocator, io: std.Io, group: *ProgressGroup) ProgressDisplay {
         return .{
             .group = group,
             .allocator = allocator,
+            .io = io,
         };
     }
 
@@ -128,14 +132,15 @@ pub const ProgressDisplay = struct {
     }
 
     fn autoRefreshThread(self: *ProgressDisplay) void {
+        const sleep_duration = std.Io.Duration.fromMilliseconds(@intCast(self.refresh_ms));
         while (!self.should_stop.load(.acquire)) {
-            std.time.sleep(self.refresh_ms * std.time.ns_per_ms);
+            std.Io.sleep(self.io, sleep_duration, .awake) catch {};
 
             if (self.should_stop.load(.acquire)) break;
 
-            self.mutex.lock();
+            self.mutex.lockUncancelable(self.io);
             const live = self.live;
-            self.mutex.unlock();
+            self.mutex.unlock(self.io);
 
             if (live) |l| {
                 var arena = std.heap.ArenaAllocator.init(self.allocator);
@@ -148,8 +153,8 @@ pub const ProgressDisplay = struct {
     }
 
     pub fn advanceSpinners(self: *ProgressDisplay) void {
-        self.mutex.lock();
-        defer self.mutex.unlock();
+        self.mutex.lockUncancelable(self.io);
+        defer self.mutex.unlock(self.io);
 
         for (self.group.bars.items) |*bar| {
             if (bar.indeterminate) {
@@ -169,6 +174,7 @@ pub const ColumnRenderContext = struct {
     description: ?[]const u8,
     is_finished: bool,
     is_indeterminate: bool,
+    current_ms: i64 = 0,
 };
 
 pub const ColumnWidth = union(enum) {
@@ -380,7 +386,7 @@ pub const ProgressColumn = struct {
                     "\u{280B}", "\u{2819}", "\u{2839}", "\u{2838}",
                     "\u{283C}", "\u{2834}", "\u{2826}", "\u{2827}",
                 };
-                const frame_idx = @as(usize, @intCast(@mod(@divFloor(std.time.milliTimestamp(), 100), @as(i64, frames.len))));
+                const frame_idx = @as(usize, @intCast(@mod(@divFloor(ctx.current_ms, 100), @as(i64, frames.len))));
                 try segments.append(allocator, self.styledSegment(frames[frame_idx]));
             },
             .completed => {
@@ -409,15 +415,17 @@ pub const Progress = struct {
     completed: usize = 0,
     total: usize = 100,
     description: ?[]const u8 = null,
-    start_time: ?i128 = null,
+    start_time: ?i96 = null,
     indeterminate: bool = false,
     separator: []const u8 = " ",
     allocator: std.mem.Allocator,
+    io: std.Io,
 
-    pub fn init(allocator: std.mem.Allocator) Progress {
+    pub fn init(allocator: std.mem.Allocator, io: std.Io) Progress {
         return .{
             .columns = std.ArrayList(ProgressColumn).empty,
             .allocator = allocator,
+            .io = io,
         };
     }
 
@@ -425,16 +433,16 @@ pub const Progress = struct {
         self.columns.deinit(self.allocator);
     }
 
-    pub fn withDefaultColumns(allocator: std.mem.Allocator) !Progress {
-        var p = Progress.init(allocator);
+    pub fn withDefaultColumns(allocator: std.mem.Allocator, io: std.Io) !Progress {
+        var p = Progress.init(allocator, io);
         try p.addColumn(ProgressColumn.builtin(.description));
         try p.addColumn(ProgressColumn.builtin(.bar));
         try p.addColumn(ProgressColumn.builtin(.percentage));
         return p;
     }
 
-    pub fn withDownloadColumns(allocator: std.mem.Allocator) !Progress {
-        var p = Progress.init(allocator);
+    pub fn withDownloadColumns(allocator: std.mem.Allocator, io: std.Io) !Progress {
+        var p = Progress.init(allocator, io);
         try p.addColumn(ProgressColumn.builtin(.description));
         try p.addColumn(ProgressColumn.builtin(.bar));
         try p.addColumn(ProgressColumn.builtin(.percentage));
@@ -472,7 +480,7 @@ pub const Progress = struct {
 
     pub fn withTiming(self: Progress) Progress {
         var p = self;
-        p.start_time = std.time.nanoTimestamp();
+        p.start_time = std.Io.Timestamp.now(p.io, .awake).toNanoseconds();
         return p;
     }
 
@@ -503,7 +511,7 @@ pub const Progress = struct {
 
     pub fn calculateElapsed(self: Progress) u64 {
         const start = self.start_time orelse return 0;
-        const now = std.time.nanoTimestamp();
+        const now = std.Io.Timestamp.now(self.io, .awake).toNanoseconds();
         const diff = now - start;
         if (diff <= 0) return 0;
         return @as(u64, @intCast(diff)) / std.time.ns_per_s;
@@ -540,6 +548,7 @@ pub const Progress = struct {
             .description = self.description,
             .is_finished = self.isFinished(),
             .is_indeterminate = self.indeterminate,
+            .current_ms = std.Io.Timestamp.now(self.io, .real).toMilliseconds(),
         };
     }
 
@@ -651,7 +660,7 @@ pub const Progress = struct {
 
 test "ProgressGroup.init" {
     const allocator = std.testing.allocator;
-    var group = ProgressGroup.init(allocator);
+    var group = ProgressGroup.init(allocator, std.testing.io);
     defer group.deinit();
 
     try std.testing.expectEqual(@as(usize, 0), group.bars.items.len);
@@ -659,7 +668,7 @@ test "ProgressGroup.init" {
 
 test "ProgressGroup.addTask" {
     const allocator = std.testing.allocator;
-    var group = ProgressGroup.init(allocator);
+    var group = ProgressGroup.init(allocator, std.testing.io);
     defer group.deinit();
 
     const bar = try group.addTask("Downloading", 100);
@@ -669,7 +678,7 @@ test "ProgressGroup.addTask" {
 
 test "ProgressGroup.allFinished" {
     const allocator = std.testing.allocator;
-    var group = ProgressGroup.init(allocator);
+    var group = ProgressGroup.init(allocator, std.testing.io);
     defer group.deinit();
 
     _ = try group.addTask("Task 1", 100);
@@ -686,7 +695,7 @@ test "ProgressGroup.allFinished" {
 
 test "ProgressGroup.render" {
     const allocator = std.testing.allocator;
-    var group = ProgressGroup.init(allocator);
+    var group = ProgressGroup.init(allocator, std.testing.io);
     defer group.deinit();
 
     _ = try group.addTask("Task 1", 100);
@@ -700,11 +709,11 @@ test "ProgressGroup.render" {
 
 test "ProgressGroup.visibleCount with transient" {
     const allocator = std.testing.allocator;
-    var group = ProgressGroup.init(allocator);
+    var group = ProgressGroup.init(allocator, std.testing.io);
     defer group.deinit();
 
-    _ = try group.addBar(ProgressBar.init().withDescription("Task 1").withTotal(100).withTransient(true));
-    _ = try group.addBar(ProgressBar.init().withDescription("Task 2").withTotal(100));
+    _ = try group.addBar(ProgressBar.init(std.testing.io).withDescription("Task 1").withTotal(100).withTransient(true));
+    _ = try group.addBar(ProgressBar.init(std.testing.io).withDescription("Task 2").withTotal(100));
 
     try std.testing.expectEqual(@as(usize, 2), group.visibleCount());
 
@@ -714,19 +723,19 @@ test "ProgressGroup.visibleCount with transient" {
 
 test "ProgressDisplay.init" {
     const allocator = std.testing.allocator;
-    var group = ProgressGroup.init(allocator);
+    var group = ProgressGroup.init(allocator, std.testing.io);
     defer group.deinit();
 
-    const display = ProgressDisplay.init(allocator, &group);
+    const display = ProgressDisplay.init(allocator, std.testing.io, &group);
     try std.testing.expectEqual(@as(u64, 100), display.refresh_ms);
 }
 
 test "ProgressDisplay.withRefreshRate" {
     const allocator = std.testing.allocator;
-    var group = ProgressGroup.init(allocator);
+    var group = ProgressGroup.init(allocator, std.testing.io);
     defer group.deinit();
 
-    const display = ProgressDisplay.init(allocator, &group).withRefreshRate(50);
+    const display = ProgressDisplay.init(allocator, std.testing.io, &group).withRefreshRate(50);
     try std.testing.expectEqual(@as(u64, 50), display.refresh_ms);
 }
 
@@ -816,7 +825,7 @@ test "ProgressColumn.render custom" {
 
 test "Progress.init" {
     const allocator = std.testing.allocator;
-    var progress = Progress.init(allocator);
+    var progress = Progress.init(allocator, std.testing.io);
     defer progress.deinit();
 
     try std.testing.expectEqual(@as(usize, 0), progress.columns.items.len);
@@ -824,7 +833,7 @@ test "Progress.init" {
 
 test "Progress.withDefaultColumns" {
     const allocator = std.testing.allocator;
-    var progress = try Progress.withDefaultColumns(allocator);
+    var progress = try Progress.withDefaultColumns(allocator, std.testing.io);
     defer progress.deinit();
 
     try std.testing.expectEqual(@as(usize, 3), progress.columns.items.len);
@@ -832,7 +841,7 @@ test "Progress.withDefaultColumns" {
 
 test "Progress.addColumn" {
     const allocator = std.testing.allocator;
-    var progress = Progress.init(allocator);
+    var progress = Progress.init(allocator, std.testing.io);
     defer progress.deinit();
 
     try progress.addColumn(ProgressColumn.builtin(.description));
@@ -843,7 +852,7 @@ test "Progress.addColumn" {
 
 test "Progress.addCustomColumn" {
     const allocator = std.testing.allocator;
-    var progress = Progress.init(allocator);
+    var progress = Progress.init(allocator, std.testing.io);
     defer progress.deinit();
 
     const customFn = struct {
@@ -863,7 +872,7 @@ test "Progress.render" {
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
 
-    var progress = try Progress.withDefaultColumns(arena.allocator());
+    var progress = try Progress.withDefaultColumns(arena.allocator(), std.testing.io);
     progress = progress.withCompleted(50).withTotal(100).withDescription("Loading");
 
     const segments = try progress.render(80, arena.allocator());
@@ -876,7 +885,7 @@ test "Progress.render with custom column" {
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
 
-    var progress = Progress.init(arena.allocator());
+    var progress = Progress.init(arena.allocator(), std.testing.io);
 
     const customFn = struct {
         fn render(ctx: ColumnRenderContext, alloc: std.mem.Allocator) anyerror![]Segment {
@@ -901,7 +910,7 @@ test "Progress.render with custom column" {
 
 test "Progress.percentage" {
     const allocator = std.testing.allocator;
-    var progress = Progress.init(allocator);
+    var progress = Progress.init(allocator, std.testing.io);
     defer progress.deinit();
 
     progress = progress.withCompleted(50).withTotal(100);
@@ -910,7 +919,7 @@ test "Progress.percentage" {
 
 test "Progress.isFinished" {
     const allocator = std.testing.allocator;
-    var progress = Progress.init(allocator);
+    var progress = Progress.init(allocator, std.testing.io);
     defer progress.deinit();
 
     progress = progress.withCompleted(50).withTotal(100);
@@ -922,7 +931,7 @@ test "Progress.isFinished" {
 
 test "Progress.advance" {
     const allocator = std.testing.allocator;
-    var progress = Progress.init(allocator);
+    var progress = Progress.init(allocator, std.testing.io);
     defer progress.deinit();
 
     progress = progress.withTotal(100);
@@ -943,7 +952,7 @@ test "Progress.render with hidden column" {
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
 
-    var progress = Progress.init(arena.allocator());
+    var progress = Progress.init(arena.allocator(), std.testing.io);
     try progress.addColumn(ProgressColumn.builtin(.description));
     try progress.addColumn(ProgressColumn.builtin(.percentage).hidden());
     progress = progress.withDescription("Test");
@@ -956,7 +965,7 @@ test "Progress.render with hidden column" {
 
 test "Progress.withDownloadColumns" {
     const allocator = std.testing.allocator;
-    var progress = try Progress.withDownloadColumns(allocator);
+    var progress = try Progress.withDownloadColumns(allocator, std.testing.io);
     defer progress.deinit();
 
     try std.testing.expectEqual(@as(usize, 6), progress.columns.items.len);

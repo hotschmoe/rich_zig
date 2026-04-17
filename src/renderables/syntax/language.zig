@@ -143,7 +143,7 @@ pub const Language = enum {
 
     /// Detect language from content using heuristics
     pub fn fromContent(content: []const u8) Language {
-        const trimmed = std.mem.trimLeft(u8, content, " \t\n\r");
+        const trimmed = std.mem.trimStart(u8, content, " \t\n\r");
         if (trimmed.len == 0) return .plain;
 
         // Check for shebang

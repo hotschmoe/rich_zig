@@ -255,7 +255,7 @@ test "basic box style" {
 
 test "basic console creation" {
     const allocator = std.testing.allocator;
-    var c = Console.init(allocator);
+    var c = Console.init(allocator, std.testing.io, std.testing.environ);
     defer c.deinit();
     try std.testing.expect(c.width() > 0);
 }

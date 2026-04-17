@@ -4,7 +4,8 @@ const root = @import("root.zig");
 /// Fuzz test entry point
 /// This is a placeholder for fuzz testing infrastructure
 /// The CI runs `zig build test --fuzz` with a timeout
-pub fn main() !void {
+pub fn main(init: std.process.Init) !void {
+    _ = init;
     // Future: add fuzzing for color parsing, markup parsing, etc.
     std.debug.print("Fuzz testing infrastructure ready\n", .{});
 }

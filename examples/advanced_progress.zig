@@ -5,12 +5,11 @@
 const std = @import("std");
 const rich = @import("rich_zig");
 
-pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
-    const allocator = gpa.allocator();
+pub fn main(init: std.process.Init) !void {
+    const allocator = init.gpa;
+    const io = init.io;
 
-    var console = rich.Console.init(allocator);
+    var console = rich.Console.init(allocator, io, init.minimal.environ);
     defer console.deinit();
 
     try console.print("");
@@ -20,7 +19,7 @@ pub fn main() !void {
     // Progress bar with timing information
     try console.print("[bold]Progress with Timing Info:[/]");
     {
-        const bar = rich.ProgressBar.init()
+        const bar = rich.ProgressBar.init(io)
             .withDescription("Downloading")
             .withCompleted(75)
             .withTotal(100)
@@ -33,7 +32,7 @@ pub fn main() !void {
     // Indeterminate progress bar (unknown total)
     try console.print("[bold]Indeterminate Progress (unknown total):[/]");
     {
-        const bar = rich.ProgressBar.init()
+        const bar = rich.ProgressBar.init(io)
             .withDescription("Scanning")
             .asIndeterminate()
             .withWidth(25);
@@ -51,7 +50,7 @@ pub fn main() !void {
         };
 
         for (stages) |s| {
-            const bar = rich.ProgressBar.init()
+            const bar = rich.ProgressBar.init(io)
                 .withDescription(s.desc)
                 .withCompleted(s.completed)
                 .withTotal(100)
@@ -67,7 +66,7 @@ pub fn main() !void {
         var arena = std.heap.ArenaAllocator.init(allocator);
         defer arena.deinit();
 
-        var group = rich.ProgressGroup.init(arena.allocator());
+        var group = rich.ProgressGroup.init(arena.allocator(), io);
 
         _ = try group.addTask("Complete", 100);
         _ = try group.addTask("In Progress", 100);

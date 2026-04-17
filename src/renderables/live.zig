@@ -19,7 +19,7 @@ pub const Live = struct {
     max_lines: ?usize = null,
     scroll_offset: usize = 0,
     content: ?[]const Segment = null,
-    content_mutex: std.Thread.Mutex = .{},
+    content_mutex: std.Io.Mutex = .init,
     refresh_thread: ?std.Thread = null,
     should_stop: std.atomic.Value(bool) = std.atomic.Value(bool).init(false),
     allocator: ?std.mem.Allocator = null,
@@ -83,8 +83,8 @@ pub const Live = struct {
     }
 
     pub fn setContent(self: *Live, segments: []const Segment) void {
-        self.content_mutex.lock();
-        defer self.content_mutex.unlock();
+        self.content_mutex.lockUncancelable(self.console.io);
+        defer self.content_mutex.unlock(self.console.io);
         self.content = segments;
     }
 
@@ -110,13 +110,13 @@ pub const Live = struct {
 
             if (self.should_stop.load(.acquire)) break;
 
-            self.content_mutex.lock();
+            self.content_mutex.lockUncancelable(self.console.io);
             const segments = self.content;
-            self.content_mutex.unlock();
+            self.content_mutex.unlock(self.console.io);
 
             if (segments) |segs| {
                 self.renderSegments(segs) catch {};
-                self.last_refresh_time = std.time.milliTimestamp();
+                self.last_refresh_time = std.Io.Clock.real.now(self.console.io).toMilliseconds();
             }
         }
     }
@@ -124,7 +124,7 @@ pub const Live = struct {
     pub fn update(self: *Live, segments: []const Segment) !void {
         if (!self.is_started) return;
 
-        const now = std.time.milliTimestamp();
+        const now = std.Io.Clock.real.now(self.console.io).toMilliseconds();
         if (now - self.last_refresh_time < @as(i64, @intCast(self.min_refresh_ms))) {
             return;
         }
@@ -137,7 +137,7 @@ pub const Live = struct {
         if (!self.is_started) return;
 
         try self.renderSegments(segments);
-        self.last_refresh_time = std.time.milliTimestamp();
+        self.last_refresh_time = std.Io.Clock.real.now(self.console.io).toMilliseconds();
     }
 
     fn renderSegments(self: *Live, segments: []const Segment) !void {
@@ -205,8 +205,8 @@ pub const Live = struct {
     fn clearPrevious(self: *Live) !void {
         if (self.lines_rendered == 0) return;
 
-        const stdout = std.fs.File.stdout();
-        var writer = stdout.writer(self.console.write_buffer);
+        const stdout = std.Io.File.stdout();
+        var writer = stdout.writer(self.console.io, self.console.write_buffer);
 
         for (0..self.lines_rendered) |_| {
             try writer.interface.writeAll("\x1b[A");
@@ -217,14 +217,14 @@ pub const Live = struct {
     }
 
     pub fn shouldRefresh(self: Live) bool {
-        const now = std.time.milliTimestamp();
+        const now = std.Io.Clock.real.now(self.console.io).toMilliseconds();
         return now - self.last_refresh_time >= @as(i64, @intCast(self.min_refresh_ms));
     }
 };
 
 test "Live.init" {
     const allocator = std.testing.allocator;
-    var console = Console.init(allocator);
+    var console = Console.init(allocator, std.testing.io, std.testing.environ);
     defer console.deinit();
 
     const live = Live.init(&console);
@@ -234,7 +234,7 @@ test "Live.init" {
 
 test "Live.withRefreshRate" {
     const allocator = std.testing.allocator;
-    var console = Console.init(allocator);
+    var console = Console.init(allocator, std.testing.io, std.testing.environ);
     defer console.deinit();
 
     const live = Live.init(&console).withRefreshRate(100);
@@ -243,7 +243,7 @@ test "Live.withRefreshRate" {
 
 test "Live.start sets is_started" {
     const allocator = std.testing.allocator;
-    var console = Console.init(allocator);
+    var console = Console.init(allocator, std.testing.io, std.testing.environ);
     defer console.deinit();
 
     var live = Live.init(&console);
@@ -255,7 +255,7 @@ test "Live.start sets is_started" {
 
 test "Live.update without start" {
     const allocator = std.testing.allocator;
-    var console = Console.init(allocator);
+    var console = Console.init(allocator, std.testing.io, std.testing.environ);
     defer console.deinit();
 
     var live = Live.init(&console);
@@ -267,7 +267,7 @@ test "Live.update without start" {
 
 test "Live.withOverflow" {
     const allocator = std.testing.allocator;
-    var console = Console.init(allocator);
+    var console = Console.init(allocator, std.testing.io, std.testing.environ);
     defer console.deinit();
 
     const live = Live.init(&console).withOverflow(.clip);
@@ -276,7 +276,7 @@ test "Live.withOverflow" {
 
 test "Live.withMaxLines" {
     const allocator = std.testing.allocator;
-    var console = Console.init(allocator);
+    var console = Console.init(allocator, std.testing.io, std.testing.environ);
     defer console.deinit();
 
     const live = Live.init(&console).withMaxLines(10);
@@ -285,7 +285,7 @@ test "Live.withMaxLines" {
 
 test "Live.scroll operations" {
     const allocator = std.testing.allocator;
-    var console = Console.init(allocator);
+    var console = Console.init(allocator, std.testing.io, std.testing.environ);
     defer console.deinit();
 
     var live = Live.init(&console).withOverflow(.scroll).withMaxLines(5);
@@ -307,7 +307,8 @@ test "Live.scroll operations" {
 
 test "Live.setContent" {
     const allocator = std.testing.allocator;
-    var console = Console.init(allocator);
+    const io = std.testing.io;
+    var console = Console.init(allocator, io, std.testing.environ);
     defer console.deinit();
 
     var live = Live.init(&console);
@@ -315,7 +316,7 @@ test "Live.setContent" {
 
     live.setContent(&segments);
 
-    live.content_mutex.lock();
-    defer live.content_mutex.unlock();
+    live.content_mutex.lockUncancelable(io);
+    defer live.content_mutex.unlock(io);
     try std.testing.expect(live.content != null);
 }

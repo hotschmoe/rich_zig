@@ -18,17 +18,16 @@ const C_FOOTER_BG = "#002B36"; // Base03
 const C_FOOTER_FG = "#93A1A1"; // Base1
 const C_DIM_HEX = "#93A1A1"; // Base1
 
-pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
-    const allocator = gpa.allocator();
+pub fn main(init: std.process.Init) !void {
+    const allocator = init.gpa;
+    const io = init.io;
 
     // We use an arena for all example allocations to simplify cleanup
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
     const result_allocator = arena.allocator();
 
-    var console = rich.Console.init(allocator);
+    var console = rich.Console.init(allocator, io, init.minimal.environ);
     defer console.deinit();
     const width = console.width();
 

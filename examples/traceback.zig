@@ -5,12 +5,11 @@
 const std = @import("std");
 const rich = @import("rich_zig");
 
-pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
-    const allocator = gpa.allocator();
+pub fn main(init: std.process.Init) !void {
+    const allocator = init.gpa;
+    const io = init.io;
 
-    var console = rich.Console.init(allocator);
+    var console = rich.Console.init(allocator, io, init.minimal.environ);
     defer console.deinit();
 
     try console.print("");
@@ -23,7 +22,7 @@ pub fn main() !void {
         var arena = std.heap.ArenaAllocator.init(allocator);
         defer arena.deinit();
 
-        var tb = rich.Traceback.init(arena.allocator());
+        var tb = rich.Traceback.init(io, arena.allocator());
         tb = tb.withMessage("Connection refused")
             .withErrorName("NetworkError");
 
@@ -56,7 +55,7 @@ pub fn main() !void {
         var arena = std.heap.ArenaAllocator.init(allocator);
         defer arena.deinit();
 
-        var tb = rich.Traceback.init(arena.allocator());
+        var tb = rich.Traceback.init(io, arena.allocator());
         tb = tb.withMessage("Index out of bounds: index 10, len 5")
             .withErrorName("IndexError");
 

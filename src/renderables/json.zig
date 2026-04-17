@@ -106,14 +106,20 @@ pub const Json = struct {
             },
             .integer => |i| {
                 var buf: [32]u8 = undefined;
-                const len = (std.fmt.bufPrint(&buf, "{d}", .{i}) catch "?").len;
-                const str = try allocator.dupe(u8, buf[0..len]);
+                const slice = std.fmt.bufPrint(&buf, "{d}", .{i}) catch blk: {
+                    buf[0] = '?';
+                    break :blk buf[0..1];
+                };
+                const str = try allocator.dupe(u8, slice);
                 try segments.append(allocator, Segment.styled(str, self.theme.number_style));
             },
             .float => |f| {
                 var buf: [64]u8 = undefined;
-                const len = (std.fmt.bufPrint(&buf, "{d}", .{f}) catch "?").len;
-                const str = try allocator.dupe(u8, buf[0..len]);
+                const slice = std.fmt.bufPrint(&buf, "{d}", .{f}) catch blk: {
+                    buf[0] = '?';
+                    break :blk buf[0..1];
+                };
+                const str = try allocator.dupe(u8, slice);
                 try segments.append(allocator, Segment.styled(str, self.theme.number_style));
             },
             .string => |s| {
