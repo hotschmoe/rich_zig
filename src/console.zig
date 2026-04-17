@@ -191,6 +191,7 @@ pub const ConsoleOptions = struct {
 pub const Console = struct {
     allocator: std.mem.Allocator,
     io: std.Io,
+    environ: std.process.Environ,
     options: ConsoleOptions,
     terminal_info: terminal.TerminalInfo,
     current_style: Style,
@@ -203,12 +204,12 @@ pub const Console = struct {
 
     const DEFAULT_BUFFER_SIZE = 4096;
 
-    pub fn init(allocator: std.mem.Allocator, io: std.Io) Console {
-        return initWithOptions(allocator, io, .{});
+    pub fn init(allocator: std.mem.Allocator, io: std.Io, environ: std.process.Environ) Console {
+        return initWithOptions(allocator, io, environ, .{});
     }
 
-    pub fn initWithOptions(allocator: std.mem.Allocator, io: std.Io, options: ConsoleOptions) Console {
-        const info = terminal.detect();
+    pub fn initWithOptions(allocator: std.mem.Allocator, io: std.Io, environ: std.process.Environ, options: ConsoleOptions) Console {
+        const info = terminal.detect(environ);
         _ = terminal.enableVirtualTerminal();
         _ = terminal.enableUtf8();
 
@@ -217,6 +218,7 @@ pub const Console = struct {
         return .{
             .allocator = allocator,
             .io = io,
+            .environ = environ,
             .options = options,
             .terminal_info = info,
             .current_style = Style.empty,
@@ -981,7 +983,7 @@ pub const Console = struct {
 // Tests
 test "Console.init" {
     const allocator = std.testing.allocator;
-    var console = Console.init(allocator, std.testing.io);
+    var console = Console.init(allocator, std.testing.io, std.testing.environ);
     defer console.deinit();
 
     try std.testing.expect(console.width() > 0);
@@ -990,7 +992,7 @@ test "Console.init" {
 
 test "Console.initWithOptions" {
     const allocator = std.testing.allocator;
-    var console = Console.initWithOptions(allocator, std.testing.io, .{
+    var console = Console.initWithOptions(allocator, std.testing.io, std.testing.environ, .{
         .width = 120,
         .height = 40,
         .color_system = .truecolor,
@@ -1004,7 +1006,7 @@ test "Console.initWithOptions" {
 
 test "Console.no_color option" {
     const allocator = std.testing.allocator;
-    var console = Console.initWithOptions(allocator, std.testing.io, .{
+    var console = Console.initWithOptions(allocator, std.testing.io, std.testing.environ, .{
         .no_color = true,
         .color_system = .truecolor,
     });
@@ -1044,7 +1046,7 @@ test "LogLevel.style" {
 
 test "Console.status" {
     const allocator = std.testing.allocator;
-    var console = Console.init(allocator, std.testing.io);
+    var console = Console.init(allocator, std.testing.io, std.testing.environ);
     defer console.deinit();
 
     try std.testing.expect(!console.status_line_active);
@@ -1052,7 +1054,7 @@ test "Console.status" {
 
 test "Console.clearStatus when inactive" {
     const allocator = std.testing.allocator;
-    var console = Console.init(allocator, std.testing.io);
+    var console = Console.init(allocator, std.testing.io, std.testing.environ);
     defer console.deinit();
 
     try console.clearStatus();
@@ -1180,7 +1182,7 @@ test "Console.exportSvg with colors" {
 
 test "Pager.init" {
     const allocator = std.testing.allocator;
-    var console = Console.initWithOptions(allocator, std.testing.io, .{
+    var console = Console.initWithOptions(allocator, std.testing.io, std.testing.environ, .{
         .width = 80,
         .height = 24,
     });
@@ -1193,7 +1195,7 @@ test "Pager.init" {
 
 test "Pager.initWithOptions" {
     const allocator = std.testing.allocator;
-    var console = Console.initWithOptions(allocator, std.testing.io, .{
+    var console = Console.initWithOptions(allocator, std.testing.io, std.testing.environ, .{
         .width = 100,
         .height = 40,
     });
@@ -1212,7 +1214,7 @@ test "Pager.initWithOptions" {
 
 test "Pager.splitLines" {
     const allocator = std.testing.allocator;
-    var console = Console.initWithOptions(allocator, std.testing.io, .{
+    var console = Console.initWithOptions(allocator, std.testing.io, std.testing.environ, .{
         .width = 80,
         .height = 24,
     });
@@ -1231,7 +1233,7 @@ test "Pager.splitLines" {
 
 test "Pager.splitLines empty" {
     const allocator = std.testing.allocator;
-    var console = Console.initWithOptions(allocator, std.testing.io, .{
+    var console = Console.initWithOptions(allocator, std.testing.io, std.testing.environ, .{
         .width = 80,
         .height = 24,
     });
@@ -1247,7 +1249,7 @@ test "Pager.splitLines empty" {
 
 test "Console.pager" {
     const allocator = std.testing.allocator;
-    var console = Console.initWithOptions(allocator, std.testing.io, .{
+    var console = Console.initWithOptions(allocator, std.testing.io, std.testing.environ, .{
         .width = 80,
         .height = 24,
     });
@@ -1260,7 +1262,7 @@ test "Console.pager" {
 
 test "Console.pagerWithOptions" {
     const allocator = std.testing.allocator;
-    var console = Console.initWithOptions(allocator, std.testing.io, .{
+    var console = Console.initWithOptions(allocator, std.testing.io, std.testing.environ, .{
         .width = 80,
         .height = 24,
     });

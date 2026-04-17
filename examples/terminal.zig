@@ -13,7 +13,7 @@ pub fn main(init: std.process.Init) !void {
     const allocator = init.gpa;
     const io = init.io;
 
-    var console = rich.Console.init(allocator, io);
+    var console = rich.Console.init(allocator, io, init.minimal.environ);
     defer console.deinit();
 
     try console.print("");
@@ -23,7 +23,7 @@ pub fn main(init: std.process.Init) !void {
     try console.print("[bold]Terminal Detection:[/]");
 
     // Detect terminal capabilities
-    const term_info = rich.terminal.detect();
+    const term_info = rich.terminal.detect(init.minimal.environ);
 
     var buf: [128]u8 = undefined;
     const size_str = std.fmt.bufPrint(&buf, "  Size: {d}x{d}", .{ term_info.width, term_info.height }) catch "  Size: ?x?";

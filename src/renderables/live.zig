@@ -224,7 +224,7 @@ pub const Live = struct {
 
 test "Live.init" {
     const allocator = std.testing.allocator;
-    var console = Console.init(allocator, std.testing.io);
+    var console = Console.init(allocator, std.testing.io, std.testing.environ);
     defer console.deinit();
 
     const live = Live.init(&console);
@@ -234,7 +234,7 @@ test "Live.init" {
 
 test "Live.withRefreshRate" {
     const allocator = std.testing.allocator;
-    var console = Console.init(allocator, std.testing.io);
+    var console = Console.init(allocator, std.testing.io, std.testing.environ);
     defer console.deinit();
 
     const live = Live.init(&console).withRefreshRate(100);
@@ -243,7 +243,7 @@ test "Live.withRefreshRate" {
 
 test "Live.start sets is_started" {
     const allocator = std.testing.allocator;
-    var console = Console.init(allocator, std.testing.io);
+    var console = Console.init(allocator, std.testing.io, std.testing.environ);
     defer console.deinit();
 
     var live = Live.init(&console);
@@ -255,7 +255,7 @@ test "Live.start sets is_started" {
 
 test "Live.update without start" {
     const allocator = std.testing.allocator;
-    var console = Console.init(allocator, std.testing.io);
+    var console = Console.init(allocator, std.testing.io, std.testing.environ);
     defer console.deinit();
 
     var live = Live.init(&console);
@@ -267,7 +267,7 @@ test "Live.update without start" {
 
 test "Live.withOverflow" {
     const allocator = std.testing.allocator;
-    var console = Console.init(allocator, std.testing.io);
+    var console = Console.init(allocator, std.testing.io, std.testing.environ);
     defer console.deinit();
 
     const live = Live.init(&console).withOverflow(.clip);
@@ -276,7 +276,7 @@ test "Live.withOverflow" {
 
 test "Live.withMaxLines" {
     const allocator = std.testing.allocator;
-    var console = Console.init(allocator, std.testing.io);
+    var console = Console.init(allocator, std.testing.io, std.testing.environ);
     defer console.deinit();
 
     const live = Live.init(&console).withMaxLines(10);
@@ -285,7 +285,7 @@ test "Live.withMaxLines" {
 
 test "Live.scroll operations" {
     const allocator = std.testing.allocator;
-    var console = Console.init(allocator, std.testing.io);
+    var console = Console.init(allocator, std.testing.io, std.testing.environ);
     defer console.deinit();
 
     var live = Live.init(&console).withOverflow(.scroll).withMaxLines(5);
@@ -308,7 +308,7 @@ test "Live.scroll operations" {
 test "Live.setContent" {
     const allocator = std.testing.allocator;
     const io = std.testing.io;
-    var console = Console.init(allocator, io);
+    var console = Console.init(allocator, io, std.testing.environ);
     defer console.deinit();
 
     var live = Live.init(&console);

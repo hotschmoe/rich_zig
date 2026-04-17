@@ -9,7 +9,7 @@ pub fn main(init: std.process.Init) !void {
     const allocator = init.gpa;
     const io = init.io;
 
-    var console = rich.Console.init(allocator, io);
+    var console = rich.Console.init(allocator, io, init.minimal.environ);
     defer console.deinit();
 
     try console.print("");

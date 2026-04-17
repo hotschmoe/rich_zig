@@ -47,18 +47,18 @@ pub const TerminalInfo = struct {
 
 const TerminalSize = struct { width: u16, height: u16 };
 
-pub fn detect() TerminalInfo {
+pub fn detect(environ: std.process.Environ) TerminalInfo {
     var info = TerminalInfo{};
 
-    info.term = getEnv("TERM");
-    info.term_program = getEnv("TERM_PROGRAM");
+    info.term = getEnv(environ, "TERM");
+    info.term_program = getEnv(environ, "TERM_PROGRAM");
 
     // Check if stdout is a TTY
     info.is_tty = isTty();
 
     if (!info.is_tty) {
         // Check FORCE_COLOR
-        if (getEnv("FORCE_COLOR")) |_| {
+        if (getEnv(environ, "FORCE_COLOR")) |_| {
             info.color_system = .truecolor;
         } else {
             info.color_system = .standard;
@@ -72,17 +72,17 @@ pub fn detect() TerminalInfo {
     info.height = size.height;
 
     // Detect color support
-    if (getEnv("NO_COLOR")) |_| {
+    if (getEnv(environ, "NO_COLOR")) |_| {
         info.color_system = .standard;
     } else {
-        info.color_system = detectColorSystem();
+        info.color_system = detectColorSystem(environ);
     }
 
     // Detect hyperlink support
-    info.supports_hyperlinks = detectHyperlinks();
+    info.supports_hyperlinks = detectHyperlinks(environ);
 
-    info.supports_sync_output = detectSyncOutput();
-    info.background_mode = detectBackground();
+    info.supports_sync_output = detectSyncOutput(environ);
+    info.background_mode = detectBackground(environ);
 
     return info;
 }
@@ -98,13 +98,23 @@ fn isTty() bool {
     }
 }
 
-fn getEnv(name: []const u8) ?[]const u8 {
-    var buf: [256]u8 = undefined;
-    if (name.len >= buf.len) return null;
-    @memcpy(buf[0..name.len], name);
-    buf[name.len] = 0;
-    const val = std.c.getenv(buf[0..name.len :0].ptr) orelse return null;
-    return std.mem.span(val);
+fn getEnv(environ: std.process.Environ, name: []const u8) ?[]const u8 {
+    if (builtin.os.tag == .windows) {
+        return getEnvWindows(environ, name);
+    }
+    return std.process.Environ.getPosix(environ, name);
+}
+
+fn getEnvWindows(environ: std.process.Environ, name: []const u8) ?[]const u8 {
+    var name_w: [256]u16 = undefined;
+    const w_len = std.unicode.utf8ToUtf16Le(&name_w, name) catch return null;
+    if (w_len >= name_w.len) return null;
+    name_w[w_len] = 0;
+    const name_w_z: [*:0]const u16 = name_w[0..w_len :0].ptr;
+
+    const w_val = std.process.Environ.getWindows(environ, name_w_z) orelse return null;
+
+    return std.unicode.utf16LeToUtf8Alloc(std.heap.page_allocator, w_val) catch null;
 }
 
 fn getTerminalSize() TerminalSize {
@@ -141,16 +151,16 @@ fn getTerminalSizePosix() TerminalSize {
     return .{ .width = 80, .height = 24 };
 }
 
-fn detectColorSystem() ColorSystem {
+fn detectColorSystem(environ: std.process.Environ) ColorSystem {
     // Check COLORTERM
-    if (getEnv("COLORTERM")) |ct| {
+    if (getEnv(environ, "COLORTERM")) |ct| {
         if (std.mem.eql(u8, ct, "truecolor") or std.mem.eql(u8, ct, "24bit")) {
             return .truecolor;
         }
     }
 
     // Check TERM
-    if (getEnv("TERM")) |term| {
+    if (getEnv(environ, "TERM")) |term| {
         if (std.mem.indexOf(u8, term, "256color") != null or
             std.mem.indexOf(u8, term, "256") != null)
         {
@@ -162,7 +172,7 @@ fn detectColorSystem() ColorSystem {
     }
 
     // Check terminal program
-    if (getEnv("TERM_PROGRAM")) |prog| {
+    if (getEnv(environ, "TERM_PROGRAM")) |prog| {
         const truecolor_terminals = [_][]const u8{
             "iTerm.app",
             "Apple_Terminal",
@@ -180,12 +190,12 @@ fn detectColorSystem() ColorSystem {
     }
 
     // Windows Terminal
-    if (getEnv("WT_SESSION")) |_| {
+    if (getEnv(environ, "WT_SESSION")) |_| {
         return .truecolor;
     }
 
     // ConEmu
-    if (getEnv("ConEmuANSI")) |ce| {
+    if (getEnv(environ, "ConEmuANSI")) |ce| {
         if (std.mem.eql(u8, ce, "ON")) {
             return .truecolor;
         }
@@ -195,9 +205,9 @@ fn detectColorSystem() ColorSystem {
     return .eight_bit;
 }
 
-fn detectHyperlinks() bool {
+fn detectHyperlinks(environ: std.process.Environ) bool {
     // OSC 8 hyperlink support detection
-    if (getEnv("TERM_PROGRAM")) |prog| {
+    if (getEnv(environ, "TERM_PROGRAM")) |prog| {
         const supported = [_][]const u8{
             "iTerm.app",
             "WezTerm",
@@ -212,15 +222,15 @@ fn detectHyperlinks() bool {
     }
 
     // Windows Terminal supports hyperlinks
-    if (getEnv("WT_SESSION")) |_| {
+    if (getEnv(environ, "WT_SESSION")) |_| {
         return true;
     }
 
     return false;
 }
 
-fn detectSyncOutput() bool {
-    if (getEnv("TERM_PROGRAM")) |prog| {
+fn detectSyncOutput(environ: std.process.Environ) bool {
+    if (getEnv(environ, "TERM_PROGRAM")) |prog| {
         const supported = [_][]const u8{
             "WezTerm", "kitty", "Alacritty", "contour", "mintty",
         };
@@ -228,24 +238,24 @@ fn detectSyncOutput() bool {
             if (std.mem.eql(u8, prog, t)) return true;
         }
     }
-    if (getEnv("WT_SESSION")) |_| {
+    if (getEnv(environ, "WT_SESSION")) |_| {
         return true;
     }
-    if (getEnv("TERM")) |term| {
+    if (getEnv(environ, "TERM")) |term| {
         if (std.mem.startsWith(u8, term, "foot")) return true;
     }
     return false;
 }
 
-fn detectBackground() BackgroundMode {
-    if (getEnv("COLORFGBG")) |fgbg| {
+fn detectBackground(environ: std.process.Environ) BackgroundMode {
+    if (getEnv(environ, "COLORFGBG")) |fgbg| {
         if (std.mem.lastIndexOfScalar(u8, fgbg, ';')) |sep| {
             const bg_str = fgbg[sep + 1 ..];
             const bg = std.fmt.parseInt(u8, bg_str, 10) catch return .unknown;
             return if (bg < 7) .dark else .light;
         }
     }
-    if (getEnv("TERM_PROGRAM")) |prog| {
+    if (getEnv(environ, "TERM_PROGRAM")) |prog| {
         if (std.mem.eql(u8, prog, "Apple_Terminal")) return .light;
     }
     return .dark;
@@ -293,7 +303,7 @@ test "TerminalInfo defaults" {
 }
 
 test "detect returns valid info" {
-    const info = detect();
+    const info = detect(std.testing.environ);
     try std.testing.expect(info.width > 0);
     try std.testing.expect(info.height > 0);
 }

@@ -8,7 +8,7 @@ pub fn main(init: std.process.Init) !void {
     // Demo 1: New style attributes (underline2, frame, encircle)
     std.debug.print("\n=== Demo 1: New Style Attributes ===\n", .{});
 
-    var console1 = rich.Console.init(allocator, io);
+    var console1 = rich.Console.init(allocator, io, init.minimal.environ);
     defer console1.deinit();
 
     try console1.print("[underline2]Double underlined text[/]");
@@ -25,7 +25,7 @@ pub fn main(init: std.process.Init) !void {
     defer theme.deinit();
 
     // Create console with theme
-    var console2 = rich.Console.initWithOptions(allocator, io, .{
+    var console2 = rich.Console.initWithOptions(allocator, io, init.minimal.environ, .{
         .theme = theme,
     });
     defer console2.deinit();
@@ -64,7 +64,7 @@ pub fn main(init: std.process.Init) !void {
     try custom_theme.define("highlight", rich.Style.empty.underline2().foreground(rich.Color.cyan));
     try custom_theme.define("special", rich.Style.empty.frame().foreground(rich.Color.magenta));
 
-    var console3 = rich.Console.initWithOptions(allocator, io, .{
+    var console3 = rich.Console.initWithOptions(allocator, io, init.minimal.environ, .{
         .theme = custom_theme,
     });
     defer console3.deinit();
@@ -88,7 +88,7 @@ pub fn main(init: std.process.Init) !void {
     // Merge overlay into base
     try base_theme.merge(overlay_theme);
 
-    var console4 = rich.Console.initWithOptions(allocator, io, .{
+    var console4 = rich.Console.initWithOptions(allocator, io, init.minimal.environ, .{
         .theme = base_theme,
     });
     defer console4.deinit();

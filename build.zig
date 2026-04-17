@@ -31,7 +31,6 @@ pub fn build(b: *std.Build) void {
     const mod = b.addModule("rich_zig", .{
         .root_source_file = b.path("src/root.zig"),
         .target = target,
-        .link_libc = true,
     });
 
     // Here we define an executable. An executable needs to have a root module

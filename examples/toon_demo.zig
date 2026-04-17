@@ -27,7 +27,7 @@ pub fn main(init: std.process.Init) !void {
     defer arena.deinit();
     const result_allocator = arena.allocator();
 
-    var console = rich.Console.init(allocator, io);
+    var console = rich.Console.init(allocator, io, init.minimal.environ);
     defer console.deinit();
     const width = console.width();
 

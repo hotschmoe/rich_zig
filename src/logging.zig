@@ -125,17 +125,18 @@ pub const RichHandler = struct {
 
     const BUFFER_SIZE = 4096;
 
-    pub fn init(io: std.Io, allocator: std.mem.Allocator) RichHandler {
-        return initWithOptions(io, allocator, .{}, .{});
+    pub fn init(io: std.Io, allocator: std.mem.Allocator, environ: std.process.Environ) RichHandler {
+        return initWithOptions(io, allocator, environ, .{}, .{});
     }
 
     pub fn initWithOptions(
         io: std.Io,
         allocator: std.mem.Allocator,
+        environ: std.process.Environ,
         styles: LevelStyles,
         format: FormatOptions,
     ) RichHandler {
-        const term_info = terminal.detect();
+        const term_info = terminal.detect(environ);
         const buffer = allocator.alloc(u8, BUFFER_SIZE) catch @panic("failed to allocate logging buffer");
 
         return .{
@@ -426,7 +427,7 @@ test "LogRecord.withLine" {
 test "RichHandler.init" {
     const io = std.Options.debug_io;
     const allocator = std.testing.allocator;
-    var handler = RichHandler.init(io, allocator);
+    var handler = RichHandler.init(io, allocator, std.testing.environ);
     defer handler.deinit();
 
     try std.testing.expectEqual(Level.debug, handler.min_level);
@@ -435,7 +436,7 @@ test "RichHandler.init" {
 test "RichHandler.setMinLevel" {
     const io = std.Options.debug_io;
     const allocator = std.testing.allocator;
-    var handler = RichHandler.init(io, allocator);
+    var handler = RichHandler.init(io, allocator, std.testing.environ);
     defer handler.deinit();
 
     _ = handler.setMinLevel(.warn);

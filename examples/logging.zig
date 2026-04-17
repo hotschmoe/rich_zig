@@ -9,7 +9,7 @@ pub fn main(init: std.process.Init) !void {
     const allocator = init.gpa;
     const io = init.io;
 
-    var console = rich.Console.init(allocator, io);
+    var console = rich.Console.init(allocator, io, init.minimal.environ);
     defer console.deinit();
 
     try console.print("");
@@ -20,7 +20,7 @@ pub fn main(init: std.process.Init) !void {
     try console.print("");
 
     // Create a RichHandler for styled log output
-    var handler = rich.logging.RichHandler.init(io, allocator);
+    var handler = rich.logging.RichHandler.init(io, allocator, init.minimal.environ);
     defer handler.deinit();
 
     // Log at different levels

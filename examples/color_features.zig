@@ -18,7 +18,7 @@ pub fn main(init: std.process.Init) !void {
     const allocator = init.gpa;
     const io = init.io;
 
-    var console = rich.Console.init(allocator, io);
+    var console = rich.Console.init(allocator, io, init.minimal.environ);
     defer console.deinit();
 
     try console.print("");
@@ -152,7 +152,7 @@ pub fn main(init: std.process.Init) !void {
     try console.printPlain("   Atomic frame rendering with DEC mode 2026.");
     try console.print("");
 
-    const info = rich.terminal.detect();
+    const info = rich.terminal.detect(init.minimal.environ);
     try console.printPlain("   Console now uses sync output opportunistically on TTY.");
     const sync_str = std.fmt.bufPrint(&buf, "   Detected sync support: {s} (informational only)", .{if (info.supports_sync_output) "yes" else "no"}) catch "";
     try console.printPlain(sync_str);
