@@ -1,5 +1,13 @@
 const std = @import("std");
 
+/// Single source of truth: build.zig.zon `.version` (docs/VERSIONING.md). `-Dversion-meta=<str>` appends "+<str>".
+fn versionString(b: *std.Build) []const u8 {
+    const base: []const u8 = @import("build.zig.zon").version;
+    _ = std.SemanticVersion.parse(base) catch @panic("build.zig.zon .version is not valid semver");
+    const meta = b.option([]const u8, "version-meta", "Semver build metadata appended as +<meta>") orelse return base;
+    return b.fmt("{s}+{s}", .{ base, meta });
+}
+
 // Although this function looks imperative, it does not perform the build
 // directly and instead it mutates the build graph (`b`) that will be then
 // executed by an external runner. The functions in `std.Build` implement a DSL
@@ -32,6 +40,10 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("src/root.zig"),
         .target = target,
     });
+    const version_options = b.addOptions();
+    version_options.addOption([]const u8, "version", versionString(b));
+    version_options.addOption([]const u8, "manifest_version", @import("build.zig.zon").version);
+    mod.addOptions("build_options", version_options);
 
     // Here we define an executable. An executable needs to have a root module
     // which needs to expose a `main` function. While we could add a main function

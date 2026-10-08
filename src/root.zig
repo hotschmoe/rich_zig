@@ -34,6 +34,10 @@
 
 const std = @import("std");
 
+/// Library version (semver), derived from `build.zig.zon` `.version` at build
+/// time; `-Dversion-meta=<str>` appends `+<str>`. See docs/VERSIONING.md.
+pub const version: []const u8 = @import("build_options").version;
+
 // Error types
 pub const errors = @import("errors.zig");
 pub const MarkupError = errors.MarkupError;
@@ -272,4 +276,14 @@ test "basic table creation" {
     defer table.deinit();
     _ = table.addColumn("A").addColumn("B");
     try std.testing.expectEqual(@as(usize, 2), table.columns.items.len);
+}
+
+test "version is semver and matches build.zig.zon" {
+    const opts = @import("build_options");
+    const parsed = try std.SemanticVersion.parse(version);
+    const manifest = try std.SemanticVersion.parse(opts.manifest_version);
+    try std.testing.expectEqual(manifest.major, parsed.major);
+    try std.testing.expectEqual(manifest.minor, parsed.minor);
+    try std.testing.expectEqual(manifest.patch, parsed.patch);
+    try std.testing.expectEqualStrings(manifest.pre orelse "", parsed.pre orelse "");
 }

@@ -133,7 +133,7 @@ we love you, Claude! do your best today
 
 A full-featured Zig port of Python's Rich library. Provides beautiful terminal output with styled text, tables, panels, progress bars, trees, and more.
 
-- **Version**: 2.0.0
+- **Version**: see `build.zig.zon` (exposed as `rich_zig.version`)
 - **Minimum Zig**: 0.17.0
 - **No external dependencies** - uses only Zig standard library
 
@@ -324,7 +324,7 @@ fn process(data: []const u8) void { ... }
 
 ## Version Updates (SemVer)
 
-When making commits, update `version` in `build.zig.zon`:
+Do not bump `version` in feature commits. Releases are cut with `tools/release.sh <semver>`, choosing the bump by:
 
 - **MAJOR** (X.0.0): Breaking changes or incompatible API modifications
 - **MINOR** (0.X.0): New features, backward-compatible additions
@@ -396,3 +396,5 @@ br show <id> --json         # Single issue as JSON
   issues.jsonl  # Git-friendly export (commit this)
 ```
 
+## Versioning
+`build.zig.zon` `.version` is the single source of truth; code reads `rich_zig.version` (from `build_options`). Never write a version literal elsewhere, never bump it in a feature PR. Releases are cut explicitly with `tools/release.sh <semver>`. See [`docs/VERSIONING.md`](docs/VERSIONING.md).

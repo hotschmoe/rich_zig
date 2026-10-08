@@ -133,7 +133,7 @@ pub fn build(b: *std.Build) void {
 ### Using a Specific Version (Recommended)
 
 ```bash
-zig fetch --save git+https://github.com/hotschmoe/rich_zig.git#v1.4.1
+zig fetch --save git+https://github.com/hotschmoe/rich_zig.git#<tag>   # see Releases for tags
 ```
 
 Or manually in `build.zig.zon`:
@@ -141,7 +141,7 @@ Or manually in `build.zig.zon`:
 ```zig
 .dependencies = .{
     .rich_zig = .{
-        .url = "git+https://github.com/hotschmoe/rich_zig.git#v1.4.1",
+        .url = "git+https://github.com/hotschmoe/rich_zig.git#<tag>",
         .hash = "...",
     },
 },
@@ -174,7 +174,7 @@ pub fn main() !void {
     const allocator = gpa.allocator();
 
     var console = rich.Console.init(allocator);
-    try console.print("[bold green]rich_zig v1.4.1 installed successfully![/]");
+    try console.print("[bold green]rich_zig installed successfully![/]");
 }
 ```
 
@@ -234,7 +234,7 @@ Output:
 ```zig
 const panel = rich.Panel.fromText(allocator, "Welcome to the system!")
     .withTitle("Message")
-    .withSubtitle("v1.4.1")
+    .withSubtitle("subtitle")
     .withWidth(50)
     .rounded();
 
@@ -500,12 +500,7 @@ Automated testing via GitHub Actions on PRs and release tags:
 - **Fuzz Testing**: Parser robustness (Linux)
 - **Package Validation**: Consumer integration test
 
-**Release Workflow**:
-1. Update version in `build.zig.zon`
-2. Commit and push to master
-3. Create and push tag: `git tag v1.4.1 && git push origin v1.4.1`
-4. CI runs full test suite
-5. If tests pass, GitHub Release is created automatically
+**Release Workflow**: run `tools/release.sh <semver>`. It bumps `build.zig.zon`, tags and pushes; the release workflow verifies the tag, runs the tests and creates the GitHub Release. See [docs/VERSIONING.md](docs/VERSIONING.md).
 
 ## Compatibility
 
