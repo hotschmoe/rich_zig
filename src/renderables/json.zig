@@ -233,7 +233,7 @@ pub const Json = struct {
     }
 
     const max_indent_spaces = 128;
-    const indent_buffer: *const [max_indent_spaces]u8 = &([1]u8{' '} ** max_indent_spaces);
+    const indent_buffer: [max_indent_spaces]u8 = @splat(' ');
 
     fn renderIndent(self: Json, segments: *std.ArrayList(Segment), allocator: std.mem.Allocator, depth: usize) !void {
         const total_spaces = depth * self.indent;

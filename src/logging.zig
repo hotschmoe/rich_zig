@@ -166,7 +166,7 @@ pub const RichHandler = struct {
     }
 
     pub fn emit(self: *RichHandler, record: LogRecord) !void {
-        if (@intFromEnum(record.level) < @intFromEnum(self.min_level)) {
+        if (@backingInt(record.level) < @backingInt(self.min_level)) {
             return;
         }
 
@@ -215,7 +215,7 @@ pub const RichHandler = struct {
                 const year_day = epoch_seconds.getEpochDay().calculateYearDay();
                 const year = year_day.year;
                 const month_day = year_day.calculateMonthDay();
-                const month = @intFromEnum(month_day.month) + 1;
+                const month = @backingInt(month_day.month) + 1;
                 const day = month_day.day_index + 1;
 
                 if (self.format.timestamp_format == .iso8601) {

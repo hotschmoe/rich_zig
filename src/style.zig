@@ -135,7 +135,7 @@ pub const Style = struct {
 
     fn setAttribute(self: Style, attr: StyleAttribute, value: bool) Style {
         var s = self;
-        const bit: u16 = @as(u16, 1) << @intFromEnum(attr);
+        const bit: u16 = @as(u16, 1) << @backingInt(attr);
         s.set_attributes |= bit;
         if (value) {
             s.attributes |= bit;
@@ -146,7 +146,7 @@ pub const Style = struct {
     }
 
     pub fn hasAttribute(self: Style, attr: StyleAttribute) bool {
-        const bit: u16 = @as(u16, 1) << @intFromEnum(attr);
+        const bit: u16 = @as(u16, 1) << @backingInt(attr);
         return (self.attributes & bit) != 0;
     }
 

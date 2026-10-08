@@ -13,7 +13,7 @@ pub const ColorSystem = enum(u8) {
     truecolor = 3,
 
     pub fn supports(self: ColorSystem, other: ColorSystem) bool {
-        return @intFromEnum(self) >= @intFromEnum(other);
+        return @backingInt(self) >= @backingInt(other);
     }
 };
 

@@ -140,12 +140,12 @@ pub const Pretty = struct {
                     try self.emit(tag_name, self.options.theme.field_name);
                     try self.emit(" = ", self.options.theme.punctuation);
 
-                    inline for (union_info.fields) |field| {
-                        if (std.mem.eql(u8, field.name, tag_name)) {
-                            if (field.type == void) {
+                    inline for (union_info.field_names, union_info.field_types) |field_name, field_type| {
+                        if (std.mem.eql(u8, field_name, tag_name)) {
+                            if (field_type == void) {
                                 try self.emit("{}", self.options.theme.punctuation);
                             } else {
-                                try self.formatValue(@field(value, field.name));
+                                try self.formatValue(@field(value, field_name));
                             }
                             break;
                         }
@@ -157,32 +157,32 @@ pub const Pretty = struct {
                 }
             },
             .@"struct" => |struct_info| {
-                if (struct_info.fields.len == 0) {
+                if (struct_info.field_names.len == 0) {
                     try self.emit("{}", self.options.theme.punctuation);
                     return;
                 }
 
                 try self.emit(".{", self.options.theme.punctuation);
 
-                if (self.options.expand_all or struct_info.fields.len > 3) {
+                if (self.options.expand_all or struct_info.field_names.len > 3) {
                     try self.emit("\n", null);
                     self.current_depth += 1;
 
-                    inline for (struct_info.fields, 0..) |field, i| {
+                    inline for (struct_info.field_names, 0..) |field_name, i| {
                         if (i >= self.options.max_items) {
                             try self.emitIndent();
                             var buf: [32]u8 = undefined;
-                            const remaining = std.fmt.bufPrint(&buf, "... {d} more fields", .{struct_info.fields.len - i}) catch "...";
+                            const remaining = std.fmt.bufPrint(&buf, "... {d} more fields", .{struct_info.field_names.len - i}) catch "...";
                             try self.emit(remaining, self.options.theme.punctuation);
                             try self.emit("\n", null);
                             break;
                         }
                         try self.emitIndent();
                         try self.emit(".", self.options.theme.punctuation);
-                        try self.emit(field.name, self.options.theme.field_name);
+                        try self.emit(field_name, self.options.theme.field_name);
                         try self.emit(" = ", self.options.theme.punctuation);
-                        try self.formatValue(@field(value, field.name));
-                        if (i < struct_info.fields.len - 1) {
+                        try self.formatValue(@field(value, field_name));
+                        if (i < struct_info.field_names.len - 1) {
                             try self.emit(",", self.options.theme.punctuation);
                         }
                         try self.emit("\n", null);
@@ -192,12 +192,12 @@ pub const Pretty = struct {
                     try self.emitIndent();
                 } else {
                     try self.emit(" ", null);
-                    inline for (struct_info.fields, 0..) |field, i| {
+                    inline for (struct_info.field_names, 0..) |field_name, i| {
                         try self.emit(".", self.options.theme.punctuation);
-                        try self.emit(field.name, self.options.theme.field_name);
+                        try self.emit(field_name, self.options.theme.field_name);
                         try self.emit(" = ", self.options.theme.punctuation);
-                        try self.formatValue(@field(value, field.name));
-                        if (i < struct_info.fields.len - 1) {
+                        try self.formatValue(@field(value, field_name));
+                        if (i < struct_info.field_names.len - 1) {
                             try self.emit(", ", self.options.theme.punctuation);
                         }
                     }
