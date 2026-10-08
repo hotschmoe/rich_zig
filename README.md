@@ -11,7 +11,7 @@ A full-featured Zig port of [Python Rich](https://github.com/Textualize/rich), t
 ```
 
 [![CI](https://github.com/hotschmoe/rich_zig/actions/workflows/ci.yml/badge.svg)](https://github.com/hotschmoe/rich_zig/actions/workflows/ci.yml)
-[![Zig](https://img.shields.io/badge/Zig-0.15.2-orange)](https://ziglang.org/)
+[![Zig](https://img.shields.io/badge/Zig-0.17.0-orange)](https://ziglang.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 ## Overview
@@ -511,7 +511,7 @@ Automated testing via GitHub Actions on PRs and release tags:
 
 | Requirement | Version |
 |-------------|---------|
-| Zig | 0.15.2+ |
+| Zig | 0.17.0+ |
 | Platforms | Linux, macOS, Windows |
 | Terminals | Any with ANSI support |
 
