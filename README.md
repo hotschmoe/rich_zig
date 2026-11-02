@@ -383,7 +383,7 @@ const style = Style.empty
     .foreground(Color.fromRgb(255, 128, 0))  // Truecolor
     .background(Color.from256(42));           // 256-color
 
-// Named colors
+// Named colors. Color.gray and Color.grey are aliases of Color.bright_black.
 const warning = Style.empty.foreground(Color.yellow).bold();
 ```
 

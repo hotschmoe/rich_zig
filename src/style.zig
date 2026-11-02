@@ -561,6 +561,23 @@ test "Style.hidden alias" {
     try std.testing.expect(style.hasAttribute(.conceal));
 }
 
+test "Style.fg gray and grey aliases" {
+    const gray = Style.empty.fg(.gray);
+    try std.testing.expect(gray.color.?.eql(Color.bright_black));
+    const grey = Style.empty.fg(.grey);
+    try std.testing.expect(grey.color.?.eql(Color.gray));
+}
+
+test "Style.parse gray and grey" {
+    const gray = try Style.parse("gray");
+    try std.testing.expect(gray.color.?.eql(Color.gray));
+    const grey = try Style.parse("grey");
+    try std.testing.expect(grey.color.?.eql(Color.grey));
+    const on_grey = try Style.parse("red on grey");
+    try std.testing.expect(on_grey.color.?.eql(Color.red));
+    try std.testing.expect(on_grey.bgcolor.?.eql(Color.grey));
+}
+
 test "Style.parse underline2" {
     const style = try Style.parse("uu red");
     try std.testing.expect(style.hasAttribute(.underline2));

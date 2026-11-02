@@ -191,6 +191,10 @@ pub const Color = struct {
     pub const bright_cyan: Color = .{ .color_type = .standard, .number = 14 };
     pub const bright_white: Color = .{ .color_type = .standard, .number = 15 };
 
+    // ANSI color 8 is usually rendered as gray. Both spellings match the named-color table.
+    pub const gray: Color = bright_black;
+    pub const grey: Color = bright_black;
+
     pub fn fromRgb(r: u8, g: u8, b: u8) Color {
         return .{
             .color_type = .truecolor,
@@ -445,8 +449,8 @@ pub const named_colors = std.StaticStringMap(Color).initComptime(.{
     .{ "bright_magenta", Color.bright_magenta },
     .{ "bright_cyan", Color.bright_cyan },
     .{ "bright_white", Color.bright_white },
-    .{ "grey", Color.bright_black },
-    .{ "gray", Color.bright_black },
+    .{ "grey", Color.grey },
+    .{ "gray", Color.gray },
 });
 
 // Tests
@@ -596,7 +600,17 @@ test "named_colors lookup" {
     try std.testing.expect(named_colors.get("red").?.eql(Color.red));
     try std.testing.expect(named_colors.get("green").?.eql(Color.green));
     try std.testing.expect(named_colors.get("gray").?.eql(Color.bright_black));
+    try std.testing.expect(named_colors.get("grey").?.eql(Color.bright_black));
     try std.testing.expect(named_colors.get("invalid") == null);
+}
+
+test "Color.gray and Color.grey alias bright_black" {
+    try std.testing.expect(Color.gray.eql(Color.bright_black));
+    try std.testing.expect(Color.grey.eql(Color.bright_black));
+    try std.testing.expect(Color.gray.eql(Color.grey));
+    try std.testing.expectEqual(@as(u8, 8), Color.gray.number.?);
+    try std.testing.expect(named_colors.get("gray").?.eql(Color.gray));
+    try std.testing.expect(named_colors.get("grey").?.eql(Color.grey));
 }
 
 test "AdaptiveColor auto-downgrade" {
