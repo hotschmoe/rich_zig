@@ -35,6 +35,7 @@ Represents terminal colors with support for standard 16-color palettes, 256-colo
 | `Color.default` | Terminal default color (no explicit color set) |
 | `Color.black`, `Color.red`, etc. | Standard 16 colors (0-15) |
 | `Color.bright_black`, `Color.bright_red`, etc. | Bright variants (8-15) |
+| `Color.gray`, `Color.grey` | Aliases of `Color.bright_black` (ANSI color 8) |
 | `Color.fromRgb(r: u8, g: u8, b: u8)` | Creates truecolor from RGB values |
 | `Color.fromHex(hex_str: []const u8)` | Parses hex color string ("#RRGGBB" or "RRGGBB") |
 | `Color.from256(number: u8)` | Creates 256-color palette entry |
@@ -85,6 +86,7 @@ const Color = @import("rich_zig").Color;
 // Standard colors
 const red = Color.red;
 const bright_green = Color.bright_green;
+const gray = Color.gray; // same value as Color.bright_black; Color.grey is the other spelling
 
 // Truecolor
 const orange = Color.fromRgb(255, 128, 0);
