@@ -904,7 +904,7 @@ pub const Console = struct {
         const content_y = chrome_height + @as(f32, @floatFromInt(options.padding));
         const content_x: f32 = @floatFromInt(options.padding);
         try writer.print(
-            \\<g class="terminal" transform="translate({d:.1},{d:.1})">
+            \\<g class="terminal" xml:space="preserve" transform="translate({d:.1},{d:.1})">
             \\
         , .{ content_x, content_y });
 
@@ -916,21 +916,16 @@ pub const Console = struct {
             for (line.items) |line_seg| {
                 const has_style = if (line_seg.style) |s| !s.isEmpty() else false;
 
+                try writer.writeAll("<text ");
                 if (has_style) {
-                    try writer.writeAll("<tspan ");
                     try writeSvgStyle(line_seg.style.?, writer);
-                    try writer.print(" x=\"{d:.1}\" y=\"{d:.1}\">", .{ x, y });
-                } else {
-                    try writer.print("<text x=\"{d:.1}\" y=\"{d:.1}\">", .{ x, y });
+                    try writer.writeByte(' ');
                 }
+                try writer.print("x=\"{d:.1}\" y=\"{d:.1}\">", .{ x, y });
 
                 try writeXmlEscaped(line_seg.text, writer);
 
-                if (has_style) {
-                    try writer.writeAll("</tspan>");
-                } else {
-                    try writer.writeAll("</text>");
-                }
+                try writer.writeAll("</text>");
 
                 x += @as(f32, @floatFromInt(line_seg.width)) * char_width;
             }
@@ -1123,14 +1118,20 @@ test "Console.exportSvg plain" {
 
 test "Console.exportSvg styled" {
     const allocator = std.testing.allocator;
-    const segments = [_]Segment{Segment.styled("Bold", Style.empty.bold())};
+    const segments = [_]Segment{
+        Segment.plain("A "),
+        Segment.styled("<Bold>", Style.empty.bold()),
+        Segment.plain(" B"),
+    };
 
     const svg = try Console.exportSvg(&segments, allocator, .{});
     defer allocator.free(svg);
 
-    try std.testing.expect(std.mem.indexOf(u8, svg, "Bold") != null);
-    try std.testing.expect(std.mem.indexOf(u8, svg, "font-weight:bold") != null or
-        std.mem.indexOf(u8, svg, "font-weight: bold") != null);
+    try std.testing.expect(std.mem.indexOf(u8, svg, "xml:space=\"preserve\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, svg, "<text x=\"0.0\" y=\"14.0\">A </text>") != null);
+    try std.testing.expect(std.mem.indexOf(u8, svg, "<text style=\"font-weight:bold\" x=\"17.1\" y=\"14.0\">&lt;Bold&gt;</text>") != null);
+    try std.testing.expect(std.mem.indexOf(u8, svg, "<text x=\"68.3\" y=\"14.0\"> B</text>") != null);
+    try std.testing.expect(std.mem.indexOf(u8, svg, "<tspan") == null);
 }
 
 test "Console.exportSvg escapes XML" {
