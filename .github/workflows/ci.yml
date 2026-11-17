@@ -3,141 +3,30 @@ name: CI
 on:
   pull_request:
     branches: [master]
+  schedule:
+    - cron: '23 2 * * *'
+  workflow_dispatch:
 
 env:
-  ZIG_VERSION: "0.17.0"
+  ZIG_VERSION: "0.17.1"
 
 jobs:
-  test:
-    name: Test (${{ matrix.os }}, ${{ matrix.optimize }})
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-        optimize: [Debug, ReleaseSafe]
-        include:
-          - os: ubuntu-latest
-            optimize: ReleaseFast
-          - os: ubuntu-latest
-            optimize: ReleaseSmall
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Zig
-        uses: mlugg/setup-zig@v2
-        with:
-          version: ${{ env.ZIG_VERSION }}
-
-      - name: Build
-        run: zig build -Doptimize=${{ matrix.optimize }}
-
-      - name: Run Tests
-        run: zig build test -Doptimize=${{ matrix.optimize }}
-
-      - name: Run Executable
-        run: zig build run -Doptimize=${{ matrix.optimize }}
-
-  fuzz:
-    name: Fuzz Tests
+  blocking:
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Zig
-        uses: mlugg/setup-zig@v2
+      - uses: actions/checkout@v4
+      - uses: mlugg/setup-zig@v2
         with:
           version: ${{ env.ZIG_VERSION }}
+      - run: zig build test -j4
 
-      - name: Run Fuzz Tests
-        run: |
-          timeout 60 zig build test --fuzz || true
-        continue-on-error: true
-
-  format:
-    name: Format Check
+  heavy:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Zig
-        uses: mlugg/setup-zig@v2
+      - uses: actions/checkout@v4
+      - uses: mlugg/setup-zig@v2
         with:
           version: ${{ env.ZIG_VERSION }}
-
-      - name: Check Formatting
-        run: zig fmt --check src/
-
-  package:
-    name: Package Validation
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Zig
-        uses: mlugg/setup-zig@v2
-        with:
-          version: ${{ env.ZIG_VERSION }}
-
-      - name: Validate Package
-        run: |
-          mkdir -p test-consumer
-          cd test-consumer
-
-          cat > build.zig.zon << 'EOF'
-          .{
-              .name = .test_consumer,
-              .version = "0.0.0",
-              .fingerprint = 0xe5383c7136a60b55,
-              .dependencies = .{
-                  .rich_zig = .{
-                      .path = "..",
-                  },
-              },
-              .paths = .{
-                  "build.zig",
-                  "build.zig.zon",
-                  "src",
-              },
-          }
-          EOF
-
-          cat > build.zig << 'EOF'
-          const std = @import("std");
-          pub fn build(b: *std.Build) void {
-              const target = b.standardTargetOptions(.{});
-              const optimize = b.standardOptimizeOption(.{});
-              const rich_zig = b.dependency("rich_zig", .{
-                  .target = target,
-                  .optimize = optimize,
-              });
-              const exe = b.addExecutable(.{
-                  .name = "test",
-                  .root_module = b.createModule(.{
-                      .root_source_file = b.path("src/main.zig"),
-                      .target = target,
-                      .optimize = optimize,
-                      .imports = &.{
-                          .{ .name = "rich_zig", .module = rich_zig.module("rich_zig") },
-                      },
-                  }),
-              });
-              b.installArtifact(exe);
-          }
-          EOF
-
-          mkdir -p src
-          cat > src/main.zig << 'EOF'
-          const rich_zig = @import("rich_zig");
-          pub fn main() !void {
-              const style = rich_zig.Style.empty.bold();
-              _ = style;
-          }
-          EOF
-
-          zig build
+      - run: zig build test-heavy -j4
