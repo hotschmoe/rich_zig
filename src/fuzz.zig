@@ -9,9 +9,3 @@ pub fn main(init: std.process.Init) !void {
     // Future: add fuzzing for color parsing, markup parsing, etc.
     std.debug.print("Fuzz testing infrastructure ready\n", .{});
 }
-
-test "fuzz placeholder" {
-    // Basic sanity test to ensure module compiles
-    const allocator = std.testing.allocator;
-    _ = allocator;
-}

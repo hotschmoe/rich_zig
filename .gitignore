@@ -39,3 +39,5 @@ desktop.ini
 # Test artifacts
 test-results/
 coverage/
+
+.archive/

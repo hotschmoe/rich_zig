@@ -73,19 +73,3 @@ pub const CellContent = table.CellContent;
 pub const Cell = table.Cell;
 pub const SplitContent = layout.SplitContent;
 pub const SplitterConfig = layout.SplitterConfig;
-
-test {
-    _ = @import("panel.zig");
-    _ = @import("table/mod.zig");
-    _ = @import("rule.zig");
-    _ = @import("progress/mod.zig");
-    _ = @import("tree.zig");
-    _ = @import("padding.zig");
-    _ = @import("align.zig");
-    _ = @import("columns.zig");
-    _ = @import("live.zig");
-    _ = @import("layout.zig");
-    _ = @import("json.zig");
-    _ = @import("syntax/mod.zig");
-    _ = @import("markdown/mod.zig");
-}

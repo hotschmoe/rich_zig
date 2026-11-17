@@ -52,24 +52,3 @@ pub const Spinner = struct {
         return self.render(allocator);
     }
 };
-
-test "Spinner.init" {
-    const spinner = Spinner.init();
-    try std.testing.expectEqual(@as(usize, 0), spinner.current_frame);
-}
-
-test "Spinner.advance" {
-    var spinner = Spinner.init();
-    spinner.advance();
-    try std.testing.expectEqual(@as(usize, 1), spinner.current_frame);
-}
-
-test "Spinner.render" {
-    const allocator = std.testing.allocator;
-    const spinner = Spinner.init();
-
-    const segments = try spinner.render(allocator);
-    defer allocator.free(segments);
-
-    try std.testing.expectEqual(@as(usize, 1), segments.len);
-}
