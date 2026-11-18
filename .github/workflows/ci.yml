@@ -11,19 +11,115 @@ env:
   ZIG_VERSION: "0.17.1"
 
 jobs:
-  blocking:
-    if: github.event_name != 'schedule'
+  test:
+    name: Test (${{ matrix.os }}, ${{ matrix.optimize }})
+    if: github.event_name == 'pull_request'
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            optimize: ReleaseFast
+          - os: windows-latest
+            optimize: ReleaseSafe
+    steps:
+      - uses: actions/checkout@v4
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: ${{ env.ZIG_VERSION }}
+      - run: zig build test -j4 -Doptimize=${{ matrix.optimize }}
+
+  format:
+    name: Format Check
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: mlugg/setup-zig@v2
         with:
           version: ${{ env.ZIG_VERSION }}
-      - run: zig build test -j4
+      - run: zig fmt --check src/ build.zig
+
+  package:
+    name: Package Validation
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Zig
+        uses: mlugg/setup-zig@v2
+        with:
+          version: ${{ env.ZIG_VERSION }}
+
+      - name: Validate Package
+        run: |
+          mkdir -p test-consumer
+          cd test-consumer
+
+          cat > build.zig.zon << 'EOF'
+          .{
+              .name = .test_consumer,
+              .version = "0.0.0",
+              .fingerprint = 0xe5383c7136a60b55,
+              .dependencies = .{
+                  .rich_zig = .{
+                      .path = "..",
+                  },
+              },
+              .paths = .{
+                  "build.zig",
+                  "build.zig.zon",
+                  "src",
+              },
+          }
+          EOF
+
+          cat > build.zig << 'EOF'
+          const std = @import("std");
+          pub fn build(b: *std.Build) void {
+              const target = b.standardTargetOptions(.{});
+              const optimize = b.standardOptimizeOption(.{});
+              const rich_zig = b.dependency("rich_zig", .{
+                  .target = target,
+                  .optimize = optimize,
+              });
+              const exe = b.addExecutable(.{
+                  .name = "test",
+                  .root_module = b.createModule(.{
+                      .root_source_file = b.path("src/main.zig"),
+                      .target = target,
+                      .optimize = optimize,
+                      .imports = &.{
+                          .{ .name = "rich_zig", .module = rich_zig.module("rich_zig") },
+                      },
+                  }),
+              });
+              b.installArtifact(exe);
+          }
+          EOF
+
+          mkdir -p src
+          cat > src/main.zig << 'EOF'
+          const rich_zig = @import("rich_zig");
+          pub fn main() !void {
+              const style = rich_zig.Style.empty.bold();
+              _ = style;
+          }
+          EOF
+
+          zig build
 
   heavy:
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
+    name: Heavy (${{ matrix.os }})
+    if: github.event_name != 'pull_request'
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
       - uses: actions/checkout@v4
       - uses: mlugg/setup-zig@v2

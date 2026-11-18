@@ -87,7 +87,7 @@ We optimize for clean architecture, not backwards compatibility. **When we refac
 <!-- BEGIN:testing-philosophy -->
 ## Testing Philosophy: Diagnostics, Not Verdicts
 
-The binding testing and comment policy is [ENGINEERING.md](/home/hotschmoe/github/hotschmoe-setup/ENGINEERING.md). Run `zig build test -j4` for the blocking end-to-end gate and `zig build test-heavy -j4` for the background example suite. Do not add unit tests or snapshot tests.
+The binding testing and comment policy is [ENGINEERING.md](https://github.com/hotschmoe/hotschmoe-setup/blob/master/ENGINEERING.md). Run `zig build test -j4` for the blocking end-to-end gate and `zig build test-heavy -j4` for the background example suite. Do not add unit tests or snapshot tests.
 
 **Tests are diagnostic tools, not success criteria.** A passing test suite does not mean the code is good. A failing test does not mean the code is wrong.
 

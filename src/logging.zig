@@ -539,7 +539,6 @@ pub const Traceback = struct {
     }
 
     fn parseZigFrameLine(line: []const u8) ?StackFrame {
-
         var frame = StackFrame{};
 
         if (std.mem.startsWith(u8, line, "0x")) {

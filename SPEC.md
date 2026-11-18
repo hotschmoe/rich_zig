@@ -494,7 +494,7 @@ All features in FEATURE_PARITY.md marked P0 must be complete:
 
 ## Testing Requirements
 
-Follow [ENGINEERING.md](/home/hotschmoe/github/hotschmoe-setup/ENGINEERING.md) and [TESTING.md](TESTING.md). The blocking gate is `zig build test -j4`; the background gate is `zig build test-heavy -j4`.
+Follow [ENGINEERING.md](https://github.com/hotschmoe/hotschmoe-setup/blob/master/ENGINEERING.md) and [TESTING.md](TESTING.md). The blocking gate is `zig build test -j4`; the background gate is `zig build test-heavy -j4`.
 
 ---
 
