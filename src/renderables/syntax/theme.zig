@@ -54,7 +54,6 @@ pub const SyntaxTheme = struct {
         .background_color = Color.fromRgb(40, 42, 54),
     };
 
-    /// Apply theme's background color to a style, if the theme has one
     pub fn applyBackground(self: SyntaxTheme, style: Style) Style {
         if (self.background_color) |bg| {
             return style.background(bg);
@@ -62,7 +61,6 @@ pub const SyntaxTheme = struct {
         return style;
     }
 
-    /// Apply theme's background color to an optional style, if the theme has one
     pub fn applyBackgroundOpt(self: SyntaxTheme, style: ?Style) ?Style {
         const bg = self.background_color orelse return style;
         return (style orelse Style.empty).background(bg);

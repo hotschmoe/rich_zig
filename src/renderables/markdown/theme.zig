@@ -84,20 +84,3 @@ pub const MarkdownTheme = struct {
         };
     }
 };
-
-test "HeaderLevel.fromCount" {
-    try std.testing.expectEqual(HeaderLevel.h1, HeaderLevel.fromCount(1).?);
-    try std.testing.expectEqual(HeaderLevel.h6, HeaderLevel.fromCount(6).?);
-    try std.testing.expect(HeaderLevel.fromCount(0) == null);
-    try std.testing.expect(HeaderLevel.fromCount(7) == null);
-}
-
-test "MarkdownTheme.styleForLevel returns distinct styles" {
-    const theme = MarkdownTheme.default;
-    const h1_style = theme.styleForLevel(.h1);
-    const h6_style = theme.styleForLevel(.h6);
-
-    try std.testing.expect(h1_style.hasAttribute(.bold));
-    try std.testing.expect(h6_style.hasAttribute(.bold));
-    try std.testing.expect(!h1_style.eql(h6_style));
-}

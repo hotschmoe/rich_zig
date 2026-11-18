@@ -1,7 +1,3 @@
-//! Logging Example - RichHandler for styled log output
-//!
-//! Run with: zig build example-logging
-
 const std = @import("std");
 const rich = @import("rich_zig");
 
@@ -19,11 +15,9 @@ pub fn main(init: std.process.Init) !void {
     try console.print("[bold]RichHandler Logging:[/]");
     try console.print("");
 
-    // Create a RichHandler for styled log output
     var handler = rich.logging.RichHandler.init(io, allocator, init.minimal.environ);
     defer handler.deinit();
 
-    // Log at different levels
     try handler.emit(rich.logging.LogRecord.init(io, .debug, "Starting application initialization"));
     try handler.emit(rich.logging.LogRecord.init(io, .info, "Configuration loaded successfully"));
     try handler.emit(rich.logging.LogRecord.init(io, .info, "Connected to database on localhost:5432"));

@@ -1,31 +1,3 @@
-//! Prelude module for rich_zig
-//!
-//! Convenience module providing commonly-used types and style shortcuts
-//! for rapid prototyping and scripting.
-//!
-//! ## Usage
-//!
-//! ```zig
-//! const rich = @import("rich_zig").prelude;
-//! const std = @import("std");
-//!
-//! pub fn main() !void {
-//!     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-//!     defer _ = gpa.deinit();
-//!     const allocator = gpa.allocator();
-//!
-//!     var console = rich.Console.init(allocator);
-//!     defer console.deinit();
-//!
-//!     try console.print("[bold green]Hello World![/]");
-//!
-//!     const panel = rich.Panel.fromText(allocator, "Content")
-//!         .withStyle(rich.box.rounded)
-//!         .withTitle("Title");
-//!     try console.printRenderable(panel);
-//! }
-//! ```
-
 const color_mod = @import("color.zig");
 const style_mod = @import("style.zig");
 const text_mod = @import("text.zig");
@@ -38,7 +10,6 @@ const pretty_mod = @import("pretty.zig");
 const highlighter_mod = @import("highlighter.zig");
 const ansi_mod = @import("ansi.zig");
 
-// Core types
 pub const Color = color_mod.Color;
 pub const ColorType = color_mod.ColorType;
 pub const ColorTriplet = color_mod.ColorTriplet;
@@ -50,19 +21,15 @@ pub const Theme = theme_mod.Theme;
 pub const Pretty = pretty_mod.Pretty;
 pub const Highlighter = highlighter_mod.Highlighter;
 
-// ANSI parsing
 pub const fromAnsi = ansi_mod.fromAnsi;
 pub const stripAnsi = ansi_mod.stripAnsi;
 
-// Console
 pub const Console = console_mod.Console;
 pub const ConsoleOptions = console_mod.ConsoleOptions;
 
-// Box styles
 pub const box = box_mod;
 pub const BoxStyle = box_mod.BoxStyle;
 
-// Renderables
 pub const Panel = renderables_mod.Panel;
 pub const Table = renderables_mod.Table;
 pub const Column = renderables_mod.Column;
@@ -77,7 +44,6 @@ pub const Json = renderables_mod.Json;
 pub const Syntax = renderables_mod.Syntax;
 pub const Markdown = renderables_mod.Markdown;
 
-// Progress bar namespace
 pub const Progress = struct {
     pub const Bar = renderables_mod.ProgressBar;
     pub const Group = renderables_mod.ProgressGroup;
@@ -86,14 +52,12 @@ pub const Progress = struct {
     pub const SpeedUnit = renderables_mod.SpeedUnit;
 };
 
-// Alignment and layout
 pub const Alignment = renderables_mod.Alignment;
 pub const HAlign = renderables_mod.HAlign;
 pub const VAlign = renderables_mod.VAlign;
 pub const JustifyMethod = renderables_mod.JustifyMethod;
 pub const Overflow = renderables_mod.Overflow;
 
-// Style shortcuts as module-level constants
 pub const bold = Style.empty.bold();
 pub const italic = Style.empty.italic();
 pub const dim = Style.empty.dim();

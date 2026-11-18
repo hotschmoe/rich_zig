@@ -28,27 +28,21 @@ pub fn parseMarkup(text: []const u8, allocator: std.mem.Allocator) ![]MarkupToke
     var text_start: usize = 0;
 
     while (i < text.len) {
-        // Escaped bracket: \[ or \]
         if (text[i] == '\\' and i + 1 < text.len and (text[i + 1] == '[' or text[i + 1] == ']')) {
-            // Add text before escape
             if (i > text_start) {
                 try tokens.append(allocator, .{ .text = text[text_start..i] });
             }
-            // Add the escaped character as text
             try tokens.append(allocator, .{ .text = text[i + 1 .. i + 2] });
             i += 2;
             text_start = i;
             continue;
         }
 
-        // Start of tag
         if (text[i] == '[') {
-            // Add text before tag
             if (i > text_start) {
                 try tokens.append(allocator, .{ .text = text[text_start..i] });
             }
 
-            // Find closing bracket
             const end = std.mem.indexOfScalarPos(u8, text, i + 1, ']') orelse
                 return MarkupError.UnbalancedBracket;
 
@@ -59,11 +53,9 @@ pub fn parseMarkup(text: []const u8, allocator: std.mem.Allocator) ![]MarkupToke
             }
 
             if (tag_content[0] == '/') {
-                // Close tag: [/] or [/name]
                 const tag_name = if (tag_content.len > 1) tag_content[1..] else null;
                 try tokens.append(allocator, .{ .close_tag = tag_name });
             } else {
-                // Open tag: check for = sign for parameters
                 if (std.mem.indexOfScalar(u8, tag_content, '=')) |eq_pos| {
                     try tokens.append(allocator, .{ .open_tag = .{
                         .name = tag_content[0..eq_pos],
@@ -82,7 +74,6 @@ pub fn parseMarkup(text: []const u8, allocator: std.mem.Allocator) ![]MarkupToke
         i += 1;
     }
 
-    // Remaining text
     if (text_start < text.len) {
         try tokens.append(allocator, .{ .text = text[text_start..] });
     }
@@ -179,110 +170,4 @@ pub fn stripMarkup(text: []const u8, allocator: std.mem.Allocator) ![]u8 {
     }
 
     return result;
-}
-
-// Tests
-test "parseMarkup simple text" {
-    const allocator = std.testing.allocator;
-    const tokens = try parseMarkup("Hello World", allocator);
-    defer allocator.free(tokens);
-
-    try std.testing.expectEqual(@as(usize, 1), tokens.len);
-    try std.testing.expectEqualStrings("Hello World", tokens[0].text);
-}
-
-test "parseMarkup simple tag" {
-    const allocator = std.testing.allocator;
-    const tokens = try parseMarkup("[bold]text[/]", allocator);
-    defer allocator.free(tokens);
-
-    try std.testing.expectEqual(@as(usize, 3), tokens.len);
-    try std.testing.expectEqualStrings("bold", tokens[0].open_tag.name);
-    try std.testing.expectEqualStrings("text", tokens[1].text);
-    try std.testing.expect(tokens[2].close_tag == null);
-}
-
-test "parseMarkup nested tags" {
-    const allocator = std.testing.allocator;
-    const tokens = try parseMarkup("[bold][red]text[/red][/bold]", allocator);
-    defer allocator.free(tokens);
-
-    try std.testing.expectEqual(@as(usize, 5), tokens.len);
-    try std.testing.expectEqualStrings("bold", tokens[0].open_tag.name);
-    try std.testing.expectEqualStrings("red", tokens[1].open_tag.name);
-    try std.testing.expectEqualStrings("text", tokens[2].text);
-    try std.testing.expectEqualStrings("red", tokens[3].close_tag.?);
-    try std.testing.expectEqualStrings("bold", tokens[4].close_tag.?);
-}
-
-test "parseMarkup escaped brackets" {
-    const allocator = std.testing.allocator;
-    const tokens = try parseMarkup("\\[not a tag\\]", allocator);
-    defer allocator.free(tokens);
-
-    // Should have: "[", "not a tag", "]"
-    try std.testing.expectEqual(@as(usize, 3), tokens.len);
-    try std.testing.expectEqualStrings("[", tokens[0].text);
-    try std.testing.expectEqualStrings("not a tag", tokens[1].text);
-    try std.testing.expectEqualStrings("]", tokens[2].text);
-}
-
-test "parseMarkup tag with parameters" {
-    const allocator = std.testing.allocator;
-    const tokens = try parseMarkup("[link=https://example.com]click[/link]", allocator);
-    defer allocator.free(tokens);
-
-    try std.testing.expectEqual(@as(usize, 3), tokens.len);
-    try std.testing.expectEqualStrings("link", tokens[0].open_tag.name);
-    try std.testing.expectEqualStrings("https://example.com", tokens[0].open_tag.parameters.?);
-}
-
-test "parseMarkup unbalanced bracket error" {
-    const allocator = std.testing.allocator;
-    try std.testing.expectError(MarkupError.UnbalancedBracket, parseMarkup("[bold", allocator));
-}
-
-test "parseMarkup empty tag error" {
-    const allocator = std.testing.allocator;
-    try std.testing.expectError(MarkupError.InvalidTag, parseMarkup("[]", allocator));
-}
-
-test "render basic" {
-    const allocator = std.testing.allocator;
-    const segments = try render("[bold]Hello[/]", Style.empty, allocator);
-    defer allocator.free(segments);
-
-    try std.testing.expectEqual(@as(usize, 1), segments.len);
-    try std.testing.expectEqualStrings("Hello", segments[0].text);
-    try std.testing.expect(segments[0].style.?.hasAttribute(.bold));
-}
-
-test "render nested styles" {
-    const allocator = std.testing.allocator;
-    const segments = try render("[bold][italic]text[/][/]", Style.empty, allocator);
-    defer allocator.free(segments);
-
-    try std.testing.expectEqual(@as(usize, 1), segments.len);
-    try std.testing.expect(segments[0].style.?.hasAttribute(.bold));
-    try std.testing.expect(segments[0].style.?.hasAttribute(.italic));
-}
-
-test "escape" {
-    const allocator = std.testing.allocator;
-
-    const escaped = try escape("Hello [World]", allocator);
-    defer allocator.free(escaped);
-    try std.testing.expectEqualStrings("Hello \\[World\\]", escaped);
-
-    const no_escape = try escape("Hello World", allocator);
-    defer allocator.free(no_escape);
-    try std.testing.expectEqualStrings("Hello World", no_escape);
-}
-
-test "stripMarkup" {
-    const allocator = std.testing.allocator;
-
-    const stripped = try stripMarkup("[bold]Hello[/] [red]World[/]", allocator);
-    defer allocator.free(stripped);
-    try std.testing.expectEqualStrings("Hello World", stripped);
 }

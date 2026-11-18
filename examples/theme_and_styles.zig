@@ -5,7 +5,6 @@ pub fn main(init: std.process.Init) !void {
     const allocator = init.gpa;
     const io = init.io;
 
-    // Demo 1: New style attributes (underline2, frame, encircle)
     std.debug.print("\n=== Demo 1: New Style Attributes ===\n", .{});
 
     var console1 = rich.Console.init(allocator, io, init.minimal.environ);
@@ -17,14 +16,11 @@ pub fn main(init: std.process.Init) !void {
     try console1.print("[encircle green]Encircled text[/]");
     try console1.print("[hidden]This text is concealed[/] - hidden is an alias for conceal");
 
-    // Demo 2: Theme system
     std.debug.print("\n=== Demo 2: Theme System ===\n", .{});
 
-    // Create a default theme
     var theme = try rich.Theme.default(allocator);
     defer theme.deinit();
 
-    // Create console with theme
     var console2 = rich.Console.initWithOptions(allocator, io, init.minimal.environ, .{
         .theme = theme,
     });
@@ -53,13 +49,11 @@ pub fn main(init: std.process.Init) !void {
     try console2.print("[muted]Muted/dimmed text[/]");
     try console2.print("[link]Click here[/]");
 
-    // Demo 3: Custom theme
     std.debug.print("\n=== Demo 3: Custom Theme ===\n", .{});
 
     var custom_theme = rich.Theme.init(allocator);
     defer custom_theme.deinit();
 
-    // Define custom styles
     try custom_theme.define("brand", rich.Style.empty.bold().foreground(rich.Color.fromRgb(255, 100, 50)));
     try custom_theme.define("highlight", rich.Style.empty.underline2().foreground(rich.Color.cyan));
     try custom_theme.define("special", rich.Style.empty.frame().foreground(rich.Color.magenta));
@@ -73,7 +67,6 @@ pub fn main(init: std.process.Init) !void {
     try console3.print("[highlight]Highlighted with double underline[/]");
     try console3.print("[special]Special framed text[/]");
 
-    // Demo 4: Theme merging
     std.debug.print("\n=== Demo 4: Theme Merging ===\n", .{});
 
     var base_theme = try rich.Theme.default(allocator);
@@ -82,10 +75,8 @@ pub fn main(init: std.process.Init) !void {
     var overlay_theme = rich.Theme.init(allocator);
     defer overlay_theme.deinit();
 
-    // Override the default "error" style
     try overlay_theme.define("error", rich.Style.empty.bold().encircle().foreground(rich.Color.fromRgb(255, 0, 100)));
 
-    // Merge overlay into base
     try base_theme.merge(overlay_theme);
 
     var console4 = rich.Console.initWithOptions(allocator, io, init.minimal.environ, .{

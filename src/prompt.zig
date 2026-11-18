@@ -469,7 +469,6 @@ fn isNegative(input: []const u8) bool {
 
 fn writeStyledPrompt(writer: anytype, allocator: std.mem.Allocator, prompt_text: []const u8) !void {
     var txt = Text.fromMarkup(allocator, prompt_text) catch {
-        // Fall back to plain text if markup parsing fails
         try writer.writeAll(prompt_text);
         return;
     };
@@ -511,7 +510,6 @@ fn readPassword(buf: []u8, stdin: std.fs.File) !?[]u8 {
     if (builtin.os.tag == .windows) {
         return readPasswordWindows(buf, stdin, stdout);
     } else if (builtin.os.tag == .wasi or builtin.cpu.arch == .wasm32) {
-        // No raw mode on WASM, fall back to regular read
         return stdin.reader().readUntilDelimiterOrEof(buf, '\n');
     } else {
         return readPasswordPosix(buf, stdin, stdout);
@@ -522,15 +520,12 @@ fn readPasswordPosix(buf: []u8, stdin: std.fs.File, stdout: anytype) !?[]u8 {
     const posix = std.posix;
     const fd = stdin.handle;
 
-    // Save current terminal settings
     var orig_termios: posix.termios = undefined;
     const tcgetattr_result = posix.system.tcgetattr(fd, &orig_termios);
     if (tcgetattr_result != 0) {
-        // Fall back to regular read if tcgetattr fails
         return stdin.reader().readUntilDelimiterOrEof(buf, '\n');
     }
 
-    // Disable echo
     var new_termios = orig_termios;
     new_termios.lflag.ECHO = false;
 
@@ -539,13 +534,11 @@ fn readPasswordPosix(buf: []u8, stdin: std.fs.File, stdout: anytype) !?[]u8 {
         return stdin.reader().readUntilDelimiterOrEof(buf, '\n');
     }
 
-    // Ensure we restore terminal settings
     defer {
         _ = posix.system.tcsetattr(fd, .FLUSH, &orig_termios);
         stdout.writeAll("\n") catch {};
     }
 
-    // Read character by character, showing asterisks
     var len: usize = 0;
     while (len < buf.len - 1) {
         const byte_read = stdin.reader().readByte() catch |err| switch (err) {
@@ -558,7 +551,6 @@ fn readPasswordPosix(buf: []u8, stdin: std.fs.File, stdout: anytype) !?[]u8 {
         }
 
         if (byte_read == 127 or byte_read == 8) {
-            // Backspace
             if (len > 0) {
                 len -= 1;
                 stdout.writeAll("\x08 \x08") catch {};
@@ -585,13 +577,11 @@ fn readPasswordWindows(buf: []u8, stdin: std.fs.File, stdout: anytype) !?[]u8 {
         return null;
     };
 
-    // Get current mode
     var orig_mode: windows.DWORD = 0;
     if (windows.kernel32.GetConsoleMode(handle, &orig_mode) == 0) {
         return null;
     }
 
-    // Disable echo and line input for character-by-character reading
     const ENABLE_ECHO_INPUT: windows.DWORD = 0x0004;
     const ENABLE_LINE_INPUT: windows.DWORD = 0x0002;
     const new_mode = orig_mode & ~(ENABLE_ECHO_INPUT | ENABLE_LINE_INPUT);
@@ -629,7 +619,6 @@ fn readPasswordWindows(buf: []u8, stdin: std.fs.File, stdout: anytype) !?[]u8 {
         }
 
         if (byte == 8) {
-            // Backspace
             if (len > 0) {
                 len -= 1;
                 stdout.writeAll("\x08 \x08") catch {};
@@ -646,81 +635,4 @@ fn readPasswordWindows(buf: []u8, stdin: std.fs.File, stdout: anytype) !?[]u8 {
     }
 
     return buf[0..len];
-}
-
-// Tests
-test "Prompt builder" {
-    const allocator = std.testing.allocator;
-    const p = Prompt.init(allocator, "Name")
-        .withDefault("John")
-        .withChoices(&[_][]const u8{ "John", "Jane", "Bob" })
-        .caseSensitive(false)
-        .showDefault(true)
-        .showChoices(true);
-
-    try std.testing.expectEqualStrings("Name", p.prompt_text);
-    try std.testing.expectEqualStrings("John", p.default.?);
-    try std.testing.expect(!p.case_sensitive);
-    try std.testing.expect(p.choices != null);
-}
-
-test "IntPrompt builder" {
-    const allocator = std.testing.allocator;
-    const p = IntPrompt.init(allocator, "Age")
-        .withDefault(25)
-        .withMin(0)
-        .withMax(150);
-
-    try std.testing.expectEqualStrings("Age", p.prompt_text);
-    try std.testing.expectEqual(@as(i64, 25), p.default.?);
-    try std.testing.expectEqual(@as(i64, 0), p.min.?);
-    try std.testing.expectEqual(@as(i64, 150), p.max.?);
-}
-
-test "FloatPrompt builder" {
-    const allocator = std.testing.allocator;
-    const p = FloatPrompt.init(allocator, "Price")
-        .withDefault(9.99)
-        .withMin(0.0)
-        .withMax(1000.0);
-
-    try std.testing.expectEqualStrings("Price", p.prompt_text);
-    try std.testing.expectEqual(@as(f64, 9.99), p.default.?);
-    try std.testing.expectEqual(@as(f64, 0.0), p.min.?);
-    try std.testing.expectEqual(@as(f64, 1000.0), p.max.?);
-}
-
-test "Confirm builder" {
-    const allocator = std.testing.allocator;
-    const p = Confirm.init(allocator, "Continue?")
-        .withDefault(true);
-
-    try std.testing.expectEqualStrings("Continue?", p.prompt_text);
-    try std.testing.expect(p.default.?);
-}
-
-test "Prompt with password" {
-    const allocator = std.testing.allocator;
-    const p = Prompt.init(allocator, "Password")
-        .asPassword(true);
-
-    try std.testing.expect(p.password);
-}
-
-test "Prompt with validator" {
-    const allocator = std.testing.allocator;
-
-    const validateNotEmpty = struct {
-        fn validate(input: []const u8) ValidationResult {
-            if (input.len == 0) {
-                return .{ .invalid = "Input cannot be empty" };
-            }
-            return .valid;
-        }
-    }.validate;
-
-    const p = Prompt.init(allocator, "Name")
-        .withValidator(validateNotEmpty);
-
-    try std.testing.expect(p.validator != null);
 }

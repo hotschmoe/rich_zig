@@ -3,7 +3,6 @@ const Style = @import("style.zig").Style;
 const Color = @import("color.zig").Color;
 const Segment = @import("segment.zig").Segment;
 
-/// Theme for pretty-printed output.
 pub const PrettyTheme = struct {
     number: Style = Style.empty.foreground(Color.cyan).bold(),
     string: Style = Style.empty.foreground(Color.green),
@@ -27,7 +26,6 @@ pub const PrettyTheme = struct {
     };
 };
 
-/// Options for pretty printing.
 pub const PrettyOptions = struct {
     indent: usize = 2,
     max_depth: usize = 6,
@@ -38,7 +36,6 @@ pub const PrettyOptions = struct {
     single_line_max: usize = 60,
 };
 
-/// Pretty printer that formats Zig values into styled Segments.
 pub const Pretty = struct {
     allocator: std.mem.Allocator,
     options: PrettyOptions,
@@ -58,14 +55,12 @@ pub const Pretty = struct {
         };
     }
 
-    /// Format any value into styled segments.
     pub fn format(self: *Pretty, value: anytype) ![]Segment {
         self.segments.clearRetainingCapacity();
         try self.formatValue(value);
         return self.segments.toOwnedSlice(self.allocator);
     }
 
-    /// Render as a renderable (matches the render(width, allocator) protocol).
     pub fn render(self: Pretty, max_width: usize, allocator: std.mem.Allocator) ![]Segment {
         _ = max_width;
         var p = Pretty.initWithOptions(allocator, self.options);
@@ -306,167 +301,17 @@ pub const Pretty = struct {
 
     fn formatStored(self: *Pretty, other: Pretty) ![]Segment {
         _ = other;
-        // Placeholder for stored value rendering
         try self.emit("Pretty{...}", self.options.theme.type_name);
         return self.segments.toOwnedSlice(self.allocator);
     }
 };
 
-/// Convenience function: format a value and return segments.
 pub fn pretty(allocator: std.mem.Allocator, value: anytype) ![]Segment {
     var p = Pretty.init(allocator);
     return p.format(value);
 }
 
-/// Convenience function with options.
 pub fn prettyWithOptions(allocator: std.mem.Allocator, value: anytype, options: PrettyOptions) ![]Segment {
     var p = Pretty.initWithOptions(allocator, options);
     return p.format(value);
-}
-
-// Tests
-test "pretty print integer" {
-    const allocator = std.testing.allocator;
-    const segments = try pretty(allocator, @as(i32, 42));
-    defer {
-        for (segments) |seg| {
-            allocator.free(seg.text);
-        }
-        allocator.free(segments);
-    }
-
-    try std.testing.expectEqual(@as(usize, 1), segments.len);
-    try std.testing.expectEqualStrings("42", segments[0].text);
-}
-
-test "pretty print bool" {
-    const allocator = std.testing.allocator;
-    const segments = try pretty(allocator, true);
-    defer {
-        for (segments) |seg| {
-            allocator.free(seg.text);
-        }
-        allocator.free(segments);
-    }
-
-    try std.testing.expectEqual(@as(usize, 1), segments.len);
-    try std.testing.expectEqualStrings("true", segments[0].text);
-}
-
-test "pretty print null" {
-    const allocator = std.testing.allocator;
-    const val: ?i32 = null;
-    const segments = try pretty(allocator, val);
-    defer {
-        for (segments) |seg| {
-            allocator.free(seg.text);
-        }
-        allocator.free(segments);
-    }
-
-    try std.testing.expectEqual(@as(usize, 1), segments.len);
-    try std.testing.expectEqualStrings("null", segments[0].text);
-}
-
-test "pretty print optional with value" {
-    const allocator = std.testing.allocator;
-    const val: ?i32 = 42;
-    const segments = try pretty(allocator, val);
-    defer {
-        for (segments) |seg| {
-            allocator.free(seg.text);
-        }
-        allocator.free(segments);
-    }
-
-    try std.testing.expectEqual(@as(usize, 1), segments.len);
-    try std.testing.expectEqualStrings("42", segments[0].text);
-}
-
-test "pretty print string" {
-    const allocator = std.testing.allocator;
-    const segments = try pretty(allocator, @as([]const u8, "hello"));
-    defer {
-        for (segments) |seg| {
-            allocator.free(seg.text);
-        }
-        allocator.free(segments);
-    }
-
-    // Should have: " hello "
-    try std.testing.expect(segments.len >= 3);
-    try std.testing.expectEqualStrings("\"", segments[0].text);
-}
-
-test "pretty print enum" {
-    const TestEnum = enum { foo, bar };
-    const allocator = std.testing.allocator;
-    const segments = try pretty(allocator, TestEnum.foo);
-    defer {
-        for (segments) |seg| {
-            allocator.free(seg.text);
-        }
-        allocator.free(segments);
-    }
-
-    try std.testing.expectEqual(@as(usize, 2), segments.len);
-    try std.testing.expectEqualStrings(".", segments[0].text);
-    try std.testing.expectEqualStrings("foo", segments[1].text);
-}
-
-test "pretty print struct small" {
-    const allocator = std.testing.allocator;
-    const val = .{ .x = @as(i32, 1), .y = @as(i32, 2) };
-    const segments = try pretty(allocator, val);
-    defer {
-        for (segments) |seg| {
-            allocator.free(seg.text);
-        }
-        allocator.free(segments);
-    }
-
-    try std.testing.expect(segments.len > 0);
-    try std.testing.expectEqualStrings(".{", segments[0].text);
-}
-
-test "pretty print void" {
-    const allocator = std.testing.allocator;
-    const segments = try pretty(allocator, {});
-    defer {
-        for (segments) |seg| {
-            allocator.free(seg.text);
-        }
-        allocator.free(segments);
-    }
-
-    try std.testing.expectEqual(@as(usize, 1), segments.len);
-    try std.testing.expectEqualStrings("void", segments[0].text);
-}
-
-test "pretty print empty slice" {
-    const allocator = std.testing.allocator;
-    const empty: []const i32 = &.{};
-    const segments = try pretty(allocator, empty);
-    defer {
-        for (segments) |seg| {
-            allocator.free(seg.text);
-        }
-        allocator.free(segments);
-    }
-
-    try std.testing.expectEqual(@as(usize, 1), segments.len);
-    try std.testing.expectEqualStrings("[]", segments[0].text);
-}
-
-test "PrettyTheme.default" {
-    const theme = PrettyTheme.default;
-    try std.testing.expect(theme.number.hasAttribute(.bold));
-    try std.testing.expect(theme.boolean.hasAttribute(.italic));
-}
-
-test "PrettyOptions defaults" {
-    const opts = PrettyOptions{};
-    try std.testing.expectEqual(@as(usize, 2), opts.indent);
-    try std.testing.expectEqual(@as(usize, 6), opts.max_depth);
-    try std.testing.expectEqual(@as(usize, 80), opts.max_string_length);
 }

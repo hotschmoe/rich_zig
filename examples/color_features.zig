@@ -1,7 +1,3 @@
-//! Color Features Example - Adaptive colors, HSL blending, gradients, WCAG contrast
-//!
-//! Run with: zig build example-color_features
-
 const std = @import("std");
 const rich = @import("rich_zig");
 
@@ -25,7 +21,6 @@ pub fn main(init: std.process.Init) !void {
     try console.printRenderable(rich.Rule.init().withTitle("Color Features").withCharacters("="));
     try console.print("");
 
-    // -- 1. Adaptive Colors --
     try console.print("[bold cyan]1. Adaptive Colors[/]");
     try console.printPlain("   Colors that auto-downgrade to match terminal capabilities.");
     try console.print("");
@@ -57,7 +52,6 @@ pub fn main(init: std.process.Init) !void {
     try console.printPlain(auto_line);
     try console.print("");
 
-    // -- 2. HSL Blending --
     try console.print("[bold cyan]2. HSL Color Blending[/]");
     try console.printPlain("   Perceptually smooth transitions through the color wheel.");
     try console.print("");
@@ -86,7 +80,6 @@ pub fn main(init: std.process.Init) !void {
     try console.printPlain(stream.buffered());
     try console.print("");
 
-    // -- 3. Multi-Stop Gradient --
     try console.print("[bold cyan]3. Multi-Stop Gradient[/]");
     try console.printPlain("   Generate N colors across multiple color stops.");
     try console.print("");
@@ -116,7 +109,6 @@ pub fn main(init: std.process.Init) !void {
     try console.printPlain(stream.buffered());
     try console.print("");
 
-    // -- 4. WCAG Contrast --
     try console.print("[bold cyan]4. WCAG Contrast Ratio[/]");
     try console.printPlain("   Accessibility-aware color pair validation.");
     try console.print("");
@@ -147,7 +139,6 @@ pub fn main(init: std.process.Init) !void {
     }
     try console.print("");
 
-    // -- 5. Synchronized Output --
     try console.print("[bold cyan]5. Synchronized Output[/]");
     try console.printPlain("   Atomic frame rendering with DEC mode 2026.");
     try console.print("");
@@ -159,7 +150,6 @@ pub fn main(init: std.process.Init) !void {
     try console.printPlain("   Sequences are harmless on terminals that don't support them.");
     try console.print("");
 
-    // -- 6. Background Detection --
     try console.print("[bold cyan]6. Background Detection[/]");
     try console.print("");
 

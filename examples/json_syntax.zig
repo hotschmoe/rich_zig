@@ -1,7 +1,3 @@
-//! JSON and Syntax Highlighting Example
-//!
-//! Run with: zig build example-json_syntax
-
 const std = @import("std");
 const rich = @import("rich_zig");
 
@@ -16,7 +12,6 @@ pub fn main(init: std.process.Init) !void {
     try console.printRenderable(rich.Rule.init().withTitle("JSON and Syntax Example").withCharacters("="));
     try console.print("");
 
-    // JSON rendering - use fromString to parse JSON text
     try console.print("[bold]JSON Rendering:[/]");
     {
         var arena = std.heap.ArenaAllocator.init(allocator);
@@ -38,7 +33,6 @@ pub fn main(init: std.process.Init) !void {
     }
     try console.print("");
 
-    // JSON with custom theme
     try console.print("[bold]JSON with Custom Theme:[/]");
     {
         var arena = std.heap.ArenaAllocator.init(allocator);
@@ -60,7 +54,6 @@ pub fn main(init: std.process.Init) !void {
     }
     try console.print("");
 
-    // Syntax highlighting for Zig code
     try console.print("[bold]Zig Syntax Highlighting:[/]");
     {
         var arena = std.heap.ArenaAllocator.init(allocator);
@@ -81,7 +74,6 @@ pub fn main(init: std.process.Init) !void {
     }
     try console.print("");
 
-    // Syntax highlighting for Python
     try console.print("[bold]Python Syntax Highlighting:[/]");
     {
         var arena = std.heap.ArenaAllocator.init(allocator);
@@ -102,7 +94,6 @@ pub fn main(init: std.process.Init) !void {
     }
     try console.print("");
 
-    // Markdown rendering
     try console.print("[bold]Markdown Rendering:[/]");
     {
         const markdown_text =
