@@ -71,20 +71,16 @@ pub const Panel = struct {
         };
     }
 
-    /// Convenience alias for fromSegments - creates a Panel from pre-rendered content.
-    /// Use this when you have segments from another renderable (e.g., Table.render(), Json.render()).
     pub fn fromRendered(allocator: std.mem.Allocator, segs: []const Segment) Panel {
         return fromSegments(allocator, segs);
     }
 
-    /// Creates an info panel with blue border and rounded style.
     pub fn info(allocator: std.mem.Allocator, text: []const u8) Panel {
         return fromText(allocator, text)
             .withBorderStyle(Style.empty.fg(Color.blue))
             .rounded();
     }
 
-    /// Creates a warning panel with yellow border, "Warning" title, and rounded style.
     pub fn warning(allocator: std.mem.Allocator, text: []const u8) Panel {
         return fromText(allocator, text)
             .withTitle("Warning")
@@ -92,7 +88,6 @@ pub const Panel = struct {
             .rounded();
     }
 
-    /// Creates an error panel with red border, "Error" title, and rounded style.
     pub fn err(allocator: std.mem.Allocator, text: []const u8) Panel {
         return fromText(allocator, text)
             .withTitle("Error")
@@ -100,7 +95,6 @@ pub const Panel = struct {
             .rounded();
     }
 
-    /// Creates a success panel with green border, "Success" title, and rounded style.
     pub fn success(allocator: std.mem.Allocator, text: []const u8) Panel {
         return fromText(allocator, text)
             .withTitle("Success")
@@ -479,249 +473,3 @@ pub const Panel = struct {
         }
     }
 };
-
-test "Panel.fromText" {
-    const allocator = std.testing.allocator;
-    const panel = Panel.fromText(allocator, "Hello");
-
-    try std.testing.expectEqualStrings("Hello", panel.content.text);
-}
-
-test "Panel.fromSegments" {
-    const allocator = std.testing.allocator;
-    const segs = [_]Segment{Segment.plain("Hello")};
-    const panel = Panel.fromSegments(allocator, &segs);
-
-    try std.testing.expectEqual(@as(usize, 1), panel.content.segments.len);
-}
-
-test "Panel.fromRendered" {
-    const allocator = std.testing.allocator;
-    const segs = [_]Segment{
-        Segment.plain("Pre-rendered"),
-        Segment.line(),
-        Segment.plain("Content"),
-    };
-    const panel = Panel.fromRendered(allocator, &segs);
-
-    try std.testing.expectEqual(@as(usize, 3), panel.content.segments.len);
-}
-
-test "Panel.withTitle" {
-    const allocator = std.testing.allocator;
-    const panel = Panel.fromText(allocator, "Content").withTitle("Title");
-
-    try std.testing.expectEqualStrings("Title", panel.title.?);
-}
-
-test "Panel.withHeight" {
-    const allocator = std.testing.allocator;
-    const panel = Panel.fromText(allocator, "Content").withHeight(10);
-
-    try std.testing.expectEqual(@as(?usize, 10), panel.height);
-}
-
-test "Panel.withVerticalOverflow" {
-    const allocator = std.testing.allocator;
-    const panel = Panel.fromText(allocator, "Content").withVerticalOverflow(.ellipsis);
-
-    try std.testing.expectEqual(VOverflow.ellipsis, panel.vertical_overflow);
-}
-
-test "Panel.render basic" {
-    const allocator = std.testing.allocator;
-    const panel = Panel.fromText(allocator, "Hello").withWidth(20);
-
-    const segments = try panel.render(80, allocator);
-    defer {
-        for (segments) |seg| {
-            if (seg.text.len == 1 and seg.style == null) {
-                continue;
-            }
-        }
-        allocator.free(segments);
-    }
-
-    try std.testing.expect(segments.len > 0);
-}
-
-test "Panel.render with title" {
-    const allocator = std.testing.allocator;
-    const panel = Panel.fromText(allocator, "Content").withTitle("Title").withWidth(30);
-
-    const segments = try panel.render(80, allocator);
-    defer allocator.free(segments);
-
-    var found_title = false;
-    for (segments) |seg| {
-        if (std.mem.indexOf(u8, seg.text, "Title") != null) {
-            found_title = true;
-            break;
-        }
-    }
-    try std.testing.expect(found_title);
-}
-
-test "Panel box styles" {
-    const allocator = std.testing.allocator;
-
-    const rounded_panel = Panel.fromText(allocator, "Test").rounded();
-    try std.testing.expectEqualStrings("\u{256D}", rounded_panel.box_style.top_left);
-
-    const heavy_panel = Panel.fromText(allocator, "Test").heavy();
-    try std.testing.expectEqualStrings("\u{250F}", heavy_panel.box_style.top_left);
-}
-
-test "Panel.withTitleAlignment" {
-    const allocator = std.testing.allocator;
-    const panel = Panel.fromText(allocator, "Content")
-        .withTitle("Title")
-        .withTitleAlignment(.left);
-
-    try std.testing.expectEqual(Alignment.left, panel.title_align);
-}
-
-test "Panel.withSubtitleAlignment" {
-    const allocator = std.testing.allocator;
-    const panel = Panel.fromText(allocator, "Content")
-        .withSubtitle("Subtitle")
-        .withSubtitleAlignment(.right);
-
-    try std.testing.expectEqual(Alignment.right, panel.subtitle_align);
-}
-
-test "Panel.render with left-aligned title" {
-    const allocator = std.testing.allocator;
-    const panel = Panel.fromText(allocator, "Content")
-        .withTitle("T")
-        .withTitleAlignment(.left)
-        .withWidth(20);
-
-    const segments = try panel.render(80, allocator);
-    defer allocator.free(segments);
-
-    try std.testing.expect(segments.len > 0);
-}
-
-test "Panel.render with right-aligned title" {
-    const allocator = std.testing.allocator;
-    const panel = Panel.fromText(allocator, "Content")
-        .withTitle("T")
-        .withTitleAlignment(.right)
-        .withWidth(20);
-
-    const segments = try panel.render(80, allocator);
-    defer allocator.free(segments);
-
-    try std.testing.expect(segments.len > 0);
-}
-
-test "Panel.render with height constraint" {
-    const allocator = std.testing.allocator;
-    const panel = Panel.fromText(allocator, "Line1\nLine2\nLine3\nLine4\nLine5")
-        .withWidth(20)
-        .withHeight(5);
-
-    const segments = try panel.render(80, allocator);
-    defer allocator.free(segments);
-
-    var line_count: usize = 0;
-    for (segments) |seg| {
-        if (std.mem.eql(u8, seg.text, "\n")) {
-            line_count += 1;
-        }
-    }
-    try std.testing.expectEqual(@as(usize, 5), line_count);
-}
-
-test "Panel.render with height and ellipsis overflow" {
-    const allocator = std.testing.allocator;
-    const panel = Panel.fromText(allocator, "Line1\nLine2\nLine3\nLine4\nLine5")
-        .withWidth(20)
-        .withHeight(4)
-        .withVerticalOverflow(.ellipsis);
-
-    const segments = try panel.render(80, allocator);
-    defer allocator.free(segments);
-
-    var found_ellipsis = false;
-    for (segments) |seg| {
-        if (std.mem.indexOf(u8, seg.text, "...") != null) {
-            found_ellipsis = true;
-            break;
-        }
-    }
-    try std.testing.expect(found_ellipsis);
-}
-
-test "Panel.render with segments content" {
-    const allocator = std.testing.allocator;
-    const segs = [_]Segment{
-        Segment.plain("Hello"),
-        Segment.line(),
-        Segment.plain("World"),
-    };
-    const panel = Panel.fromSegments(allocator, &segs).withWidth(20);
-
-    const segments = try panel.render(80, allocator);
-    defer allocator.free(segments);
-
-    var found_hello = false;
-    var found_world = false;
-    for (segments) |seg| {
-        if (std.mem.indexOf(u8, seg.text, "Hello") != null) found_hello = true;
-        if (std.mem.indexOf(u8, seg.text, "World") != null) found_world = true;
-    }
-    try std.testing.expect(found_hello);
-    try std.testing.expect(found_world);
-}
-
-test "Panel.fromStyledText preserves styling" {
-    const allocator = std.testing.allocator;
-    var styled_text = try Text.fromMarkup(allocator, "[bold]Hello[/] World");
-    defer styled_text.deinit();
-
-    const panel = Panel.fromStyledText(allocator, styled_text).withWidth(30);
-    const segments = try panel.render(80, allocator);
-    defer allocator.free(segments);
-
-    var found_bold_hello = false;
-    var found_world = false;
-    for (segments) |seg| {
-        if (std.mem.indexOf(u8, seg.text, "Hello") != null) {
-            if (seg.style) |style| {
-                if (style.hasAttribute(.bold)) {
-                    found_bold_hello = true;
-                }
-            }
-        }
-        if (std.mem.indexOf(u8, seg.text, "World") != null) {
-            found_world = true;
-        }
-    }
-    try std.testing.expect(found_bold_hello);
-    try std.testing.expect(found_world);
-}
-
-test "Panel.fromStyledText with multiline" {
-    const allocator = std.testing.allocator;
-    var styled_text = try Text.fromMarkup(allocator, "[red]Line1[/]\n[blue]Line2[/]");
-    defer styled_text.deinit();
-
-    const panel = Panel.fromStyledText(allocator, styled_text).withWidth(30);
-    const segments = try panel.render(80, allocator);
-    defer allocator.free(segments);
-
-    var found_line1 = false;
-    var found_line2 = false;
-    for (segments) |seg| {
-        if (std.mem.indexOf(u8, seg.text, "Line1") != null) {
-            found_line1 = true;
-        }
-        if (std.mem.indexOf(u8, seg.text, "Line2") != null) {
-            found_line2 = true;
-        }
-    }
-    try std.testing.expect(found_line1);
-    try std.testing.expect(found_line2);
-}

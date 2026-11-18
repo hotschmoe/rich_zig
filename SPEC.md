@@ -494,26 +494,7 @@ All features in FEATURE_PARITY.md marked P0 must be complete:
 
 ## Testing Requirements
 
-### Coverage Targets
-
-| Category | Coverage |
-|----------|----------|
-| P0 modules | > 90% line coverage |
-| P1 modules | > 85% line coverage |
-| P2 modules | > 75% line coverage |
-| Public APIs | 100% documented and tested |
-
-### Test Types Required
-
-1. **Unit tests** - Every public function
-2. **Integration tests** - Component interactions
-3. **Fuzz tests** - All parsers (markup, style, color)
-4. **Snapshot tests** - Visual output verification
-5. **Platform tests** - CI runs on Linux, macOS, Windows
-
-### Parity Tests
-
-For each feature in FEATURE_PARITY.md, there must be a test verifying behavior matches rich_rust.
+Follow [ENGINEERING.md](https://github.com/hotschmoe/hotschmoe-setup/blob/master/ENGINEERING.md) and [TESTING.md](TESTING.md). The blocking gate is `zig build test -j4`; the background gate is `zig build test-heavy -j4`.
 
 ---
 

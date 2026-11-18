@@ -1,5 +1,3 @@
-// Semantic error types for precise error handling
-
 pub const MarkupError = error{
     UnmatchedTag,
     InvalidColorName,

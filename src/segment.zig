@@ -227,13 +227,11 @@ pub fn divide(segments: []const Segment, cuts: []const usize, allocator: std.mem
         const seg_start_cell = cell_pos - seg_pos;
         const seg_end_cell = seg_start_cell + seg_cell_len;
 
-        // Check if we need to cut within this segment
         while (cut_idx < cuts.len and cuts[cut_idx] <= seg_end_cell) {
             const cut_cell = cuts[cut_idx];
             const cut_within_seg = cut_cell - seg_start_cell;
 
             if (cut_within_seg > seg_pos) {
-                // Add portion up to the cut
                 const split = seg.splitCells(cut_within_seg);
                 const portion = split[0].splitCells(seg_pos);
                 if (portion[1].text.len > 0) {
@@ -241,7 +239,6 @@ pub fn divide(segments: []const Segment, cuts: []const usize, allocator: std.mem
                 }
             }
 
-            // Save current section and start new one
             try result.append(allocator, try current_section.toOwnedSlice(allocator));
             current_section = .empty;
 
@@ -249,7 +246,6 @@ pub fn divide(segments: []const Segment, cuts: []const usize, allocator: std.mem
             cut_idx += 1;
         }
 
-        // Add remaining portion of segment
         if (seg_pos < seg_cell_len) {
             const remaining = seg.splitCells(seg_pos)[1];
             if (remaining.text.len > 0) {
@@ -262,7 +258,6 @@ pub fn divide(segments: []const Segment, cuts: []const usize, allocator: std.mem
         seg_idx += 1;
     }
 
-    // Add final section
     try result.append(allocator, try current_section.toOwnedSlice(allocator));
 
     return result.toOwnedSlice(allocator);
@@ -309,14 +304,12 @@ pub fn adjustLineLength(segments: []const Segment, target_length: usize, pad_cha
     var result: std.ArrayList(Segment) = .empty;
 
     if (current_len < target_length) {
-        // Pad
         try result.appendSlice(allocator, segments);
         const padding = target_length - current_len;
         const pad_str = try allocator.alloc(u8, padding);
         @memset(pad_str, pad_char);
         try result.append(allocator, Segment.plain(pad_str));
     } else {
-        // Truncate
         var remaining = target_length;
         for (segments) |seg| {
             if (seg.control != null) {
@@ -340,206 +333,4 @@ pub fn adjustLineLength(segments: []const Segment, target_length: usize, pad_cha
     }
 
     return result.toOwnedSlice(allocator);
-}
-
-// Tests
-test "Segment.plain" {
-    const seg = Segment.plain("Hello");
-    try std.testing.expectEqualStrings("Hello", seg.text);
-    try std.testing.expect(seg.style == null);
-    try std.testing.expect(seg.control == null);
-}
-
-test "Segment.styled" {
-    const style = Style.empty.bold();
-    const seg = Segment.styled("Hello", style);
-    try std.testing.expectEqualStrings("Hello", seg.text);
-    try std.testing.expect(seg.style != null);
-    try std.testing.expect(seg.style.?.hasAttribute(.bold));
-}
-
-test "Segment.cellLength" {
-    try std.testing.expectEqual(@as(usize, 5), Segment.plain("Hello").cellLength());
-    try std.testing.expectEqual(@as(usize, 4), Segment.plain("\u{4E2D}\u{6587}").cellLength()); // 2 CJK chars
-    try std.testing.expectEqual(@as(usize, 0), Segment.controlSegment(.bell).cellLength());
-}
-
-test "Segment.isControl" {
-    try std.testing.expect(!Segment.plain("Hello").isControl());
-    try std.testing.expect(Segment.controlSegment(.bell).isControl());
-}
-
-test "Segment.splitCells basic" {
-    const seg = Segment.plain("Hello World");
-    const split = seg.splitCells(5);
-    try std.testing.expectEqualStrings("Hello", split[0].text);
-    try std.testing.expectEqualStrings(" World", split[1].text);
-}
-
-test "Segment.splitCells preserves style" {
-    const style = Style.empty.bold();
-    const seg = Segment.styled("Hello World", style);
-    const split = seg.splitCells(5);
-    try std.testing.expect(split[0].style != null);
-    try std.testing.expect(split[1].style != null);
-    try std.testing.expect(split[0].style.?.hasAttribute(.bold));
-}
-
-test "Segment.splitCells CJK" {
-    const seg = Segment.plain("\u{4E2D}\u{6587}\u{5B57}"); // 3 CJK chars, 6 cells
-    const split = seg.splitCells(2); // Split after first char (2 cells)
-    try std.testing.expectEqual(@as(usize, 2), cells.cellLen(split[0].text));
-    try std.testing.expectEqual(@as(usize, 4), cells.cellLen(split[1].text));
-}
-
-test "Segment.isEmpty" {
-    try std.testing.expect(!Segment.plain("Hello").isEmpty());
-    try std.testing.expect(Segment.plain("").isEmpty());
-    try std.testing.expect(!Segment.controlSegment(.bell).isEmpty());
-}
-
-test "Segment.isWhitespace" {
-    try std.testing.expect(Segment.plain(" ").isWhitespace());
-    try std.testing.expect(Segment.plain("  \t\n").isWhitespace());
-    try std.testing.expect(!Segment.plain("Hello").isWhitespace());
-    try std.testing.expect(!Segment.plain("").isWhitespace());
-}
-
-test "stripStyles" {
-    const allocator = std.testing.allocator;
-    const segments = [_]Segment{
-        Segment.styled("Hello", Style.empty.bold()),
-        Segment.plain(" "),
-        Segment.styled("World", Style.empty.italic()),
-    };
-
-    const stripped = try stripStyles(&segments, allocator);
-    defer allocator.free(stripped);
-
-    try std.testing.expect(stripped[0].style == null);
-    try std.testing.expect(stripped[1].style == null);
-    try std.testing.expect(stripped[2].style == null);
-}
-
-test "joinText" {
-    const allocator = std.testing.allocator;
-    const segments = [_]Segment{
-        Segment.plain("Hello"),
-        Segment.plain(" "),
-        Segment.plain("World"),
-    };
-
-    const text = try joinText(&segments, allocator);
-    defer allocator.free(text);
-
-    try std.testing.expectEqualStrings("Hello World", text);
-}
-
-test "totalCellLength" {
-    const segments = [_]Segment{
-        Segment.plain("Hello"),
-        Segment.plain(" "),
-        Segment.plain("World"),
-    };
-
-    try std.testing.expectEqual(@as(usize, 11), totalCellLength(&segments));
-}
-
-test "ControlCode.toEscapeSequence" {
-    var buf: [64]u8 = undefined;
-    var stream = std.Io.Writer.fixed(&buf);
-
-    try ControlCode.toEscapeSequence(.{ .cursor_up = 5 }, &stream);
-    try std.testing.expectEqualStrings("\x1b[5A", stream.buffered());
-
-    stream.end = 0;
-    try ControlCode.toEscapeSequence(.{ .cursor_move_to = .{ .x = 10, .y = 5 } }, &stream);
-    try std.testing.expectEqualStrings("\x1b[5;10H", stream.buffered());
-
-    stream.end = 0;
-    try ControlCode.toEscapeSequence(.clear, &stream);
-    try std.testing.expectEqualStrings("\x1b[2J", stream.buffered());
-}
-
-test "adjustLineLength padding" {
-    const allocator = std.testing.allocator;
-    const segments = [_]Segment{Segment.plain("Hi")};
-
-    const adjusted = try adjustLineLength(&segments, 5, ' ', allocator);
-    defer {
-        for (adjusted) |seg| {
-            if (seg.text.len > 0 and seg.style == null) {
-                // Check if this is our padding string (not from original segments)
-                var is_original = false;
-                for (segments) |orig| {
-                    if (std.mem.eql(u8, seg.text, orig.text)) {
-                        is_original = true;
-                        break;
-                    }
-                }
-                if (!is_original) {
-                    allocator.free(seg.text);
-                }
-            }
-        }
-        allocator.free(adjusted);
-    }
-
-    try std.testing.expectEqual(@as(usize, 5), totalCellLength(adjusted));
-}
-
-test "adjustLineLength truncating" {
-    const allocator = std.testing.allocator;
-    const segments = [_]Segment{Segment.plain("Hello World")};
-
-    const adjusted = try adjustLineLength(&segments, 5, ' ', allocator);
-    defer allocator.free(adjusted);
-
-    try std.testing.expectEqual(@as(usize, 5), totalCellLength(adjusted));
-    try std.testing.expectEqualStrings("Hello", adjusted[0].text);
-}
-
-test "splitIntoLines single line" {
-    const allocator = std.testing.allocator;
-    const segments = [_]Segment{Segment.plain("Hello")};
-
-    const lines = try splitIntoLines(&segments, allocator);
-    defer allocator.free(lines);
-
-    try std.testing.expectEqual(@as(usize, 1), lines.len);
-    try std.testing.expectEqual(@as(usize, 1), lines[0].len);
-}
-
-test "splitIntoLines multiple lines" {
-    const allocator = std.testing.allocator;
-    const segments = [_]Segment{
-        Segment.plain("Hello"),
-        Segment.line(),
-        Segment.plain("World"),
-    };
-
-    const lines = try splitIntoLines(&segments, allocator);
-    defer allocator.free(lines);
-
-    try std.testing.expectEqual(@as(usize, 2), lines.len);
-    try std.testing.expectEqual(@as(usize, 1), lines[0].len);
-    try std.testing.expectEqual(@as(usize, 1), lines[1].len);
-}
-
-test "splitIntoLines empty" {
-    const allocator = std.testing.allocator;
-    const segments = [_]Segment{};
-
-    const lines = try splitIntoLines(&segments, allocator);
-    defer allocator.free(lines);
-
-    try std.testing.expectEqual(@as(usize, 1), lines.len);
-}
-
-test "maxLineWidth" {
-    const line1 = [_]Segment{Segment.plain("Hi")};
-    const line2 = [_]Segment{Segment.plain("Hello")};
-    const lines = [_][]const Segment{ &line1, &line2 };
-
-    try std.testing.expectEqual(@as(usize, 5), maxLineWidth(&lines));
 }

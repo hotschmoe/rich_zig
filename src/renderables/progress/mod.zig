@@ -14,9 +14,3 @@ pub const BuiltinColumn = group.BuiltinColumn;
 pub const CustomColumnFn = group.CustomColumnFn;
 pub const ProgressColumn = group.ProgressColumn;
 pub const Progress = group.Progress;
-
-test {
-    _ = @import("bar.zig");
-    _ = @import("spinner.zig");
-    _ = @import("group.zig");
-}

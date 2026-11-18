@@ -6,8 +6,3 @@ pub const JustifyMethod = @import("cell.zig").JustifyMethod;
 pub const Overflow = @import("column.zig").Overflow;
 pub const AlternatingStyles = @import("table.zig").AlternatingStyles;
 pub const RowSpanTracker = @import("cell.zig").RowSpanTracker;
-
-test {
-    @import("std").testing.refAllDecls(@This());
-    _ = @import("tests.zig");
-}

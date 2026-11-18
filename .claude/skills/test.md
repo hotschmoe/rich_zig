@@ -5,7 +5,7 @@ description: Run zig build test
 
 # /test - Run Tests
 
-Run `zig build test` to execute all tests in the project.
+Run `zig build test -j4` for the blocking end-to-end gate. Run `zig build test-heavy -j4` separately for the background examples; see TESTING.md.
 
 ## Usage
 

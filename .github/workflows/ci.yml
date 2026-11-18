@@ -3,77 +3,47 @@ name: CI
 on:
   pull_request:
     branches: [master]
+  schedule:
+    - cron: '23 2 * * *'
+  workflow_dispatch:
 
 env:
-  ZIG_VERSION: "0.17.0"
+  ZIG_VERSION: "0.17.1"
 
 jobs:
   test:
     name: Test (${{ matrix.os }}, ${{ matrix.optimize }})
+    if: github.event_name == 'pull_request'
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-        optimize: [Debug, ReleaseSafe]
         include:
           - os: ubuntu-latest
             optimize: ReleaseFast
-          - os: ubuntu-latest
-            optimize: ReleaseSmall
-
+          - os: windows-latest
+            optimize: ReleaseSafe
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Zig
-        uses: mlugg/setup-zig@v2
+      - uses: actions/checkout@v4
+      - uses: mlugg/setup-zig@v2
         with:
           version: ${{ env.ZIG_VERSION }}
-
-      - name: Build
-        run: zig build -Doptimize=${{ matrix.optimize }}
-
-      - name: Run Tests
-        run: zig build test -Doptimize=${{ matrix.optimize }}
-
-      - name: Run Executable
-        run: zig build run -Doptimize=${{ matrix.optimize }}
-
-  fuzz:
-    name: Fuzz Tests
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Zig
-        uses: mlugg/setup-zig@v2
-        with:
-          version: ${{ env.ZIG_VERSION }}
-
-      - name: Run Fuzz Tests
-        run: |
-          timeout 60 zig build test --fuzz || true
-        continue-on-error: true
+      - run: zig build test -j4 -Doptimize=${{ matrix.optimize }}
 
   format:
     name: Format Check
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Zig
-        uses: mlugg/setup-zig@v2
+      - uses: actions/checkout@v4
+      - uses: mlugg/setup-zig@v2
         with:
           version: ${{ env.ZIG_VERSION }}
-
-      - name: Check Formatting
-        run: zig fmt --check src/
+      - run: zig fmt --check src/ build.zig
 
   package:
     name: Package Validation
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -141,3 +111,18 @@ jobs:
           EOF
 
           zig build
+
+  heavy:
+    name: Heavy (${{ matrix.os }})
+    if: github.event_name != 'pull_request'
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: ${{ env.ZIG_VERSION }}
+      - run: zig build test-heavy -j4

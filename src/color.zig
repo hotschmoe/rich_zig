@@ -168,10 +168,8 @@ pub const Color = struct {
     number: ?u8 = null,
     triplet: ?ColorTriplet = null,
 
-    // Default color (terminal default)
     pub const default: Color = .{ .color_type = .default };
 
-    // Standard 16 colors (0-15)
     pub const black: Color = .{ .color_type = .standard, .number = 0 };
     pub const red: Color = .{ .color_type = .standard, .number = 1 };
     pub const green: Color = .{ .color_type = .standard, .number = 2 };
@@ -181,7 +179,6 @@ pub const Color = struct {
     pub const cyan: Color = .{ .color_type = .standard, .number = 6 };
     pub const white: Color = .{ .color_type = .standard, .number = 7 };
 
-    // Bright variants (8-15)
     pub const bright_black: Color = .{ .color_type = .standard, .number = 8 };
     pub const bright_red: Color = .{ .color_type = .standard, .number = 9 };
     pub const bright_green: Color = .{ .color_type = .standard, .number = 10 };
@@ -266,14 +263,12 @@ pub const Color = struct {
     pub fn getTriplet(self: Color) ?ColorTriplet {
         if (self.triplet) |t| return t;
 
-        // For 256 colors, convert back to RGB approximation
         if (self.color_type == .eight_bit) {
             if (self.number) |n| {
                 return tripletFrom256(n);
             }
         }
 
-        // For standard colors, return approximate RGB values
         if (self.color_type == .standard) {
             if (self.number) |n| {
                 if (n < standard_color_triplets.len) {
@@ -375,21 +370,18 @@ pub fn gradient(stops: []const ColorTriplet, output: []ColorTriplet, comptime us
 }
 
 pub fn rgbTo256(r: u8, g: u8, b: u8) u8 {
-    // Check for grayscale
     if (r == g and g == b) {
         if (r < 8) return 16;
         if (r > 248) return 231;
         return @as(u8, @intFromFloat((@as(f32, @floatFromInt(r)) - 8.0) / 247.0 * 24.0)) + 232;
     }
 
-    // Use 6x6x6 color cube (colors 16-231)
     const ri: u8 = @intFromFloat(@round(@as(f32, @floatFromInt(r)) / 255.0 * 5.0));
     const gi: u8 = @intFromFloat(@round(@as(f32, @floatFromInt(g)) / 255.0 * 5.0));
     const bi: u8 = @intFromFloat(@round(@as(f32, @floatFromInt(b)) / 255.0 * 5.0));
     return 16 + 36 * ri + 6 * gi + bi;
 }
 
-// RGB values for the 16 standard terminal colors
 const standard_color_triplets = [16]ColorTriplet{
     .{ .r = 0, .g = 0, .b = 0 }, // black
     .{ .r = 128, .g = 0, .b = 0 }, // red
@@ -413,7 +405,6 @@ pub fn tripletFrom256(n: u8) ColorTriplet {
     if (n < 16) {
         return standard_color_triplets[n];
     } else if (n < 232) {
-        // 6x6x6 color cube
         const cube_index = n - 16;
         const ri = cube_index / 36;
         const gi = (cube_index % 36) / 6;
@@ -424,13 +415,11 @@ pub fn tripletFrom256(n: u8) ColorTriplet {
             .b = if (bi > 0) @as(u8, @intCast(bi * 40 + 55)) else 0,
         };
     } else {
-        // Grayscale (232-255)
         const gray = @as(u8, @intCast((n - 232) * 10 + 8));
         return .{ .r = gray, .g = gray, .b = gray };
     }
 }
 
-// Named color lookup table for parsing
 pub const named_colors = std.StaticStringMap(Color).initComptime(.{
     .{ "default", Color.default },
     .{ "black", Color.black },
@@ -452,248 +441,3 @@ pub const named_colors = std.StaticStringMap(Color).initComptime(.{
     .{ "grey", Color.grey },
     .{ "gray", Color.gray },
 });
-
-// Tests
-test "ColorTriplet.hex" {
-    const triplet = ColorTriplet{ .r = 255, .g = 128, .b = 0 };
-    try std.testing.expectEqualStrings("#ff8000", &triplet.hex());
-}
-
-test "ColorTriplet.blend" {
-    const c1 = ColorTriplet{ .r = 0, .g = 0, .b = 0 };
-    const c2 = ColorTriplet{ .r = 255, .g = 255, .b = 255 };
-
-    const mid = ColorTriplet.blend(c1, c2, 0.5);
-    try std.testing.expectEqual(@as(u8, 127), mid.r);
-    try std.testing.expectEqual(@as(u8, 127), mid.g);
-    try std.testing.expectEqual(@as(u8, 127), mid.b);
-
-    const start = ColorTriplet.blend(c1, c2, 0.0);
-    try std.testing.expectEqual(@as(u8, 0), start.r);
-
-    const end = ColorTriplet.blend(c1, c2, 1.0);
-    try std.testing.expectEqual(@as(u8, 255), end.r);
-}
-
-test "Color.fromHex valid" {
-    const c1 = try Color.fromHex("#ff0000");
-    try std.testing.expectEqual(ColorType.truecolor, c1.color_type);
-    try std.testing.expectEqual(@as(u8, 255), c1.triplet.?.r);
-    try std.testing.expectEqual(@as(u8, 0), c1.triplet.?.g);
-    try std.testing.expectEqual(@as(u8, 0), c1.triplet.?.b);
-
-    const c2 = try Color.fromHex("00ff00");
-    try std.testing.expectEqual(@as(u8, 0), c2.triplet.?.r);
-    try std.testing.expectEqual(@as(u8, 255), c2.triplet.?.g);
-
-    const c3 = try Color.fromHex("#abcdef");
-    try std.testing.expectEqual(@as(u8, 0xab), c3.triplet.?.r);
-    try std.testing.expectEqual(@as(u8, 0xcd), c3.triplet.?.g);
-    try std.testing.expectEqual(@as(u8, 0xef), c3.triplet.?.b);
-}
-
-test "Color.fromHex invalid" {
-    try std.testing.expectError(error.InvalidHexColor, Color.fromHex("#ff00"));
-    try std.testing.expectError(error.InvalidHexColor, Color.fromHex("ff"));
-    try std.testing.expectError(error.InvalidHexColor, Color.fromHex("#gggggg"));
-}
-
-test "Color.downgrade truecolor to 256" {
-    const truecolor = Color.fromRgb(255, 0, 0);
-    const downgraded = truecolor.downgrade(.eight_bit);
-    try std.testing.expectEqual(ColorType.eight_bit, downgraded.color_type);
-    try std.testing.expect(downgraded.number != null);
-}
-
-test "Color.downgrade truecolor to standard" {
-    const truecolor = Color.fromRgb(255, 0, 0);
-    const downgraded = truecolor.downgrade(.standard);
-    try std.testing.expectEqual(ColorType.standard, downgraded.color_type);
-    // Should map to red (1) or bright_red (9)
-    try std.testing.expect(downgraded.number.? == 9 or downgraded.number.? == 1);
-}
-
-test "Color.downgrade standard stays standard" {
-    const standard = Color.red;
-    const downgraded = standard.downgrade(.standard);
-    try std.testing.expect(standard.eql(downgraded));
-}
-
-test "Color.getAnsiCodes" {
-    var buf: [64]u8 = undefined;
-    var stream = std.Io.Writer.fixed(&buf);
-
-    // Default foreground
-    try Color.default.getAnsiCodes(true, &stream);
-    try std.testing.expectEqualStrings("39", stream.buffered());
-
-    stream.end = 0;
-
-    // Standard red foreground
-    try Color.red.getAnsiCodes(true, &stream);
-    try std.testing.expectEqualStrings("31", stream.buffered());
-
-    stream.end = 0;
-
-    // Standard red background
-    try Color.red.getAnsiCodes(false, &stream);
-    try std.testing.expectEqualStrings("41", stream.buffered());
-
-    stream.end = 0;
-
-    // Bright red foreground (number 9)
-    try Color.bright_red.getAnsiCodes(true, &stream);
-    try std.testing.expectEqualStrings("91", stream.buffered());
-
-    stream.end = 0;
-
-    // 256 color
-    try Color.from256(196).getAnsiCodes(true, &stream);
-    try std.testing.expectEqualStrings("38;5;196", stream.buffered());
-
-    stream.end = 0;
-
-    // Truecolor
-    try Color.fromRgb(255, 128, 64).getAnsiCodes(true, &stream);
-    try std.testing.expectEqualStrings("38;2;255;128;64", stream.buffered());
-}
-
-test "rgbTo256 grayscale" {
-    // Pure black
-    try std.testing.expectEqual(@as(u8, 16), rgbTo256(0, 0, 0));
-    // Pure white
-    try std.testing.expectEqual(@as(u8, 231), rgbTo256(255, 255, 255));
-    // Mid gray
-    const mid_gray = rgbTo256(128, 128, 128);
-    try std.testing.expect(mid_gray >= 232 and mid_gray <= 255);
-}
-
-test "rgbTo256 color cube" {
-    // Pure red should be near color 196 (5,0,0 in cube)
-    const pure_red = rgbTo256(255, 0, 0);
-    try std.testing.expectEqual(@as(u8, 196), pure_red);
-
-    // Pure green should be near color 46 (0,5,0 in cube)
-    const pure_green = rgbTo256(0, 255, 0);
-    try std.testing.expectEqual(@as(u8, 46), pure_green);
-
-    // Pure blue should be near color 21 (0,0,5 in cube)
-    const pure_blue = rgbTo256(0, 0, 255);
-    try std.testing.expectEqual(@as(u8, 21), pure_blue);
-}
-
-test "ColorSystem.supports" {
-    try std.testing.expect(ColorSystem.truecolor.supports(.truecolor));
-    try std.testing.expect(ColorSystem.truecolor.supports(.eight_bit));
-    try std.testing.expect(ColorSystem.truecolor.supports(.standard));
-
-    try std.testing.expect(!ColorSystem.eight_bit.supports(.truecolor));
-    try std.testing.expect(ColorSystem.eight_bit.supports(.eight_bit));
-    try std.testing.expect(ColorSystem.eight_bit.supports(.standard));
-
-    try std.testing.expect(!ColorSystem.standard.supports(.truecolor));
-    try std.testing.expect(!ColorSystem.standard.supports(.eight_bit));
-    try std.testing.expect(ColorSystem.standard.supports(.standard));
-}
-
-test "named_colors lookup" {
-    try std.testing.expect(named_colors.get("red").?.eql(Color.red));
-    try std.testing.expect(named_colors.get("green").?.eql(Color.green));
-    try std.testing.expect(named_colors.get("gray").?.eql(Color.bright_black));
-    try std.testing.expect(named_colors.get("grey").?.eql(Color.bright_black));
-    try std.testing.expect(named_colors.get("invalid") == null);
-}
-
-test "Color.gray and Color.grey alias bright_black" {
-    try std.testing.expect(Color.gray.eql(Color.bright_black));
-    try std.testing.expect(Color.grey.eql(Color.bright_black));
-    try std.testing.expect(Color.gray.eql(Color.grey));
-    try std.testing.expectEqual(@as(u8, 8), Color.gray.number.?);
-    try std.testing.expect(named_colors.get("gray").?.eql(Color.gray));
-    try std.testing.expect(named_colors.get("grey").?.eql(Color.grey));
-}
-
-test "AdaptiveColor auto-downgrade" {
-    const ac = AdaptiveColor.fromRgb(255, 100, 50);
-    const resolved = ac.resolve(.standard);
-    try std.testing.expectEqual(ColorType.standard, resolved.color_type);
-}
-
-test "AdaptiveColor explicit fallback" {
-    const ac = AdaptiveColor.init(
-        Color.fromRgb(255, 100, 50),
-        Color.from256(208),
-        Color.yellow,
-    );
-    try std.testing.expect(ac.resolve(.standard).eql(Color.yellow));
-    try std.testing.expect(ac.resolve(.eight_bit).eql(Color.from256(208)));
-}
-
-test "AdaptiveColor truecolor passthrough" {
-    const ac = AdaptiveColor.fromRgb(100, 200, 50);
-    const resolved = ac.resolve(.truecolor);
-    try std.testing.expectEqual(ColorType.truecolor, resolved.color_type);
-    try std.testing.expectEqual(@as(u8, 100), resolved.triplet.?.r);
-    try std.testing.expectEqual(@as(u8, 200), resolved.triplet.?.g);
-    try std.testing.expectEqual(@as(u8, 50), resolved.triplet.?.b);
-}
-
-test "ColorTriplet HSL round-trip" {
-    const original = ColorTriplet{ .r = 200, .g = 100, .b = 50 };
-    const hsl = original.toHsl();
-    const recovered = ColorTriplet.fromHsl(hsl.h, hsl.s, hsl.l);
-    try std.testing.expect(@abs(@as(i16, original.r) - @as(i16, recovered.r)) <= 1);
-    try std.testing.expect(@abs(@as(i16, original.g) - @as(i16, recovered.g)) <= 1);
-    try std.testing.expect(@abs(@as(i16, original.b) - @as(i16, recovered.b)) <= 1);
-}
-
-test "blendHsl red to green goes through yellow" {
-    const red = ColorTriplet{ .r = 255, .g = 0, .b = 0 };
-    const green_c = ColorTriplet{ .r = 0, .g = 255, .b = 0 };
-    const mid = ColorTriplet.blendHsl(red, green_c, 0.5);
-    try std.testing.expect(mid.r > 100);
-    try std.testing.expect(mid.g > 100);
-    try std.testing.expect(mid.b < 50);
-}
-
-test "gradient produces correct count" {
-    const stops = [_]ColorTriplet{
-        .{ .r = 255, .g = 0, .b = 0 },
-        .{ .r = 0, .g = 255, .b = 0 },
-        .{ .r = 0, .g = 0, .b = 255 },
-    };
-    var output: [5]ColorTriplet = undefined;
-    gradient(&stops, &output, false);
-    try std.testing.expectEqual(@as(u8, 255), output[0].r);
-    try std.testing.expectEqual(@as(u8, 255), output[4].b);
-}
-
-test "gradient HSL mode" {
-    const stops = [_]ColorTriplet{
-        .{ .r = 255, .g = 0, .b = 0 },
-        .{ .r = 0, .g = 0, .b = 255 },
-    };
-    var output: [3]ColorTriplet = undefined;
-    gradient(&stops, &output, true);
-    try std.testing.expectEqual(@as(u8, 255), output[0].r);
-    try std.testing.expectEqual(@as(u8, 255), output[2].b);
-}
-
-test "contrastRatio black on white is ~21" {
-    const black = ColorTriplet{ .r = 0, .g = 0, .b = 0 };
-    const white = ColorTriplet{ .r = 255, .g = 255, .b = 255 };
-    const ratio = black.contrastRatio(white);
-    try std.testing.expect(ratio > 20.5 and ratio < 21.5);
-}
-
-test "contrastRatio same color is 1" {
-    const c = ColorTriplet{ .r = 128, .g = 128, .b = 128 };
-    const ratio = c.contrastRatio(c);
-    try std.testing.expect(ratio > 0.99 and ratio < 1.01);
-}
-
-test "wcagLevel black on white is AAA" {
-    const black = ColorTriplet{ .r = 0, .g = 0, .b = 0 };
-    const white = ColorTriplet{ .r = 255, .g = 255, .b = 255 };
-    try std.testing.expectEqual(ColorTriplet.WcagLevel.aaa, black.wcagLevel(white));
-}

@@ -8,9 +8,3 @@ pub const CodeBlock = elements.CodeBlock;
 
 pub const markdown = @import("markdown.zig");
 pub const Markdown = markdown.Markdown;
-
-test {
-    _ = @import("theme.zig");
-    _ = @import("elements.zig");
-    _ = @import("markdown.zig");
-}

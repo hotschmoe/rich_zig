@@ -1,7 +1,3 @@
-//! Split Layout Example - Vertical and horizontal region splitting
-//!
-//! Run with: zig build example-split
-
 const std = @import("std");
 const rich = @import("rich_zig");
 
@@ -16,7 +12,6 @@ pub fn main(init: std.process.Init) !void {
     try console.printRenderable(rich.Rule.init().withTitle("Split Example").withCharacters("="));
     try console.print("");
 
-    // Vertical split (stacked regions)
     try console.print("[bold]Vertical Split (Top/Bottom):[/]");
     {
         var arena = std.heap.ArenaAllocator.init(allocator);
@@ -37,7 +32,6 @@ pub fn main(init: std.process.Init) !void {
     }
     try console.print("");
 
-    // Horizontal split (side-by-side regions)
     try console.print("[bold]Horizontal Split (Left/Right):[/]");
     {
         var arena = std.heap.ArenaAllocator.init(allocator);
@@ -58,7 +52,6 @@ pub fn main(init: std.process.Init) !void {
     }
     try console.print("");
 
-    // Multiple vertical regions
     try console.print("[bold]Multiple Vertical Regions:[/]");
     {
         var arena = std.heap.ArenaAllocator.init(allocator);

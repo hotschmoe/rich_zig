@@ -1,7 +1,3 @@
-//! Tree Example - Tree structures for hierarchical data
-//!
-//! Run with: zig build example-tree
-
 const std = @import("std");
 const rich = @import("rich_zig");
 
@@ -16,13 +12,11 @@ pub fn main(init: std.process.Init) !void {
     try console.printRenderable(rich.Rule.init().withTitle("Tree Example").withCharacters("="));
     try console.print("");
 
-    // Basic tree structure
     try console.print("[bold]File System Tree:[/]");
     {
         var root = rich.TreeNode.init(allocator, "project/");
         defer root.deinit();
 
-        // Add src directory with children
         const src = try root.addChildLabel("src/");
         _ = try src.addChildLabel("main.zig");
         _ = try src.addChildLabel("lib.zig");
@@ -30,12 +24,10 @@ pub fn main(init: std.process.Init) !void {
         _ = try utils.addChildLabel("helpers.zig");
         _ = try utils.addChildLabel("math.zig");
 
-        // Add docs directory
         const docs = try root.addChildLabel("docs/");
         _ = try docs.addChildLabel("README.md");
         _ = try docs.addChildLabel("API.md");
 
-        // Add top-level files
         _ = try root.addChildLabel("build.zig");
         _ = try root.addChildLabel("build.zig.zon");
 
@@ -44,7 +36,6 @@ pub fn main(init: std.process.Init) !void {
     }
     try console.print("");
 
-    // Styled tree with markup
     try console.print("[bold]Styled Tree (with colored labels):[/]");
     {
         var root = rich.TreeNode.init(allocator, "Application")
@@ -72,7 +63,6 @@ pub fn main(init: std.process.Init) !void {
     }
     try console.print("");
 
-    // Organization chart style tree
     try console.print("[bold]Organization Chart:[/]");
     {
         var root = rich.TreeNode.init(allocator, "CEO");

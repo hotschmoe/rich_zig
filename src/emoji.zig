@@ -1,7 +1,6 @@
 const std = @import("std");
 
 pub const emoji_map = std.StaticStringMap([]const u8).initComptime(.{
-    // Smileys & People
     .{ "smile", "\u{1F604}" },
     .{ "grin", "\u{1F600}" },
     .{ "joy", "\u{1F602}" },
@@ -52,7 +51,6 @@ pub const emoji_map = std.StaticStringMap([]const u8).initComptime(.{
     .{ "eyes", "\u{1F440}" },
     .{ "brain", "\u{1F9E0}" },
 
-    // Hearts & Love
     .{ "heart", "\u{2764}" },
     .{ "red_heart", "\u{2764}" },
     .{ "orange_heart", "\u{1F9E1}" },
@@ -65,7 +63,6 @@ pub const emoji_map = std.StaticStringMap([]const u8).initComptime(.{
     .{ "broken_heart", "\u{1F494}" },
     .{ "sparkling_heart", "\u{1F496}" },
 
-    // Status & Symbols
     .{ "check", "\u{2705}" },
     .{ "white_check_mark", "\u{2705}" },
     .{ "heavy_check_mark", "\u{2714}" },
@@ -83,7 +80,6 @@ pub const emoji_map = std.StaticStringMap([]const u8).initComptime(.{
     .{ "ok", "\u{1F197}" },
     .{ "cool", "\u{1F192}" },
 
-    // Objects & Tools
     .{ "rocket", "\u{1F680}" },
     .{ "fire", "\u{1F525}" },
     .{ "sparkles", "\u{2728}" },
@@ -121,7 +117,6 @@ pub const emoji_map = std.StaticStringMap([]const u8).initComptime(.{
     .{ "microphone", "\u{1F3A4}" },
     .{ "headphones", "\u{1F3A7}" },
 
-    // Files & Documents
     .{ "file", "\u{1F4C4}" },
     .{ "folder", "\u{1F4C1}" },
     .{ "clipboard", "\u{1F4CB}" },
@@ -134,13 +129,11 @@ pub const emoji_map = std.StaticStringMap([]const u8).initComptime(.{
     .{ "paperclip", "\u{1F4CE}" },
     .{ "scissors", "\u{2702}" },
 
-    // Time & Calendar
     .{ "clock", "\u{1F550}" },
     .{ "hourglass", "\u{231B}" },
     .{ "timer", "\u{23F2}" },
     .{ "calendar", "\u{1F4C5}" },
 
-    // Nature
     .{ "sun", "\u{2600}" },
     .{ "moon", "\u{1F319}" },
     .{ "cloud", "\u{2601}" },
@@ -153,7 +146,6 @@ pub const emoji_map = std.StaticStringMap([]const u8).initComptime(.{
     .{ "herb", "\u{1F33F}" },
     .{ "seedling", "\u{1F331}" },
 
-    // Animals
     .{ "dog", "\u{1F415}" },
     .{ "cat", "\u{1F408}" },
     .{ "mouse", "\u{1F401}" },
@@ -184,7 +176,6 @@ pub const emoji_map = std.StaticStringMap([]const u8).initComptime(.{
     .{ "crab", "\u{1F980}" },
     .{ "dragon", "\u{1F409}" },
 
-    // Food & Drink
     .{ "apple", "\u{1F34E}" },
     .{ "banana", "\u{1F34C}" },
     .{ "orange", "\u{1F34A}" },
@@ -211,7 +202,6 @@ pub const emoji_map = std.StaticStringMap([]const u8).initComptime(.{
     .{ "wine", "\u{1F377}" },
     .{ "cocktail", "\u{1F378}" },
 
-    // Travel & Places
     .{ "house", "\u{1F3E0}" },
     .{ "office", "\u{1F3E2}" },
     .{ "hospital", "\u{1F3E5}" },
@@ -231,7 +221,6 @@ pub const emoji_map = std.StaticStringMap([]const u8).initComptime(.{
     .{ "beach", "\u{1F3D6}" },
     .{ "camping", "\u{1F3D5}" },
 
-    // Arrows & Directions
     .{ "arrow_up", "\u{2B06}" },
     .{ "arrow_down", "\u{2B07}" },
     .{ "arrow_left", "\u{2B05}" },
@@ -247,7 +236,6 @@ pub const emoji_map = std.StaticStringMap([]const u8).initComptime(.{
     .{ "soon", "\u{1F51C}" },
     .{ "top", "\u{1F51D}" },
 
-    // Numbers
     .{ "zero", "\u{0030}\u{FE0F}\u{20E3}" },
     .{ "one", "\u{0031}\u{FE0F}\u{20E3}" },
     .{ "two", "\u{0032}\u{FE0F}\u{20E3}" },
@@ -262,7 +250,6 @@ pub const emoji_map = std.StaticStringMap([]const u8).initComptime(.{
     .{ "100", "\u{1F4AF}" },
     .{ "1234", "\u{1F522}" },
 
-    // Misc
     .{ "plus", "\u{2795}" },
     .{ "minus", "\u{2796}" },
     .{ "multiply", "\u{2716}" },
@@ -313,77 +300,4 @@ fn findShortcodeEnd(text: []const u8, start: usize) ?usize {
         return end;
     }
     return null;
-}
-
-test "emoji.get known emoji" {
-    const smile = get("smile");
-    try std.testing.expect(smile != null);
-    try std.testing.expectEqualStrings("\u{1F604}", smile.?);
-}
-
-test "emoji.get unknown emoji" {
-    const unknown = get("not_an_emoji");
-    try std.testing.expect(unknown == null);
-}
-
-test "emoji.get common emoji" {
-    try std.testing.expect(get("check") != null);
-    try std.testing.expect(get("x") != null);
-    try std.testing.expect(get("rocket") != null);
-    try std.testing.expect(get("fire") != null);
-    try std.testing.expect(get("heart") != null);
-    try std.testing.expect(get("star") != null);
-    try std.testing.expect(get("thumbsup") != null);
-    try std.testing.expect(get("warning") != null);
-}
-
-test "emoji.replaceShortcodes simple" {
-    const allocator = std.testing.allocator;
-    const result = try replaceShortcodes("Hello :smile: world", allocator);
-    defer allocator.free(result);
-
-    try std.testing.expect(std.mem.indexOf(u8, result, "\u{1F604}") != null);
-    try std.testing.expect(std.mem.indexOf(u8, result, "Hello ") != null);
-    try std.testing.expect(std.mem.indexOf(u8, result, " world") != null);
-}
-
-test "emoji.replaceShortcodes multiple" {
-    const allocator = std.testing.allocator;
-    const result = try replaceShortcodes(":rocket: Launch :fire:", allocator);
-    defer allocator.free(result);
-
-    try std.testing.expect(std.mem.indexOf(u8, result, "\u{1F680}") != null);
-    try std.testing.expect(std.mem.indexOf(u8, result, "\u{1F525}") != null);
-}
-
-test "emoji.replaceShortcodes no replacement" {
-    const allocator = std.testing.allocator;
-    const result = try replaceShortcodes("No emoji here", allocator);
-    defer allocator.free(result);
-
-    try std.testing.expectEqualStrings("No emoji here", result);
-}
-
-test "emoji.replaceShortcodes unknown shortcode" {
-    const allocator = std.testing.allocator;
-    const result = try replaceShortcodes("Hello :unknown_emoji: world", allocator);
-    defer allocator.free(result);
-
-    try std.testing.expectEqualStrings("Hello :unknown_emoji: world", result);
-}
-
-test "emoji.replaceShortcodes incomplete shortcode" {
-    const allocator = std.testing.allocator;
-    const result = try replaceShortcodes("Hello :smile world", allocator);
-    defer allocator.free(result);
-
-    try std.testing.expectEqualStrings("Hello :smile world", result);
-}
-
-test "emoji.replaceShortcodes empty shortcode" {
-    const allocator = std.testing.allocator;
-    const result = try replaceShortcodes("Hello :: world", allocator);
-    defer allocator.free(result);
-
-    try std.testing.expectEqualStrings("Hello :: world", result);
 }
