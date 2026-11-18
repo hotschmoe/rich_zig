@@ -20,78 +20,59 @@ pub const Language = enum {
     sql,
     plain,
 
-    /// Detect language from file extension
     pub fn fromExtension(ext: []const u8) Language {
         const extension_map = std.StaticStringMap(Language).initComptime(.{
-            // Zig
             .{ ".zig", .zig },
             .{ ".zon", .zig },
-            // JSON
             .{ ".json", .json },
             .{ ".jsonl", .json },
             .{ ".geojson", .json },
-            // Markdown
             .{ ".md", .markdown },
             .{ ".markdown", .markdown },
             .{ ".mdown", .markdown },
-            // Python
             .{ ".py", .python },
             .{ ".pyi", .python },
             .{ ".pyw", .python },
             .{ ".pyx", .python },
-            // JavaScript
             .{ ".js", .javascript },
             .{ ".mjs", .javascript },
             .{ ".cjs", .javascript },
             .{ ".jsx", .javascript },
-            // TypeScript
             .{ ".ts", .typescript },
             .{ ".mts", .typescript },
             .{ ".cts", .typescript },
             .{ ".tsx", .typescript },
-            // Rust
             .{ ".rs", .rust },
-            // Go
             .{ ".go", .go },
-            // C
             .{ ".c", .c },
             .{ ".h", .c },
-            // C++
             .{ ".cpp", .cpp },
             .{ ".cxx", .cpp },
             .{ ".cc", .cpp },
             .{ ".hpp", .cpp },
             .{ ".hxx", .cpp },
             .{ ".hh", .cpp },
-            // Shell/Bash
             .{ ".sh", .bash },
             .{ ".bash", .bash },
             .{ ".zsh", .bash },
             .{ ".fish", .bash },
-            // YAML
             .{ ".yaml", .yaml },
             .{ ".yml", .yaml },
-            // TOML
             .{ ".toml", .toml },
-            // XML
             .{ ".xml", .xml },
             .{ ".xsl", .xml },
             .{ ".xslt", .xml },
             .{ ".svg", .xml },
-            // HTML
             .{ ".html", .html },
             .{ ".htm", .html },
             .{ ".xhtml", .html },
-            // CSS
             .{ ".css", .css },
             .{ ".scss", .css },
             .{ ".sass", .css },
             .{ ".less", .css },
-            // SQL
             .{ ".sql", .sql },
         });
 
-        // Normalize extension to lowercase for comparison
         var lower_ext: [16]u8 = undefined;
         const len = @min(ext.len, lower_ext.len);
         for (0..len) |i| {
@@ -101,9 +82,7 @@ pub const Language = enum {
         return extension_map.get(lower_ext[0..len]) orelse .plain;
     }
 
-    /// Detect language from filename (extracts extension)
     pub fn fromFilename(filename: []const u8) Language {
-        // Handle special filenames without extensions
         const basename = std.fs.path.basename(filename);
 
         const special_files = std.StaticStringMap(Language).initComptime(.{
@@ -133,7 +112,6 @@ pub const Language = enum {
             return lang;
         }
 
-        // Extract extension
         if (std.mem.lastIndexOfScalar(u8, filename, '.')) |dot_pos| {
             return fromExtension(filename[dot_pos..]);
         }
@@ -141,22 +119,18 @@ pub const Language = enum {
         return .plain;
     }
 
-    /// Detect language from content using heuristics
     pub fn fromContent(content: []const u8) Language {
         const trimmed = std.mem.trimStart(u8, content, " \t\n\r");
         if (trimmed.len == 0) return .plain;
 
-        // Check for shebang
         if (std.mem.startsWith(u8, trimmed, "#!")) {
             const shebang = trimmed[0..@min(trimmed.len, 100)];
             if (std.mem.indexOf(u8, shebang, "python") != null) return .python;
             if (std.mem.indexOf(u8, shebang, "node") != null) return .javascript;
-            // "sh" matches bash, sh, zsh
             if (std.mem.indexOf(u8, shebang, "sh") != null) return .bash;
             return .bash;
         }
 
-        // Check for XML/HTML declaration
         if (std.mem.startsWith(u8, trimmed, "<?xml")) return .xml;
         if (std.mem.startsWith(u8, trimmed, "<!DOCTYPE html") or
             std.mem.startsWith(u8, trimmed, "<!doctype html") or
@@ -165,15 +139,12 @@ pub const Language = enum {
             return .html;
         }
 
-        // Check for JSON (starts with { or [)
         if (trimmed[0] == '{' or trimmed[0] == '[') {
             if (looksLikeJson(trimmed)) return .json;
         }
 
-        // Check for YAML (key: value pattern at start, or ---)
         if (std.mem.startsWith(u8, trimmed, "---")) return .yaml;
 
-        // Check for Markdown (common patterns)
         if (std.mem.startsWith(u8, trimmed, "# ") or
             std.mem.startsWith(u8, trimmed, "## ") or
             std.mem.startsWith(u8, trimmed, "### "))
@@ -181,7 +152,6 @@ pub const Language = enum {
             return .markdown;
         }
 
-        // Check for common language patterns
         if (containsZigPatterns(content)) return .zig;
         if (containsPythonPatterns(content)) return .python;
         if (containsRustPatterns(content)) return .rust;
@@ -192,8 +162,6 @@ pub const Language = enum {
         return .plain;
     }
 
-    /// Auto-detect language from filename and/or content.
-    /// Tries filename first, falls back to content heuristics.
     pub fn detect(filename: ?[]const u8, content: []const u8) Language {
         if (filename) |fname| {
             const from_file = fromFilename(fname);

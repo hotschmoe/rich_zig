@@ -1,9 +1,6 @@
 const std = @import("std");
 
-/// Get the display width of a Unicode codepoint.
-/// Returns 0 for zero-width/combining characters, 2 for wide characters (CJK, emoji), 1 otherwise.
 pub fn getCharacterCellSize(codepoint: u21) u2 {
-    // Zero-width characters
     if (codepoint == 0x200B or // Zero-width space
         codepoint == 0x200C or // Zero-width non-joiner
         codepoint == 0x200D or // Zero-width joiner
@@ -21,19 +18,15 @@ pub fn getCharacterCellSize(codepoint: u21) u2 {
         return 0;
     }
 
-    // Combining characters (diacritical marks)
     if (isCombining(codepoint)) return 0;
 
-    // Control characters
     if (codepoint < 32 or (codepoint >= 0x7F and codepoint < 0xA0)) {
         return 0;
     }
 
-    // Variation selectors
     if (codepoint >= 0xFE00 and codepoint <= 0xFE0F) return 0;
     if (codepoint >= 0xE0100 and codepoint <= 0xE01EF) return 0;
 
-    // Wide characters
     if (isWide(codepoint)) return 2;
 
     return 1;
@@ -97,42 +90,31 @@ fn isCombining(cp: u21) bool {
 }
 
 fn isWide(cp: u21) bool {
-    // Hangul Jamo
     if (cp >= 0x1100 and cp <= 0x115F) return true;
     if (cp >= 0x2329 and cp <= 0x232A) return true; // Angle brackets
 
-    // CJK Radicals Supplement through Enclosed CJK Letters
     if (cp >= 0x2E80 and cp <= 0x303E) return true;
 
-    // Hiragana, Katakana
     if (cp >= 0x3041 and cp <= 0x3096) return true;
     if (cp >= 0x30A1 and cp <= 0x30FA) return true;
 
-    // CJK Unified Ideographs and related
     if (cp >= 0x3400 and cp <= 0x4DBF) return true; // CJK Extension A
     if (cp >= 0x4E00 and cp <= 0x9FFF) return true; // CJK Unified Ideographs
 
-    // Hangul Syllables
     if (cp >= 0xAC00 and cp <= 0xD7A3) return true;
 
-    // CJK Compatibility Ideographs
     if (cp >= 0xF900 and cp <= 0xFAFF) return true;
 
-    // Vertical Forms
     if (cp >= 0xFE10 and cp <= 0xFE1F) return true;
 
-    // CJK Compatibility Forms
     if (cp >= 0xFE30 and cp <= 0xFE6F) return true;
 
-    // Fullwidth Forms
     if (cp >= 0xFF00 and cp <= 0xFF60) return true;
     if (cp >= 0xFFE0 and cp <= 0xFFE6) return true;
 
-    // CJK Extension B and beyond
     if (cp >= 0x20000 and cp <= 0x2FFFD) return true;
     if (cp >= 0x30000 and cp <= 0x3FFFD) return true;
 
-    // Emoji - wide ranges
     if (cp >= 0x1F300 and cp <= 0x1F9FF) return true; // Misc Symbols and Pictographs through Supplemental Symbols
     if (cp >= 0x1FA00 and cp <= 0x1FAFF) return true; // Extended-A
     if (cp >= 0x231A and cp <= 0x231B) return true; // Watch, Hourglass
@@ -213,7 +195,6 @@ fn isWide(cp: u21) bool {
     return false;
 }
 
-/// Calculate the cell width of a UTF-8 string
 pub fn cellLen(text: []const u8) usize {
     var width: usize = 0;
     var i: usize = 0;
@@ -239,7 +220,6 @@ pub fn cellLen(text: []const u8) usize {
     return width;
 }
 
-/// Find the byte index for a given cell position
 pub fn cellToByteIndex(text: []const u8, cell_pos: usize) usize {
     var current_cell: usize = 0;
     var i: usize = 0;
@@ -265,14 +245,12 @@ pub fn cellToByteIndex(text: []const u8, cell_pos: usize) usize {
     return i;
 }
 
-/// Truncate text to fit within max_width cells, optionally adding ellipsis
 pub fn truncate(text: []const u8, max_width: usize, ellipsis: []const u8) []const u8 {
     const text_width = cellLen(text);
     if (text_width <= max_width) return text;
 
     const ellipsis_width = cellLen(ellipsis);
     if (max_width <= ellipsis_width) {
-        // Not enough room for ellipsis, just truncate
         return text[0..cellToByteIndex(text, max_width)];
     }
 
@@ -280,7 +258,6 @@ pub fn truncate(text: []const u8, max_width: usize, ellipsis: []const u8) []cons
     return text[0..cellToByteIndex(text, target_width)];
 }
 
-/// Set the width of text by padding or truncating
 pub fn setLen(text: []const u8, width: usize, pad_char: u8, allocator: std.mem.Allocator) ![]u8 {
     const current_width = cellLen(text);
 
@@ -297,12 +274,9 @@ pub fn setLen(text: []const u8, width: usize, pad_char: u8, allocator: std.mem.A
         return result;
     }
 
-    // Pad
     const padding = width - current_width;
     const result = try allocator.alloc(u8, text.len + padding);
     @memcpy(result[0..text.len], text);
     @memset(result[text.len..], pad_char);
     return result;
 }
-
-// Tests

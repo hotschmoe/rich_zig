@@ -1,7 +1,3 @@
-//! Table Example - Tables, columns, rows, and styling
-//!
-//! Run with: zig build example-table
-
 const std = @import("std");
 const rich = @import("rich_zig");
 
@@ -16,7 +12,6 @@ pub fn main(init: std.process.Init) !void {
     try console.printRenderable(rich.Rule.init().withTitle("Table Example").withCharacters("="));
     try console.print("");
 
-    // Basic table
     try console.print("[bold]Basic Table:[/]");
     {
         var table = rich.Table.init(allocator);
@@ -34,7 +29,6 @@ pub fn main(init: std.process.Init) !void {
     }
     try console.print("");
 
-    // Table with title
     try console.print("[bold]Table with Title:[/]");
     {
         var table = rich.Table.init(allocator);
@@ -52,7 +46,6 @@ pub fn main(init: std.process.Init) !void {
     }
     try console.print("");
 
-    // Table with styled columns using withColumn
     try console.print("[bold]Styled Columns:[/]");
     {
         var table = rich.Table.init(allocator);
@@ -70,7 +63,6 @@ pub fn main(init: std.process.Init) !void {
     }
     try console.print("");
 
-    // Table with different box style
     try console.print("[bold]Double Border Style:[/]");
     {
         var table = rich.Table.init(allocator);
@@ -88,7 +80,6 @@ pub fn main(init: std.process.Init) !void {
     }
     try console.print("");
 
-    // Table with styled cells using CellContent
     try console.print("[bold]Styled Cell Content:[/]");
     {
         var table = rich.Table.init(allocator);
@@ -97,7 +88,6 @@ pub fn main(init: std.process.Init) !void {
         _ = table.addColumn("Service");
         _ = table.addColumn("Status");
 
-        // Use CellContent.segments for styled cell content
         const online_segs = [_]rich.Segment{
             rich.Segment.styled("Online", rich.Style.empty.foreground(rich.Color.green)),
         };

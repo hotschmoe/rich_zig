@@ -229,5 +229,3 @@ pub const BoxStyle = struct {
         return result;
     }
 };
-
-// Tests

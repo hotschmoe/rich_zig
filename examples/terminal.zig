@@ -1,12 +1,7 @@
-//! Terminal Example - Terminal detection, cell widths, and console features
-//!
-//! Run with: zig build example-terminal
-
 const std = @import("std");
 const rich = @import("rich_zig");
 
 pub fn main(init: std.process.Init) !void {
-    // Enable UTF-8 and virtual terminal on Windows
     _ = rich.terminal.enableUtf8();
     _ = rich.terminal.enableVirtualTerminal();
 
@@ -22,7 +17,6 @@ pub fn main(init: std.process.Init) !void {
 
     try console.print("[bold]Terminal Detection:[/]");
 
-    // Detect terminal capabilities
     const term_info = rich.terminal.detect(init.minimal.environ);
 
     var buf: [128]u8 = undefined;
@@ -36,13 +30,11 @@ pub fn main(init: std.process.Init) !void {
     try console.printPlain(tty_str);
     try console.print("");
 
-    // Console width
     try console.print("[bold]Console Width:[/]");
     const width_str = std.fmt.bufPrint(&buf, "  Console width: {d} columns", .{console.width()}) catch "  Console width: ?";
     try console.printPlain(width_str);
     try console.print("");
 
-    // Cell width calculation (important for Unicode/CJK alignment)
     try console.print("[bold]Cell Width Calculation:[/]");
     const hello_str = std.fmt.bufPrint(&buf, "  \"Hello\" = {d} cells", .{rich.cells.cellLen("Hello")}) catch "";
     try console.printPlain(hello_str);
@@ -58,7 +50,6 @@ pub fn main(init: std.process.Init) !void {
     try console.printPlain(emoji_str);
     try console.print("");
 
-    // Color ANSI code generation
     try console.print("[bold]Color ANSI Codes:[/]");
     var code_buf: [64]u8 = undefined;
     var stream = std.Io.Writer.fixed(&code_buf);
@@ -73,7 +64,6 @@ pub fn main(init: std.process.Init) !void {
     try console.printPlain(rgb_str);
     try console.print("");
 
-    // Console logging methods
     try console.print("[bold]Console Logging:[/]");
     try console.logDebug("This is a debug message", .{});
     try console.logInfo("This is an info message", .{});

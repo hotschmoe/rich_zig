@@ -107,5 +107,3 @@ pub const Rule = struct {
         }
     }
 };
-
-// Tests

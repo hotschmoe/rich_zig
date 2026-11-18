@@ -1,12 +1,5 @@
 const std = @import("std");
 
-/// Measurement represents the minimum and maximum widths a renderable
-/// can occupy. Layout containers (Table, Columns, Layout) use this to
-/// make smarter sizing decisions.
-///
-/// Renderables that implement `measure(max_width, allocator) Measurement`
-/// alongside `render(max_width, allocator) ![]Segment` allow the layout
-/// system to auto-size their containers optimally.
 pub const Measurement = struct {
     minimum: usize,
     maximum: usize,
@@ -18,10 +11,8 @@ pub const Measurement = struct {
         };
     }
 
-    /// A zero measurement (for empty content).
     pub const zero: Measurement = .{ .minimum = 0, .maximum = 0 };
 
-    /// Clamp measurement to a maximum width constraint.
     pub fn clamp(self: Measurement, max_width: usize) Measurement {
         return .{
             .minimum = @min(self.minimum, max_width),
@@ -29,8 +20,6 @@ pub const Measurement = struct {
         };
     }
 
-    /// Create a measurement spanning multiple items by taking the
-    /// union (widest min, widest max).
     pub fn union_(a: Measurement, b: Measurement) Measurement {
         return .{
             .minimum = @max(a.minimum, b.minimum),
@@ -38,8 +27,6 @@ pub const Measurement = struct {
         };
     }
 
-    /// Create a measurement spanning multiple items by taking the
-    /// intersection (narrowest bounds that satisfies both).
     pub fn intersection(a: Measurement, b: Measurement) Measurement {
         return .{
             .minimum = @max(a.minimum, b.minimum),
@@ -47,7 +34,6 @@ pub const Measurement = struct {
         };
     }
 
-    /// Pad the measurement by a given amount on each side.
     pub fn pad(self: Measurement, amount: usize) Measurement {
         const total = amount * 2;
         return .{
@@ -56,11 +42,8 @@ pub const Measurement = struct {
         };
     }
 
-    /// Measure text content by computing its cell width.
     pub fn fromText(text: []const u8) Measurement {
         const cells = @import("cells.zig");
-        // For single-line text, min == max == cell width
-        // For multi-line, min is widest word, max is widest line
         var max_line: usize = 0;
         var max_word: usize = 0;
         var current_line: usize = 0;
@@ -115,8 +98,6 @@ pub const Measurement = struct {
         };
     }
 
-    /// Measure a renderable if it supports the measure protocol.
-    /// Falls back to rendering and measuring the output if not.
     pub fn measureRenderable(renderable: anytype, max_width: usize, allocator: std.mem.Allocator) !Measurement {
         if (@hasDecl(@TypeOf(renderable), "measure")) {
             return renderable.measure(max_width, allocator);
@@ -130,5 +111,3 @@ pub const Measurement = struct {
         return Measurement.init(width, width);
     }
 };
-
-// Tests

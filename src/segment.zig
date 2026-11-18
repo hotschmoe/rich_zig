@@ -227,13 +227,11 @@ pub fn divide(segments: []const Segment, cuts: []const usize, allocator: std.mem
         const seg_start_cell = cell_pos - seg_pos;
         const seg_end_cell = seg_start_cell + seg_cell_len;
 
-        // Check if we need to cut within this segment
         while (cut_idx < cuts.len and cuts[cut_idx] <= seg_end_cell) {
             const cut_cell = cuts[cut_idx];
             const cut_within_seg = cut_cell - seg_start_cell;
 
             if (cut_within_seg > seg_pos) {
-                // Add portion up to the cut
                 const split = seg.splitCells(cut_within_seg);
                 const portion = split[0].splitCells(seg_pos);
                 if (portion[1].text.len > 0) {
@@ -241,7 +239,6 @@ pub fn divide(segments: []const Segment, cuts: []const usize, allocator: std.mem
                 }
             }
 
-            // Save current section and start new one
             try result.append(allocator, try current_section.toOwnedSlice(allocator));
             current_section = .empty;
 
@@ -249,7 +246,6 @@ pub fn divide(segments: []const Segment, cuts: []const usize, allocator: std.mem
             cut_idx += 1;
         }
 
-        // Add remaining portion of segment
         if (seg_pos < seg_cell_len) {
             const remaining = seg.splitCells(seg_pos)[1];
             if (remaining.text.len > 0) {
@@ -262,7 +258,6 @@ pub fn divide(segments: []const Segment, cuts: []const usize, allocator: std.mem
         seg_idx += 1;
     }
 
-    // Add final section
     try result.append(allocator, try current_section.toOwnedSlice(allocator));
 
     return result.toOwnedSlice(allocator);
@@ -309,14 +304,12 @@ pub fn adjustLineLength(segments: []const Segment, target_length: usize, pad_cha
     var result: std.ArrayList(Segment) = .empty;
 
     if (current_len < target_length) {
-        // Pad
         try result.appendSlice(allocator, segments);
         const padding = target_length - current_len;
         const pad_str = try allocator.alloc(u8, padding);
         @memset(pad_str, pad_char);
         try result.append(allocator, Segment.plain(pad_str));
     } else {
-        // Truncate
         var remaining = target_length;
         for (segments) |seg| {
             if (seg.control != null) {
@@ -341,5 +334,3 @@ pub fn adjustLineLength(segments: []const Segment, target_length: usize, pad_cha
 
     return result.toOwnedSlice(allocator);
 }
-
-// Tests

@@ -71,20 +71,16 @@ pub const Panel = struct {
         };
     }
 
-    /// Convenience alias for fromSegments - creates a Panel from pre-rendered content.
-    /// Use this when you have segments from another renderable (e.g., Table.render(), Json.render()).
     pub fn fromRendered(allocator: std.mem.Allocator, segs: []const Segment) Panel {
         return fromSegments(allocator, segs);
     }
 
-    /// Creates an info panel with blue border and rounded style.
     pub fn info(allocator: std.mem.Allocator, text: []const u8) Panel {
         return fromText(allocator, text)
             .withBorderStyle(Style.empty.fg(Color.blue))
             .rounded();
     }
 
-    /// Creates a warning panel with yellow border, "Warning" title, and rounded style.
     pub fn warning(allocator: std.mem.Allocator, text: []const u8) Panel {
         return fromText(allocator, text)
             .withTitle("Warning")
@@ -92,7 +88,6 @@ pub const Panel = struct {
             .rounded();
     }
 
-    /// Creates an error panel with red border, "Error" title, and rounded style.
     pub fn err(allocator: std.mem.Allocator, text: []const u8) Panel {
         return fromText(allocator, text)
             .withTitle("Error")
@@ -100,7 +95,6 @@ pub const Panel = struct {
             .rounded();
     }
 
-    /// Creates a success panel with green border, "Success" title, and rounded style.
     pub fn success(allocator: std.mem.Allocator, text: []const u8) Panel {
         return fromText(allocator, text)
             .withTitle("Success")

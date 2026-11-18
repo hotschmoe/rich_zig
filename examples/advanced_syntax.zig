@@ -1,7 +1,3 @@
-//! Advanced Syntax Example - Themes, tab size, indent guides, line highlighting
-//!
-//! Run with: zig build example-advanced_syntax
-
 const std = @import("std");
 const rich = @import("rich_zig");
 
@@ -16,7 +12,6 @@ pub fn main(init: std.process.Init) !void {
     try console.printRenderable(rich.Rule.init().withTitle("Advanced Syntax Example").withCharacters("="));
     try console.print("");
 
-    // Syntax with Monokai theme
     try console.print("[bold]Syntax with Monokai Theme:[/]");
     {
         var arena = std.heap.ArenaAllocator.init(allocator);
@@ -30,7 +25,6 @@ pub fn main(init: std.process.Init) !void {
     }
     try console.print("");
 
-    // Syntax with custom tab size
     try console.print("[bold]Syntax with Custom Tab Size (2 spaces):[/]");
     {
         var arena = std.heap.ArenaAllocator.init(allocator);
@@ -44,7 +38,6 @@ pub fn main(init: std.process.Init) !void {
     }
     try console.print("");
 
-    // Syntax with indent guides
     try console.print("[bold]Syntax with Indent Guides:[/]");
     {
         var arena = std.heap.ArenaAllocator.init(allocator);
@@ -67,7 +60,6 @@ pub fn main(init: std.process.Init) !void {
     }
     try console.print("");
 
-    // Syntax with highlighted lines
     try console.print("[bold]Syntax with Highlighted Line (line 2):[/]");
     {
         var arena = std.heap.ArenaAllocator.init(allocator);
@@ -87,7 +79,6 @@ pub fn main(init: std.process.Init) !void {
     }
     try console.print("");
 
-    // Syntax with word wrap (manual render to demo specific width)
     try console.print("[bold]Syntax with Word Wrap (width=45):[/]");
     {
         var arena = std.heap.ArenaAllocator.init(allocator);
@@ -102,7 +93,6 @@ pub fn main(init: std.process.Init) !void {
     }
     try console.print("");
 
-    // Language auto-detection from file extension
     try console.print("[bold]Language Auto-Detection:[/]");
     const extensions = [_][]const u8{ ".py", ".rs", ".zig", ".js", ".go", ".c" };
     var buf: [64]u8 = undefined;

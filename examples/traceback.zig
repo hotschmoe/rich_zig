@@ -1,7 +1,3 @@
-//! Traceback Example - Error traceback rendering
-//!
-//! Run with: zig build example-traceback
-
 const std = @import("std");
 const rich = @import("rich_zig");
 
@@ -16,7 +12,6 @@ pub fn main(init: std.process.Init) !void {
     try console.printRenderable(rich.Rule.init().withTitle("Traceback Example").withCharacters("="));
     try console.print("");
 
-    // Basic traceback
     try console.print("[bold]Basic Traceback:[/]");
     {
         var arena = std.heap.ArenaAllocator.init(allocator);
@@ -49,7 +44,6 @@ pub fn main(init: std.process.Init) !void {
     }
     try console.print("");
 
-    // Traceback with more context
     try console.print("[bold]Detailed Traceback:[/]");
     {
         var arena = std.heap.ArenaAllocator.init(allocator);

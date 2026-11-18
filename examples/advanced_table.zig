@@ -1,7 +1,3 @@
-//! Advanced Table Example - Captions, footers, alternating rows, and spanning
-//!
-//! Run with: zig build example-advanced_table
-
 const std = @import("std");
 const rich = @import("rich_zig");
 
@@ -16,7 +12,6 @@ pub fn main(init: std.process.Init) !void {
     try console.printRenderable(rich.Rule.init().withTitle("Advanced Table Example").withCharacters("="));
     try console.print("");
 
-    // Table with caption
     try console.print("[bold]Table with Caption:[/]");
     {
         var table = rich.Table.init(allocator);
@@ -29,7 +24,6 @@ pub fn main(init: std.process.Init) !void {
     }
     try console.print("");
 
-    // Table with footer
     try console.print("[bold]Table with Footer:[/]");
     {
         var table = rich.Table.init(allocator);
@@ -43,7 +37,6 @@ pub fn main(init: std.process.Init) !void {
     }
     try console.print("");
 
-    // Table with alternating row styles
     try console.print("[bold]Table with Alternating Rows:[/]");
     {
         var table = rich.Table.init(allocator);
@@ -58,27 +51,23 @@ pub fn main(init: std.process.Init) !void {
     }
     try console.print("");
 
-    // Table with row/column spanning
     try console.print("[bold]Table with Cell Spanning:[/]");
     {
         var table = rich.Table.init(allocator);
         defer table.deinit();
         _ = table.addColumn("A").addColumn("B").addColumn("C");
 
-        // Row with colspan
         try table.addSpannedRow(&.{
             rich.Cell.text("Spans 2 columns").withColspan(2),
             rich.Cell.text("C1"),
         });
 
-        // Row with rowspan (first cell spans 2 rows)
         try table.addSpannedRow(&.{
             rich.Cell.text("Spans 2 rows").withRowspan(2),
             rich.Cell.text("B2"),
             rich.Cell.text("C2"),
         });
 
-        // Continuation row (first column covered by rowspan)
         try table.addSpannedRow(&.{
             rich.Cell.text("B3"),
             rich.Cell.text("C3"),

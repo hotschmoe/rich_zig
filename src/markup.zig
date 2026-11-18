@@ -28,27 +28,21 @@ pub fn parseMarkup(text: []const u8, allocator: std.mem.Allocator) ![]MarkupToke
     var text_start: usize = 0;
 
     while (i < text.len) {
-        // Escaped bracket: \[ or \]
         if (text[i] == '\\' and i + 1 < text.len and (text[i + 1] == '[' or text[i + 1] == ']')) {
-            // Add text before escape
             if (i > text_start) {
                 try tokens.append(allocator, .{ .text = text[text_start..i] });
             }
-            // Add the escaped character as text
             try tokens.append(allocator, .{ .text = text[i + 1 .. i + 2] });
             i += 2;
             text_start = i;
             continue;
         }
 
-        // Start of tag
         if (text[i] == '[') {
-            // Add text before tag
             if (i > text_start) {
                 try tokens.append(allocator, .{ .text = text[text_start..i] });
             }
 
-            // Find closing bracket
             const end = std.mem.indexOfScalarPos(u8, text, i + 1, ']') orelse
                 return MarkupError.UnbalancedBracket;
 
@@ -59,11 +53,9 @@ pub fn parseMarkup(text: []const u8, allocator: std.mem.Allocator) ![]MarkupToke
             }
 
             if (tag_content[0] == '/') {
-                // Close tag: [/] or [/name]
                 const tag_name = if (tag_content.len > 1) tag_content[1..] else null;
                 try tokens.append(allocator, .{ .close_tag = tag_name });
             } else {
-                // Open tag: check for = sign for parameters
                 if (std.mem.indexOfScalar(u8, tag_content, '=')) |eq_pos| {
                     try tokens.append(allocator, .{ .open_tag = .{
                         .name = tag_content[0..eq_pos],
@@ -82,7 +74,6 @@ pub fn parseMarkup(text: []const u8, allocator: std.mem.Allocator) ![]MarkupToke
         i += 1;
     }
 
-    // Remaining text
     if (text_start < text.len) {
         try tokens.append(allocator, .{ .text = text[text_start..] });
     }
@@ -180,5 +171,3 @@ pub fn stripMarkup(text: []const u8, allocator: std.mem.Allocator) ![]u8 {
 
     return result;
 }
-
-// Tests

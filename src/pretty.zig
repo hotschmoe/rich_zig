@@ -3,7 +3,6 @@ const Style = @import("style.zig").Style;
 const Color = @import("color.zig").Color;
 const Segment = @import("segment.zig").Segment;
 
-/// Theme for pretty-printed output.
 pub const PrettyTheme = struct {
     number: Style = Style.empty.foreground(Color.cyan).bold(),
     string: Style = Style.empty.foreground(Color.green),
@@ -27,7 +26,6 @@ pub const PrettyTheme = struct {
     };
 };
 
-/// Options for pretty printing.
 pub const PrettyOptions = struct {
     indent: usize = 2,
     max_depth: usize = 6,
@@ -38,7 +36,6 @@ pub const PrettyOptions = struct {
     single_line_max: usize = 60,
 };
 
-/// Pretty printer that formats Zig values into styled Segments.
 pub const Pretty = struct {
     allocator: std.mem.Allocator,
     options: PrettyOptions,
@@ -58,14 +55,12 @@ pub const Pretty = struct {
         };
     }
 
-    /// Format any value into styled segments.
     pub fn format(self: *Pretty, value: anytype) ![]Segment {
         self.segments.clearRetainingCapacity();
         try self.formatValue(value);
         return self.segments.toOwnedSlice(self.allocator);
     }
 
-    /// Render as a renderable (matches the render(width, allocator) protocol).
     pub fn render(self: Pretty, max_width: usize, allocator: std.mem.Allocator) ![]Segment {
         _ = max_width;
         var p = Pretty.initWithOptions(allocator, self.options);
@@ -306,22 +301,17 @@ pub const Pretty = struct {
 
     fn formatStored(self: *Pretty, other: Pretty) ![]Segment {
         _ = other;
-        // Placeholder for stored value rendering
         try self.emit("Pretty{...}", self.options.theme.type_name);
         return self.segments.toOwnedSlice(self.allocator);
     }
 };
 
-/// Convenience function: format a value and return segments.
 pub fn pretty(allocator: std.mem.Allocator, value: anytype) ![]Segment {
     var p = Pretty.init(allocator);
     return p.format(value);
 }
 
-/// Convenience function with options.
 pub fn prettyWithOptions(allocator: std.mem.Allocator, value: anytype, options: PrettyOptions) ![]Segment {
     var p = Pretty.initWithOptions(allocator, options);
     return p.format(value);
 }
-
-// Tests

@@ -1,6 +1,6 @@
 const std = @import("std");
 
-/// Single source of truth: build.zig.zon `.version` (docs/VERSIONING.md). `-Dversion-meta=<str>` appends "+<str>".
+/// See docs/VERSIONING.md for version metadata.
 fn versionString(b: *std.Build) []const u8 {
     const base: []const u8 = @import("build.zig.zon").version;
     _ = std.SemanticVersion.parse(base) catch @panic("build.zig.zon .version is not valid semver");
@@ -8,34 +8,9 @@ fn versionString(b: *std.Build) []const u8 {
     return b.fmt("{s}+{s}", .{ base, meta });
 }
 
-// Although this function looks imperative, it does not perform the build
-// directly and instead it mutates the build graph (`b`) that will be then
-// executed by an external runner. The functions in `std.Build` implement a DSL
-// for defining build steps and express dependencies between them, allowing the
-// build runner to parallelize the build automatically (and the cache system to
-// know when a step doesn't need to be re-run).
 pub fn build(b: *std.Build) void {
-    // Standard target options allow the person running `zig build` to choose
-    // what target to build for. Here we do not override the defaults, which
-    // means any target is allowed, and the default is native. Other options
-    // for restricting supported target set are available.
     const target = b.standardTargetOptions(.{});
-    // Standard optimization options allow the person running `zig build` to select
-    // between Debug, ReleaseSafe, ReleaseFast, and ReleaseSmall. Here we do not
-    // set a preferred release mode, allowing the user to decide how to optimize.
     const optimize = b.standardOptimizeOption(.{});
-    // It's also possible to define more custom flags to toggle optional features
-    // of this build script using `b.option()`. All defined flags (including
-    // target and optimize options) will be listed when running `zig build --help`
-    // in this directory.
-
-    // This creates a module, which represents a collection of source files alongside
-    // some compilation options, such as optimization mode and linked system libraries.
-    // Zig modules are the preferred way of making Zig code available to consumers.
-    // addModule defines a module that we intend to make available for importing
-    // to our consumers. We must give it a name because a Zig package can expose
-    // multiple modules and consumers will need to be able to specify which
-    // module they want to access.
     const mod = b.addModule("rich_zig", .{
         .root_source_file = b.path("src/root.zig"),
         .target = target,
@@ -45,99 +20,35 @@ pub fn build(b: *std.Build) void {
     version_options.addOption([]const u8, "manifest_version", @import("build.zig.zon").version);
     mod.addOptions("build_options", version_options);
 
-    // Here we define an executable. An executable needs to have a root module
-    // which needs to expose a `main` function. While we could add a main function
-    // to the module defined above, it's sometimes preferable to split business
-    // logic and the CLI into two separate modules.
-    //
-    // If your goal is to create a Zig library for others to use, consider if
-    // it might benefit from also exposing a CLI tool. A parser library for a
-    // data serialization format could also bundle a CLI syntax checker, for example.
-    //
-    // If instead your goal is to create an executable, consider if users might
-    // be interested in also being able to embed the core functionality of your
-    // program in their own executable in order to avoid the overhead involved in
-    // subprocessing your CLI tool.
-    //
-    // If neither case applies to you, feel free to delete the declaration you
-    // don't need and to put everything under a single module.
     const exe = b.addExecutable(.{
         .name = "rich_zig",
         .root_module = b.createModule(.{
-            // b.createModule defines a new module just like b.addModule but,
-            // unlike b.addModule, it does not expose the module to consumers of
-            // this package, which is why in this case we don't have to give it a name.
             .root_source_file = b.path("src/main.zig"),
-            // Target and optimization levels must be explicitly wired in when
-            // defining an executable or library (in the root module), and you
-            // can also hardcode a specific target for an executable or library
-            // definition if desireable (e.g. firmware for embedded devices).
             .target = target,
             .optimize = optimize,
-            // List of modules available for import in source files part of the
-            // root module.
             .imports = &.{
-                // Here "rich_zig" is the name you will use in your source code to
-                // import this module (e.g. `@import("rich_zig")`). The name is
-                // repeated because you are allowed to rename your imports, which
-                // can be extremely useful in case of collisions (which can happen
-                // importing modules from different packages).
                 .{ .name = "rich_zig", .module = mod },
             },
         }),
     });
 
-    // This declares intent for the executable to be installed into the
-    // install prefix when running `zig build` (i.e. when executing the default
-    // step). By default the install prefix is `zig-out/` but can be overridden
-    // by passing `--prefix` or `-p`.
     b.installArtifact(exe);
 
-    // This creates a top level step. Top level steps have a name and can be
-    // invoked by name when running `zig build` (e.g. `zig build run`).
-    // This will evaluate the `run` step rather than the default step.
-    // For a top level step to actually do something, it must depend on other
-    // steps (e.g. a Run step, as we will see in a moment).
     const run_step = b.step("run", "Run all examples");
 
-    // This creates a RunArtifact step in the build graph. A RunArtifact step
-    // invokes an executable compiled by Zig. Steps will only be executed by the
-    // runner if invoked directly by the user (in the case of top level steps)
-    // or if another step depends on it, so it's up to you to define when and
-    // how this Run step will be executed. In our case we want to run it when
-    // the user runs `zig build run`, so we create a dependency link.
     const run_cmd = b.addRunArtifact(exe);
     run_cmd.step.dependOn(b.getInstallStep());
 
-    // Run main demo first
     const run_demo_step = b.step("demo", "Run the main demo only");
     run_demo_step.dependOn(&run_cmd.step);
 
-    // This allows the user to pass arguments to the application in the build
-    // command itself, like this: `zig build run -- arg1 arg2 etc`
     run_cmd.addPassthruArgs();
 
-    // Creates an executable that will run `test` blocks from the provided module.
-    // Here `mod` needs to define a target, which is why earlier we made sure to
-    // set the releative field.
     const test_step = b.step("test", "Build and run the blocking end-to-end examples");
     test_step.dependOn(b.getInstallStep());
     test_step.dependOn(&run_cmd.step);
     const heavy_step = b.step("test-heavy", "Run the complete example suite");
 
-    // Just like flags, top level steps are also listed in the `--help` menu.
-    //
-    // The Zig build system is entirely implemented in userland, which means
-    // that it cannot hook into private compiler APIs. All compilation work
-    // orchestrated by the build system will result in other Zig compiler
-    // subcommands being invoked with the right flags defined. You can observe
-    // these invocations when one fails (or you pass a flag to increase
-    // verbosity) to validate assumptions and diagnose problems.
-    //
-    // Lastly, the Zig build system is relatively simple and self-contained,
-    // and reading its source code will allow you to master it.
-
-    // Examples - each example gets its own build target
     const examples = [_][]const u8{
         "hello",
         "panel",
@@ -156,10 +67,8 @@ pub fn build(b: *std.Build) void {
         "advanced_progress",
         "advanced_syntax",
         "color_features",
-        // "toon_demo",
     };
 
-    // For chaining all examples in the "run" step (examples only, not main demo)
     var prev_step: *std.Build.Step = b.getInstallStep();
 
     for (examples) |name| {
@@ -177,13 +86,11 @@ pub fn build(b: *std.Build) void {
 
         b.installArtifact(example_exe);
 
-        // Run command for chaining in "run" step
         const chained_run = b.addRunArtifact(example_exe);
         chained_run.step.dependOn(b.getInstallStep());
         chained_run.step.dependOn(prev_step);
         prev_step = &chained_run.step;
 
-        // Standalone run command for individual example step
         const standalone_run = b.addRunArtifact(example_exe);
         standalone_run.step.dependOn(b.getInstallStep());
 
@@ -195,7 +102,6 @@ pub fn build(b: *std.Build) void {
         example_step.dependOn(&standalone_run.step);
     }
 
-    // run_step runs demo + all examples in sequence
     run_step.dependOn(prev_step);
     heavy_step.dependOn(prev_step);
 }

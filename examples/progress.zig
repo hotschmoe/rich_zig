@@ -1,7 +1,3 @@
-//! Progress Example - Progress bars and spinners
-//!
-//! Run with: zig build example-progress
-
 const std = @import("std");
 const rich = @import("rich_zig");
 
@@ -16,7 +12,6 @@ pub fn main(init: std.process.Init) !void {
     try console.printRenderable(rich.Rule.init().withTitle("Progress Example").withCharacters("="));
     try console.print("");
 
-    // Basic progress bar
     try console.print("[bold]Basic Progress Bar:[/]");
     {
         const bar = rich.ProgressBar.init(io)
@@ -27,7 +22,6 @@ pub fn main(init: std.process.Init) !void {
     }
     try console.print("");
 
-    // Progress bar with description
     try console.print("[bold]Progress Bar with Description:[/]");
     {
         const bar = rich.ProgressBar.init(io)
@@ -39,7 +33,6 @@ pub fn main(init: std.process.Init) !void {
     }
     try console.print("");
 
-    // Multiple progress bars at different stages
     try console.print("[bold]Progress at Different Stages:[/]");
     const stages = [_]u64{ 0, 25, 50, 75, 100 };
     for (stages) |completed| {
@@ -51,7 +44,6 @@ pub fn main(init: std.process.Init) !void {
     }
     try console.print("");
 
-    // Progress group for multiple concurrent tasks
     try console.print("[bold]Progress Group (Multiple Tasks):[/]");
     {
         var arena = std.heap.ArenaAllocator.init(allocator);
@@ -71,7 +63,6 @@ pub fn main(init: std.process.Init) !void {
     }
     try console.print("");
 
-    // Spinner examples (Spinner.render has different signature - not compatible with printRenderable)
     try console.print("[bold]Spinners:[/]");
     {
         const default_spinner = rich.Spinner.init();

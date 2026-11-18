@@ -50,14 +50,12 @@ pub const Syntax = struct {
         return s;
     }
 
-    /// Auto-detect language from filename and/or content
     pub fn withAutoDetect(self: Syntax, filename: ?[]const u8) Syntax {
         var s = self;
         s.language = Language.detect(filename, s.code);
         return s;
     }
 
-    /// Create syntax highlighter from code string with filename for language detection
     pub fn fromFile(allocator: std.mem.Allocator, code: []const u8, filename: []const u8) Syntax {
         return Syntax{
             .code = code,
@@ -66,7 +64,6 @@ pub const Syntax = struct {
         };
     }
 
-    /// Load code from filesystem and create syntax highlighter (auto-detects language)
     pub fn loadFile(allocator: std.mem.Allocator, io: std.Io, path: []const u8) !Syntax {
         const file = try std.Io.Dir.openFile(.cwd(), io, path, .{});
         defer file.close(io);
@@ -83,7 +80,7 @@ pub const Syntax = struct {
         };
     }
 
-    /// Free memory allocated by loadFile. Only call on Syntax instances created via loadFile.
+    /// Only call for instances created by loadFile.
     pub fn deinit(self: *Syntax) void {
         if (self.owns_code) {
             self.allocator.free(self.code);
@@ -132,15 +129,13 @@ pub const Syntax = struct {
         return s;
     }
 
-    /// Highlight specific line numbers (e.g., for showing error locations).
-    /// Line numbers are 1-based (matching start_line convention).
+    /// Line numbers are 1-based, matching start_line.
     pub fn withHighlightLines(self: Syntax, lines: []const usize) Syntax {
         var s = self;
         s.highlight_lines = lines;
         return s;
     }
 
-    /// Check if a given line number should be highlighted.
     fn isLineHighlighted(self: Syntax, line_num: usize) bool {
         if (self.highlight_lines) |lines| {
             for (lines) |hl| {
@@ -156,7 +151,6 @@ pub const Syntax = struct {
         var lines = std.mem.splitScalar(u8, self.code, '\n');
         var line_num: usize = self.start_line;
 
-        // Calculate available width for code (accounting for line numbers)
         const line_num_width: usize = if (self.show_line_numbers) 5 else 0; // "NNNN "
         const code_width: usize = if (max_width > line_num_width) max_width - line_num_width else max_width;
 
@@ -218,7 +212,6 @@ pub const Syntax = struct {
         }
     }
 
-    /// Apply syntax highlighting to content based on language.
     fn highlightContent(self: Syntax, segments: *std.ArrayList(Segment), allocator: std.mem.Allocator, content: []const u8, is_highlighted: bool) !void {
         switch (self.language) {
             .zig => try self.highlightZig(segments, allocator, content, is_highlighted),
@@ -243,7 +236,6 @@ pub const Syntax = struct {
         }
     }
 
-    /// Render a line with indent guides at each tab stop in the leading whitespace.
     fn renderWithIndentGuides(self: Syntax, segments: *std.ArrayList(Segment), allocator: std.mem.Allocator, line: []const u8, is_highlighted: bool) !void {
         var indent_end: usize = 0;
         while (indent_end < line.len and line[indent_end] == ' ') : (indent_end += 1) {}
@@ -284,13 +276,11 @@ pub const Syntax = struct {
         }
     }
 
-    /// Expand tabs to spaces based on tab_size setting.
-    /// Returns the original slice if no tabs are present (no allocation).
+    /// Returns the original slice without allocation if no tabs are present.
     fn expandTabs(self: Syntax, line: []const u8, allocator: std.mem.Allocator) ![]const u8 {
         const tab_count = std.mem.count(u8, line, "\t");
         if (tab_count == 0) return line;
 
-        // Over-allocate: actual size may be smaller due to tab-stop alignment
         const max_len = line.len - tab_count + tab_count * self.tab_size;
         const result = try allocator.alloc(u8, max_len);
 
@@ -300,7 +290,6 @@ pub const Syntax = struct {
 
         while (src_pos < line.len) : (src_pos += 1) {
             if (line[src_pos] == '\t') {
-                // Calculate spaces to next tab stop
                 const spaces_to_tab_stop = self.tab_size - @as(u8, @intCast(column % self.tab_size));
                 @memset(result[dst_pos..][0..spaces_to_tab_stop], ' ');
                 dst_pos += spaces_to_tab_stop;
@@ -334,7 +323,6 @@ pub const Syntax = struct {
         return Segment.styled(text, self.theme.applyBackground(style));
     }
 
-    /// Apply highlight line background to a style (overrides any existing background).
     fn applyHighlightBackground(self: Syntax, style: Style) Style {
         var result = style;
         result.bgcolor = self.theme.highlight_line_style.bgcolor;
@@ -602,9 +590,6 @@ pub const Syntax = struct {
         };
     }
 
-    /// Wrap styled segments to fit within max_width, preserving styles across wrapped lines.
-    /// Prefers breaking at word boundaries (spaces) when possible, falls back to character-level
-    /// wrapping for long words that exceed the available width.
     fn wrapSegments(line_segments: []const Segment, max_width: usize, allocator: std.mem.Allocator) ![]Segment {
         if (max_width == 0) {
             return allocator.dupe(Segment, line_segments);
@@ -613,15 +598,12 @@ pub const Syntax = struct {
         var result: std.ArrayList(Segment) = .empty;
         var current_width: usize = 0;
 
-        // Track position of last space for word-boundary breaking
         var last_space_result_idx: ?usize = null;
 
         for (line_segments) |seg| {
             const seg_width = seg.cellLength();
 
-            // If segment fits on current line, append it
             if (current_width + seg_width <= max_width) {
-                // Check if this segment contains a space (potential break point)
                 if (std.mem.lastIndexOfScalar(u8, seg.text, ' ')) |_| {
                     last_space_result_idx = result.items.len;
                 }
@@ -630,7 +612,6 @@ pub const Syntax = struct {
                 continue;
             }
 
-            // Segment doesn't fit - need to wrap within it
             var remaining_text = seg.text;
 
             while (remaining_text.len > 0) {
@@ -644,7 +625,6 @@ pub const Syntax = struct {
                 const available = max_width - current_width;
 
                 if (remaining_width <= available) {
-                    // Check for space in this final piece
                     if (std.mem.lastIndexOfScalar(u8, remaining_text, ' ')) |_| {
                         last_space_result_idx = result.items.len;
                     }
@@ -653,33 +633,23 @@ pub const Syntax = struct {
                     break;
                 }
 
-                // Find word boundary within available space
                 const byte_limit = cells.cellToByteIndex(remaining_text, available);
                 var break_byte = byte_limit;
                 var break_width = available;
 
-                // Look for last space within the available width
                 if (std.mem.lastIndexOfScalar(u8, remaining_text[0..byte_limit], ' ')) |space_pos| {
-                    // Found a space - break after it
                     break_byte = space_pos + 1;
                     break_width = cells.cellLen(remaining_text[0..break_byte]);
                 } else if (current_width > 0 and last_space_result_idx != null) {
-                    // No space in current chunk, but we have a previous space on this line
-                    // Rewind to the last space by inserting a newline after it
                     const space_idx = last_space_result_idx.?;
                     const space_seg = result.items[space_idx];
 
-                    // Find the last space in that segment and split it
                     if (std.mem.lastIndexOfScalar(u8, space_seg.text, ' ')) |sp| {
-                        // Split at the space: keep text up to and including space,
-                        // then insert newline, then continue with rest
                         const before_space = space_seg.text[0 .. sp + 1];
                         const after_space = space_seg.text[sp + 1 ..];
 
-                        // Update the segment to end at space
                         result.items[space_idx] = Segment.styledOptional(before_space, space_seg.style);
 
-                        // Collect segments after the space to re-process
                         var to_reprocess: std.ArrayList(Segment) = .empty;
                         defer to_reprocess.deinit(allocator);
 
@@ -687,23 +657,18 @@ pub const Syntax = struct {
                             try to_reprocess.append(allocator, Segment.styledOptional(after_space, space_seg.style));
                         }
 
-                        // Add remaining segments from result after space_idx
                         for (result.items[space_idx + 1 ..]) |s| {
                             try to_reprocess.append(allocator, s);
                         }
 
-                        // Add the current remaining text
                         try to_reprocess.append(allocator, Segment.styledOptional(remaining_text, seg.style));
 
-                        // Truncate result to just before the newline
                         result.shrinkRetainingCapacity(space_idx + 1);
 
-                        // Insert newline
                         try result.append(allocator, Segment.line());
                         current_width = 0;
                         last_space_result_idx = null;
 
-                        // Re-add all the segments that need to be re-wrapped
                         for (to_reprocess.items) |reprocess_seg| {
                             const rw = reprocess_seg.cellLength();
                             if (current_width + rw <= max_width) {
@@ -713,7 +678,6 @@ pub const Syntax = struct {
                                 try result.append(allocator, reprocess_seg);
                                 current_width += rw;
                             } else {
-                                // Need to wrap this segment too - continue with inner loop logic
                                 var inner_remaining = reprocess_seg.text;
                                 while (inner_remaining.len > 0) {
                                     if (current_width >= max_width) {
@@ -752,13 +716,11 @@ pub const Syntax = struct {
                             }
                         }
 
-                        // Done with this segment, move to next in outer loop
                         remaining_text = "";
                         break;
                     }
                 }
 
-                // Output text up to break point
                 if (break_byte > 0) {
                     const chunk = remaining_text[0..break_byte];
                     if (std.mem.lastIndexOfScalar(u8, chunk, ' ')) |_| {
@@ -768,7 +730,6 @@ pub const Syntax = struct {
                     current_width += break_width;
                 }
 
-                // If we're at max width, insert newline
                 if (current_width >= max_width or break_byte == byte_limit) {
                     try result.append(allocator, Segment.line());
                     current_width = 0;
@@ -782,7 +743,3 @@ pub const Syntax = struct {
         return result.toOwnedSlice(allocator);
     }
 };
-
-// Language auto-detection tests
-
-// Line highlighting tests

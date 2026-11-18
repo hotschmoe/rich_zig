@@ -53,11 +53,9 @@ pub fn detect(environ: std.process.Environ) TerminalInfo {
     info.term = getEnv(environ, "TERM");
     info.term_program = getEnv(environ, "TERM_PROGRAM");
 
-    // Check if stdout is a TTY
     info.is_tty = isTty();
 
     if (!info.is_tty) {
-        // Check FORCE_COLOR
         if (getEnv(environ, "FORCE_COLOR")) |_| {
             info.color_system = .truecolor;
         } else {
@@ -66,19 +64,16 @@ pub fn detect(environ: std.process.Environ) TerminalInfo {
         return info;
     }
 
-    // Get terminal size
     const size = getTerminalSize();
     info.width = size.width;
     info.height = size.height;
 
-    // Detect color support
     if (getEnv(environ, "NO_COLOR")) |_| {
         info.color_system = .standard;
     } else {
         info.color_system = detectColorSystem(environ);
     }
 
-    // Detect hyperlink support
     info.supports_hyperlinks = detectHyperlinks(environ);
 
     info.supports_sync_output = detectSyncOutput(environ);
@@ -157,14 +152,12 @@ fn getTerminalSizePosix() TerminalSize {
 }
 
 fn detectColorSystem(environ: std.process.Environ) ColorSystem {
-    // Check COLORTERM
     if (getEnv(environ, "COLORTERM")) |ct| {
         if (std.mem.eql(u8, ct, "truecolor") or std.mem.eql(u8, ct, "24bit")) {
             return .truecolor;
         }
     }
 
-    // Check TERM
     if (getEnv(environ, "TERM")) |term| {
         if (std.mem.indexOf(u8, term, "256color") != null or
             std.mem.indexOf(u8, term, "256") != null)
@@ -176,7 +169,6 @@ fn detectColorSystem(environ: std.process.Environ) ColorSystem {
         }
     }
 
-    // Check terminal program
     if (getEnv(environ, "TERM_PROGRAM")) |prog| {
         const truecolor_terminals = [_][]const u8{
             "iTerm.app",
@@ -194,24 +186,20 @@ fn detectColorSystem(environ: std.process.Environ) ColorSystem {
         }
     }
 
-    // Windows Terminal
     if (getEnv(environ, "WT_SESSION")) |_| {
         return .truecolor;
     }
 
-    // ConEmu
     if (getEnv(environ, "ConEmuANSI")) |ce| {
         if (std.mem.eql(u8, ce, "ON")) {
             return .truecolor;
         }
     }
 
-    // Default for modern terminals
     return .eight_bit;
 }
 
 fn detectHyperlinks(environ: std.process.Environ) bool {
-    // OSC 8 hyperlink support detection
     if (getEnv(environ, "TERM_PROGRAM")) |prog| {
         const supported = [_][]const u8{
             "iTerm.app",
@@ -226,7 +214,6 @@ fn detectHyperlinks(environ: std.process.Environ) bool {
         }
     }
 
-    // Windows Terminal supports hyperlinks
     if (getEnv(environ, "WT_SESSION")) |_| {
         return true;
     }
@@ -286,8 +273,7 @@ pub fn enableUtf8() bool {
     return true;
 }
 
-// Synchronized output (DEC private mode 2026)
-// Wraps terminal writes so the terminal buffers and renders atomically
+// DEC private mode 2026 buffers terminal writes for atomic rendering.
 pub const sync_output_begin = "\x1b[?2026h";
 pub const sync_output_end = "\x1b[?2026l";
 
@@ -298,5 +284,3 @@ pub fn beginSyncOutput(writer: anytype) !void {
 pub fn endSyncOutput(writer: anytype) !void {
     try writer.writeAll(sync_output_end);
 }
-
-// Tests

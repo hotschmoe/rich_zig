@@ -64,17 +64,14 @@ pub const Padding = struct {
         const total_width = max_content_width + self.left + self.right;
         const effective_width = @min(total_width, max_width);
 
-        // Top padding
         for (0..self.top) |_| {
             try self.renderBlankLine(&result, allocator, effective_width);
         }
 
-        // Content lines with left/right padding
         for (lines) |line| {
             try self.renderContentLine(&result, allocator, line, max_content_width);
         }
 
-        // Bottom padding
         for (0..self.bottom) |_| {
             try self.renderBlankLine(&result, allocator, effective_width);
         }
@@ -108,5 +105,3 @@ pub const Padding = struct {
         }
     }
 };
-
-// Tests

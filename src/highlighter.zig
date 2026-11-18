@@ -3,7 +3,6 @@ const Style = @import("style.zig").Style;
 const Color = @import("color.zig").Color;
 const Text = @import("text.zig").Text;
 
-/// Highlighter that applies styles to recognized patterns in text.
 pub const Highlighter = struct {
     rules: []const HighlightRule,
 
@@ -18,12 +17,10 @@ pub const Highlighter = struct {
         end: usize,
     };
 
-    /// Create a highlighter with the given rules.
     pub fn init(rules: []const HighlightRule) Highlighter {
         return .{ .rules = rules };
     }
 
-    /// Apply highlighting rules to a Text object, adding spans for each match.
     pub fn highlight(self: Highlighter, text: *Text) !void {
         for (self.rules) |rule| {
             var pos: usize = 0;
@@ -42,25 +39,19 @@ pub const Highlighter = struct {
         }
     }
 
-    /// Create a ReprHighlighter - highlights common programming repr patterns.
     pub fn repr() Highlighter {
         return .{ .rules = &repr_rules };
     }
 };
 
-// Matcher functions for the repr highlighter
-
 fn matchInteger(text: []const u8, pos: usize) ?Highlighter.Match {
-    // Must be at word boundary
     if (pos > 0 and isWordChar(text[pos - 1])) return null;
 
     var i = pos;
-    // Optional sign
     if (i < text.len and (text[i] == '-' or text[i] == '+')) i += 1;
 
     if (i >= text.len or !std.ascii.isDigit(text[i])) return null;
 
-    // Hex: 0x...
     if (i + 1 < text.len and text[i] == '0' and (text[i + 1] == 'x' or text[i + 1] == 'X')) {
         i += 2;
         const hex_start = i;
@@ -70,13 +61,10 @@ fn matchInteger(text: []const u8, pos: usize) ?Highlighter.Match {
         return .{ .start = pos, .end = i };
     }
 
-    // Decimal digits
     while (i < text.len and std.ascii.isDigit(text[i])) : (i += 1) {}
 
-    // Check it's not a float (no decimal point or exponent)
     if (i < text.len and (text[i] == '.' or text[i] == 'e' or text[i] == 'E')) return null;
 
-    // Must end at word boundary
     if (i < text.len and isWordChar(text[i])) return null;
 
     if (i > pos) return .{ .start = pos, .end = i };
@@ -100,7 +88,6 @@ fn matchFloat(text: []const u8, pos: usize) ?Highlighter.Match {
         while (i < text.len and std.ascii.isDigit(text[i])) : (i += 1) {}
     }
 
-    // Exponent
     var has_exp = false;
     if (i < text.len and (text[i] == 'e' or text[i] == 'E')) {
         has_exp = true;
@@ -163,13 +150,11 @@ fn matchUrl(text: []const u8, pos: usize) ?Highlighter.Match {
 }
 
 fn matchPath(text: []const u8, pos: usize) ?Highlighter.Match {
-    // Unix paths: /foo/bar or ./foo/bar
     if (pos > 0 and !std.ascii.isWhitespace(text[pos - 1])) return null;
 
     if (pos < text.len and (text[pos] == '/' or (text[pos] == '.' and pos + 1 < text.len and text[pos + 1] == '/'))) {
         var i = pos;
         while (i < text.len and !std.ascii.isWhitespace(text[i])) : (i += 1) {}
-        // Must contain at least one slash after start
         if (std.mem.indexOfScalar(u8, text[pos + 1 .. i], '/') != null or text[pos] == '/') {
             if (i - pos > 2) { // Must be more than just "/"
                 return .{ .start = pos, .end = i };
@@ -180,7 +165,6 @@ fn matchPath(text: []const u8, pos: usize) ?Highlighter.Match {
 }
 
 fn matchUuid(text: []const u8, pos: usize) ?Highlighter.Match {
-    // UUID: 8-4-4-4-12 hex chars
     if (pos + 36 > text.len) return null;
     if (pos > 0 and isWordChar(text[pos - 1])) return null;
 
@@ -246,5 +230,3 @@ const repr_rules = [_]Highlighter.HighlightRule{
         .style = Style.empty.foreground(Color.fromRgb(255, 85, 85)).italic(),
     },
 };
-
-// Tests

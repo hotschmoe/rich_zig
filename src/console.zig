@@ -272,7 +272,6 @@ pub const Console = struct {
         try self.writeLine();
     }
 
-    /// Resolve a theme style name. Returns null if no theme or name not found.
     pub fn resolveThemeStyle(self: Console, name: []const u8) ?Style {
         if (self.theme) |t| {
             return t.get(name);
@@ -310,7 +309,6 @@ pub const Console = struct {
     pub fn printSegments(self: *Console, segments: []const Segment) !void {
         var writer = self.getWriter();
 
-        // Use synchronized output on TTY to reduce flicker
         if (self.isTty()) {
             try writer.interface.writeAll(terminal.sync_output_begin);
         }
@@ -326,9 +324,6 @@ pub const Console = struct {
         try writer.interface.flush();
     }
 
-    /// Renders and prints any type that implements render(width, allocator) -> ![]Segment.
-    /// This is a convenience method for printing renderables like Panel, Table, Rule, etc.
-    /// Uses an arena allocator to ensure all render allocations (including segment text) are freed.
     pub fn printRenderable(self: *Console, renderable: anytype) !void {
         var arena = std.heap.ArenaAllocator.init(self.allocator);
         defer arena.deinit();
@@ -396,7 +391,6 @@ pub const Console = struct {
             const left_len = total_rule_len / 2;
             const right_len = total_rule_len - left_len;
 
-            // Left side
             var i: usize = 0;
             while (i < left_len) : (i += 1) {
                 try writer.interface.writeAll(char);
@@ -404,7 +398,6 @@ pub const Console = struct {
             try writer.interface.writeAll(" ");
             try writer.interface.writeAll(title);
             try writer.interface.writeAll(" ");
-            // Right side
             i = 0;
             while (i < right_len) : (i += 1) {
                 try writer.interface.writeAll(char);
@@ -489,7 +482,6 @@ pub const Console = struct {
     pub fn log(self: *Console, level: LogLevel, comptime fmt: []const u8, args: anytype) !void {
         var writer = self.getWriter();
 
-        // Get current time
         const timestamp = std.Io.Timestamp.now(self.io, .real).toSeconds();
         const epoch_seconds: std.time.epoch.EpochSeconds = .{ .secs = @intCast(timestamp) };
         const day_seconds = epoch_seconds.getDaySeconds();
@@ -497,10 +489,8 @@ pub const Console = struct {
         const minutes = day_seconds.getMinutesIntoHour();
         const seconds = day_seconds.getSecondsIntoMinute();
 
-        // Format: [HH:MM:SS] [LEVEL] message
         try writer.interface.print("[{d:0>2}:{d:0>2}:{d:0>2}] ", .{ hours, minutes, seconds });
 
-        // Level with styling
         const level_style = level.style();
         try self.setStyle(level_style, &writer.interface);
         try writer.interface.print("[{s}]", .{level.toString()});
@@ -508,7 +498,6 @@ pub const Console = struct {
 
         try writer.interface.writeAll(" ");
 
-        // Message
         try writer.interface.print(fmt, args);
         try writer.interface.writeAll("\n");
         try writer.interface.flush();
@@ -572,8 +561,6 @@ pub const Console = struct {
     pub fn pagerWithOptions(self: *Console, options: PagerOptions) Pager {
         return Pager.initWithOptions(self.allocator, self, options);
     }
-
-    // Input prompt functionality
 
     pub const InputOptions = struct {
         default: ?[]const u8 = null,
@@ -807,7 +794,6 @@ pub const Console = struct {
         errdefer allocating.deinit();
         const writer = &allocating.writer;
 
-        // Parse segments into lines for layout calculation
         var lines: std.ArrayList(std.ArrayList(LineSegment)) = .empty;
         var current_line: std.ArrayList(LineSegment) = .empty;
         var max_line_width: usize = 0;
@@ -831,7 +817,6 @@ pub const Console = struct {
             current_line_width += seg_width;
         }
 
-        // Append the last line if not empty
         if (current_line.items.len > 0 or lines.items.len == 0) {
             if (current_line_width > max_line_width) {
                 max_line_width = current_line_width;
@@ -848,7 +833,6 @@ pub const Console = struct {
         const num_lines = lines.items.len;
         const term_width = options.term_width orelse @as(u16, @intCast(@max(max_line_width, 40)));
 
-        // Calculate dimensions
         const char_height: f32 = @floatFromInt(options.font_size);
         const char_width: f32 = char_height * options.font_aspect_ratio;
         const line_height: f32 = char_height * options.line_height;
@@ -860,7 +844,6 @@ pub const Console = struct {
         const total_width: f32 = terminal_width;
         const total_height: f32 = terminal_height + chrome_height;
 
-        // Write SVG header
         try writer.print(
             \\<svg xmlns="http://www.w3.org/2000/svg" width="{d:.0}" height="{d:.0}" viewBox="0 0 {d:.0} {d:.0}">
             \\<style>
@@ -870,14 +853,12 @@ pub const Console = struct {
             \\
         , .{ total_width, total_height, total_width, total_height, options.font_family, options.font_size, options.foreground_color });
 
-        // Chrome (terminal window decorations)
         if (options.chrome) {
             try writer.print(
                 \\<rect width="{d:.0}" height="{d:.0}" rx="8" fill="{s}"/>
                 \\<rect y="36" width="{d:.0}" height="{d:.0}" fill="{s}"/>
             , .{ total_width, total_height, options.chrome_color, total_width, terminal_height, options.background_color });
 
-            // Traffic light buttons
             try writer.writeAll(
                 \\<circle cx="20" cy="18" r="6" fill="#ff5f56"/>
                 \\<circle cx="40" cy="18" r="6" fill="#ffbd2e"/>
@@ -885,7 +866,6 @@ pub const Console = struct {
                 \\
             );
 
-            // Title in chrome
             if (options.title) |title| {
                 const title_x = total_width / 2;
                 try writer.print(
@@ -900,7 +880,6 @@ pub const Console = struct {
             , .{ total_width, total_height, options.background_color });
         }
 
-        // Terminal content group
         const content_y = chrome_height + @as(f32, @floatFromInt(options.padding));
         const content_x: f32 = @floatFromInt(options.padding);
         try writer.print(
@@ -908,7 +887,6 @@ pub const Console = struct {
             \\
         , .{ content_x, content_y });
 
-        // Render each line
         for (lines.items, 0..) |line, line_idx| {
             const y = @as(f32, @floatFromInt(line_idx)) * line_height + char_height;
             var x: f32 = 0;
@@ -979,8 +957,6 @@ pub const Console = struct {
         try writer.writeByte('"');
     }
 };
-
-// Tests
 
 fn testNonEmptyValidator(input: []const u8) Console.InputValidationResult {
     if (input.len == 0) {

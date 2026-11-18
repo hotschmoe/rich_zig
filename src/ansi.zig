@@ -4,8 +4,6 @@ const Color = @import("color.zig").Color;
 const Text = @import("text.zig").Text;
 const Span = @import("text.zig").Span;
 
-/// Parse ANSI-escaped text into a styled Text object.
-/// Converts SGR escape sequences into Style spans.
 pub fn fromAnsi(allocator: std.mem.Allocator, input: []const u8) !Text {
     var plain_buf: std.ArrayList(u8) = .empty;
     defer plain_buf.deinit(allocator);
@@ -18,9 +16,7 @@ pub fn fromAnsi(allocator: std.mem.Allocator, input: []const u8) !Text {
     var i: usize = 0;
 
     while (i < input.len) {
-        // Check for ESC [ (CSI sequence)
         if (i + 1 < input.len and input[i] == '\x1b' and input[i + 1] == '[') {
-            // Flush any styled text before this escape
             if (!current_style.isEmpty() and plain_buf.items.len > style_start) {
                 try spans.append(allocator, .{
                     .start = style_start,
@@ -29,7 +25,6 @@ pub fn fromAnsi(allocator: std.mem.Allocator, input: []const u8) !Text {
                 });
             }
 
-            // Parse CSI parameters
             i += 2; // skip ESC [
             var params: std.ArrayList(u16) = .empty;
             defer params.deinit(allocator);
@@ -49,12 +44,10 @@ pub fn fromAnsi(allocator: std.mem.Allocator, input: []const u8) !Text {
                     has_param = false;
                     i += 1;
                 } else {
-                    // End of parameters
                     if (has_param) {
                         try params.append(allocator, current_param);
                     }
                     if (c == 'm') {
-                        // SGR sequence
                         current_style = applySgr(current_style, params.items);
                     }
                     i += 1;
@@ -66,10 +59,8 @@ pub fn fromAnsi(allocator: std.mem.Allocator, input: []const u8) !Text {
             continue;
         }
 
-        // Check for OSC sequences (ESC ]) -- skip them
         if (i + 1 < input.len and input[i] == '\x1b' and input[i + 1] == ']') {
             i += 2;
-            // Skip until ST (ESC \) or BEL
             while (i < input.len) {
                 if (input[i] == '\x07') {
                     i += 1;
@@ -84,12 +75,10 @@ pub fn fromAnsi(allocator: std.mem.Allocator, input: []const u8) !Text {
             continue;
         }
 
-        // Regular character
         try plain_buf.append(allocator, input[i]);
         i += 1;
     }
 
-    // Flush remaining styled text
     if (!current_style.isEmpty() and plain_buf.items.len > style_start) {
         try spans.append(allocator, .{
             .start = style_start,
@@ -108,7 +97,6 @@ pub fn fromAnsi(allocator: std.mem.Allocator, input: []const u8) !Text {
     };
 }
 
-/// Strip all ANSI escape sequences from text, returning plain text.
 pub fn stripAnsi(allocator: std.mem.Allocator, input: []const u8) ![]u8 {
     var result: std.ArrayList(u8) = .empty;
     var i: usize = 0;
@@ -119,14 +107,12 @@ pub fn stripAnsi(allocator: std.mem.Allocator, input: []const u8) ![]u8 {
             if (i >= input.len) break;
 
             if (input[i] == '[') {
-                // CSI: skip until letter
                 i += 1;
                 while (i < input.len and input[i] >= 0x20 and input[i] < 0x40) : (i += 1) {}
                 if (i < input.len) i += 1; // skip final byte
                 continue;
             }
             if (input[i] == ']') {
-                // OSC: skip until ST or BEL
                 i += 1;
                 while (i < input.len) {
                     if (input[i] == '\x07') {
@@ -141,7 +127,6 @@ pub fn stripAnsi(allocator: std.mem.Allocator, input: []const u8) ![]u8 {
                 }
                 continue;
             }
-            // Other escape sequences: skip next char
             i += 1;
             continue;
         }
@@ -230,5 +215,3 @@ fn applySgr(base: Style, params: []const u16) Style {
 
     return style;
 }
-
-// Tests

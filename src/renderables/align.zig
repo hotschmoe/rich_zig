@@ -93,7 +93,6 @@ pub const Align = struct {
         const content_height = lines.len;
         const target_height = self.height orelse content_height;
 
-        // Calculate vertical padding
         const top_padding: usize = switch (self.vertical) {
             .top => 0,
             .middle => if (target_height > content_height) (target_height - content_height) / 2 else 0,
@@ -152,5 +151,3 @@ pub const Align = struct {
         }
     }
 };
-
-// Tests

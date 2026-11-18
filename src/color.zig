@@ -168,10 +168,8 @@ pub const Color = struct {
     number: ?u8 = null,
     triplet: ?ColorTriplet = null,
 
-    // Default color (terminal default)
     pub const default: Color = .{ .color_type = .default };
 
-    // Standard 16 colors (0-15)
     pub const black: Color = .{ .color_type = .standard, .number = 0 };
     pub const red: Color = .{ .color_type = .standard, .number = 1 };
     pub const green: Color = .{ .color_type = .standard, .number = 2 };
@@ -181,7 +179,6 @@ pub const Color = struct {
     pub const cyan: Color = .{ .color_type = .standard, .number = 6 };
     pub const white: Color = .{ .color_type = .standard, .number = 7 };
 
-    // Bright variants (8-15)
     pub const bright_black: Color = .{ .color_type = .standard, .number = 8 };
     pub const bright_red: Color = .{ .color_type = .standard, .number = 9 };
     pub const bright_green: Color = .{ .color_type = .standard, .number = 10 };
@@ -266,14 +263,12 @@ pub const Color = struct {
     pub fn getTriplet(self: Color) ?ColorTriplet {
         if (self.triplet) |t| return t;
 
-        // For 256 colors, convert back to RGB approximation
         if (self.color_type == .eight_bit) {
             if (self.number) |n| {
                 return tripletFrom256(n);
             }
         }
 
-        // For standard colors, return approximate RGB values
         if (self.color_type == .standard) {
             if (self.number) |n| {
                 if (n < standard_color_triplets.len) {
@@ -375,21 +370,18 @@ pub fn gradient(stops: []const ColorTriplet, output: []ColorTriplet, comptime us
 }
 
 pub fn rgbTo256(r: u8, g: u8, b: u8) u8 {
-    // Check for grayscale
     if (r == g and g == b) {
         if (r < 8) return 16;
         if (r > 248) return 231;
         return @as(u8, @intFromFloat((@as(f32, @floatFromInt(r)) - 8.0) / 247.0 * 24.0)) + 232;
     }
 
-    // Use 6x6x6 color cube (colors 16-231)
     const ri: u8 = @intFromFloat(@round(@as(f32, @floatFromInt(r)) / 255.0 * 5.0));
     const gi: u8 = @intFromFloat(@round(@as(f32, @floatFromInt(g)) / 255.0 * 5.0));
     const bi: u8 = @intFromFloat(@round(@as(f32, @floatFromInt(b)) / 255.0 * 5.0));
     return 16 + 36 * ri + 6 * gi + bi;
 }
 
-// RGB values for the 16 standard terminal colors
 const standard_color_triplets = [16]ColorTriplet{
     .{ .r = 0, .g = 0, .b = 0 }, // black
     .{ .r = 128, .g = 0, .b = 0 }, // red
@@ -413,7 +405,6 @@ pub fn tripletFrom256(n: u8) ColorTriplet {
     if (n < 16) {
         return standard_color_triplets[n];
     } else if (n < 232) {
-        // 6x6x6 color cube
         const cube_index = n - 16;
         const ri = cube_index / 36;
         const gi = (cube_index % 36) / 6;
@@ -424,13 +415,11 @@ pub fn tripletFrom256(n: u8) ColorTriplet {
             .b = if (bi > 0) @as(u8, @intCast(bi * 40 + 55)) else 0,
         };
     } else {
-        // Grayscale (232-255)
         const gray = @as(u8, @intCast((n - 232) * 10 + 8));
         return .{ .r = gray, .g = gray, .b = gray };
     }
 }
 
-// Named color lookup table for parsing
 pub const named_colors = std.StaticStringMap(Color).initComptime(.{
     .{ "default", Color.default },
     .{ "black", Color.black },
@@ -452,5 +441,3 @@ pub const named_colors = std.StaticStringMap(Color).initComptime(.{
     .{ "grey", Color.grey },
     .{ "gray", Color.gray },
 });
-
-// Tests

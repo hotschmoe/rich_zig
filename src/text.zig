@@ -133,7 +133,6 @@ pub const Text = struct {
                 },
                 .open_tag => |tag| {
                     const current_style = style_stack.getLast();
-                    // Try theme lookup first, then standard style parsing
                     const new_style = theme.get(tag.name) orelse
                         (Style.parse(tag.name) catch continue);
                     try style_stack.append(allocator, current_style.combine(new_style));
@@ -189,14 +188,12 @@ pub const Text = struct {
         var pos: usize = 0;
 
         for (self.spans) |span| {
-            // Text before span (unstyled or with base style)
             if (span.start > pos) {
                 try segments.append(allocator, Segment.styledOptional(
                     self.plain[pos..span.start],
                     if (self.style.isEmpty()) null else self.style,
                 ));
             }
-            // Span text with combined style
             const combined = self.style.combine(span.style);
             try segments.append(allocator, Segment.styled(
                 self.plain[span.start..span.end],
@@ -205,7 +202,6 @@ pub const Text = struct {
             pos = span.end;
         }
 
-        // Remaining text after last span
         if (pos < self.plain.len) {
             try segments.append(allocator, Segment.styledOptional(
                 self.plain[pos..],
@@ -230,12 +226,10 @@ pub const Text = struct {
     pub fn append(self: *Text, other: Text) !void {
         const offset = self.plain.len;
 
-        // Create new plain text
         const new_plain = try self.allocator.alloc(u8, self.plain.len + other.plain.len);
         @memcpy(new_plain[0..self.plain.len], self.plain);
         @memcpy(new_plain[self.plain.len..], other.plain);
 
-        // Create new spans with offset adjustment
         const new_spans = try self.allocator.alloc(Span, self.spans.len + other.spans.len);
         @memcpy(new_spans[0..self.spans.len], self.spans);
         for (other.spans, 0..) |span, i| {
@@ -246,7 +240,6 @@ pub const Text = struct {
             };
         }
 
-        // Free old data if owned
         if (self.owns_plain and self.plain.len > 0) {
             self.allocator.free(@constCast(self.plain));
         }
@@ -264,7 +257,6 @@ pub const Text = struct {
         const actual_end = @min(end, self.plain.len);
         const actual_start = @min(start, actual_end);
 
-        // Filter and adjust spans
         var relevant_spans: std.ArrayList(Span) = .empty;
         for (self.spans) |span| {
             if (span.end > actual_start and span.start < actual_end) {
@@ -309,7 +301,6 @@ pub const Text = struct {
         self.owns_spans = true;
     }
 
-    /// Create a deep copy of this Text with owned memory
     pub fn clone(self: Text) !Text {
         const new_plain = try self.allocator.dupe(u8, self.plain);
         errdefer self.allocator.free(new_plain);
@@ -326,7 +317,6 @@ pub const Text = struct {
         };
     }
 
-    /// Truncate text to fit within max_cells, appending ellipsis if truncated
     pub fn truncate(self: Text, max_cells: usize, ellipsis: []const u8) !Text {
         const current_len = self.cellLength();
         if (current_len <= max_cells) {
@@ -335,7 +325,6 @@ pub const Text = struct {
 
         const ellipsis_width = cells.cellLen(ellipsis);
         if (max_cells <= ellipsis_width) {
-            // Not enough room for ellipsis, just truncate
             const cutoff = cells.cellToByteIndex(self.plain, max_cells);
             return self.truncateAtByte(cutoff, "");
         }
@@ -346,13 +335,11 @@ pub const Text = struct {
     }
 
     fn truncateAtByte(self: Text, cutoff: usize, ellipsis: []const u8) !Text {
-        // Build new plain text
         const new_plain = try self.allocator.alloc(u8, cutoff + ellipsis.len);
         errdefer self.allocator.free(new_plain);
         @memcpy(new_plain[0..cutoff], self.plain[0..cutoff]);
         @memcpy(new_plain[cutoff..], ellipsis);
 
-        // Filter and clip spans
         var span_count: usize = 0;
         for (self.spans) |span| {
             if (span.start < cutoff) span_count += 1;
@@ -383,7 +370,6 @@ pub const Text = struct {
         };
     }
 
-    /// Pad text on the right to reach exact width
     pub fn alignLeft(self: Text, width: usize) !Text {
         const current_len = self.cellLength();
         if (current_len >= width) {
@@ -408,7 +394,6 @@ pub const Text = struct {
         };
     }
 
-    /// Pad text on the left to reach exact width, shifting span positions
     pub fn alignRight(self: Text, width: usize) !Text {
         const current_len = self.cellLength();
         if (current_len >= width) {
@@ -421,7 +406,6 @@ pub const Text = struct {
         @memset(new_plain[0..padding], ' ');
         @memcpy(new_plain[padding..], self.plain);
 
-        // Shift all span positions
         const new_spans = try self.allocator.alloc(Span, self.spans.len);
         errdefer self.allocator.free(new_spans);
         for (self.spans, 0..) |span, i| {
@@ -442,7 +426,6 @@ pub const Text = struct {
         };
     }
 
-    /// Pad text on both sides to center within width
     pub fn alignCenter(self: Text, width: usize) !Text {
         const current_len = self.cellLength();
         if (current_len >= width) {
@@ -458,7 +441,6 @@ pub const Text = struct {
         @memcpy(new_plain[left_padding .. left_padding + self.plain.len], self.plain);
         @memset(new_plain[left_padding + self.plain.len ..], ' ');
 
-        // Shift all span positions by left padding
         const new_spans = try self.allocator.alloc(Span, self.spans.len);
         errdefer self.allocator.free(new_spans);
         for (self.spans, 0..) |span, i| {
@@ -479,7 +461,6 @@ pub const Text = struct {
         };
     }
 
-    /// Split text into multiple lines at word boundaries
     pub fn wrap(self: Text, max_width: usize) ![]Text {
         if (max_width == 0) {
             const result = try self.allocator.alloc(Text, 0);
@@ -515,7 +496,6 @@ pub const Text = struct {
 
             const char_width = cells.getCharacterCellSize(cp);
 
-            // Track space positions for word breaking
             if (cp == ' ') {
                 last_space_byte = i;
                 last_space_cell = current_cell;
@@ -524,26 +504,21 @@ pub const Text = struct {
             current_cell += char_width;
             i += cp_len;
 
-            // Check if we need to wrap
             if (current_cell - line_start_cell > max_width) {
                 var break_byte: usize = undefined;
                 var break_cell: usize = undefined;
 
                 if (last_space_byte != null and last_space_byte.? > line_start) {
-                    // Break at last space
                     break_byte = last_space_byte.?;
                     break_cell = last_space_cell.?;
                 } else {
-                    // No space found, break at current position (mid-word)
                     break_byte = i - cp_len;
                     break_cell = current_cell - char_width;
                 }
 
-                // Create line from line_start to break_byte
                 const line = try self.createLineSlice(line_start, break_byte);
                 try lines.append(self.allocator, line);
 
-                // Skip the space if we broke at one
                 if (last_space_byte != null and last_space_byte.? > line_start and break_byte == last_space_byte.?) {
                     line_start = break_byte + 1;
                     line_start_cell = break_cell + 1;
@@ -557,13 +532,11 @@ pub const Text = struct {
             }
         }
 
-        // Add remaining text
         if (line_start < self.plain.len) {
             const line = try self.createLineSlice(line_start, self.plain.len);
             try lines.append(self.allocator, line);
         }
 
-        // Handle empty input
         if (lines.items.len == 0) {
             const empty_line = try self.clone();
             try lines.append(self.allocator, empty_line);
@@ -577,7 +550,6 @@ pub const Text = struct {
         const new_plain = try self.allocator.dupe(u8, line_text);
         errdefer self.allocator.free(new_plain);
 
-        // Filter and adjust spans for this line
         var span_count: usize = 0;
         for (self.spans) |span| {
             if (span.end > start_byte and span.start < end_byte) span_count += 1;
@@ -610,14 +582,12 @@ pub const Text = struct {
         };
     }
 
-    /// Justify text to fill width by distributing extra space between words
     pub fn justify(self: Text, width: usize) !Text {
         const current_len = self.cellLength();
         if (current_len >= width) {
             return self.clone();
         }
 
-        // Find word boundaries (spaces)
         var word_count: usize = 0;
         var in_word = false;
         for (self.plain) |c| {
@@ -629,7 +599,6 @@ pub const Text = struct {
             }
         }
 
-        // Single word or no words: left-align
         if (word_count <= 1) {
             return self.alignLeft(width);
         }
@@ -639,11 +608,9 @@ pub const Text = struct {
         const base_extra = extra_spaces / gaps;
         const remainder = extra_spaces % gaps;
 
-        // Build new text with distributed spaces
         var new_plain: std.ArrayList(u8) = .empty;
         errdefer new_plain.deinit(self.allocator);
 
-        // Track position mapping for span adjustment: old_byte -> new_byte
         var position_map: std.ArrayList(usize) = .empty;
         defer position_map.deinit(self.allocator);
 
@@ -657,7 +624,6 @@ pub const Text = struct {
 
             if (c == ' ') {
                 try new_plain.append(self.allocator, ' ');
-                // Add extra spaces after this space (before next word)
                 if (in_word) {
                     const extra = base_extra + (if (gap_index < remainder) @as(usize, 1) else 0);
                     for (0..extra) |_| {
@@ -673,10 +639,8 @@ pub const Text = struct {
             i += 1;
         }
 
-        // Add final mapping entry for end position
         try position_map.append(self.allocator, new_plain.items.len);
 
-        // Adjust spans using position map
         const new_spans = try self.allocator.alloc(Span, self.spans.len);
         errdefer self.allocator.free(new_spans);
 
@@ -700,13 +664,11 @@ pub const Text = struct {
         };
     }
 
-    /// Find all occurrences of pattern and highlight them with the given style
     pub fn highlightPattern(self: Text, pattern: []const u8, style: Style) !Text {
         if (pattern.len == 0) {
             return self.clone();
         }
 
-        // Find all matches
         var matches: std.ArrayList(usize) = .empty;
         defer matches.deinit(self.allocator);
 
@@ -724,17 +686,14 @@ pub const Text = struct {
             return self.clone();
         }
 
-        // Create new spans: existing spans + new highlight spans
         const new_plain = try self.allocator.dupe(u8, self.plain);
         errdefer self.allocator.free(new_plain);
 
         const new_spans = try self.allocator.alloc(Span, self.spans.len + matches.items.len);
         errdefer self.allocator.free(new_spans);
 
-        // Copy existing spans
         @memcpy(new_spans[0..self.spans.len], self.spans);
 
-        // Add highlight spans for each match
         for (matches.items, 0..) |match_pos, i| {
             new_spans[self.spans.len + i] = .{
                 .start = match_pos,
@@ -753,5 +712,3 @@ pub const Text = struct {
         };
     }
 };
-
-// Tests

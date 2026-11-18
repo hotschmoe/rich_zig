@@ -128,7 +128,6 @@ pub const Style = struct {
         return self.setAttribute(.encircle, false);
     }
 
-    /// Alias for conceal
     pub fn hidden(self: Style) Style {
         return self.conceal();
     }
@@ -212,14 +211,12 @@ pub const Style = struct {
                 continue;
             }
 
-            // Check for attributes
             if (parseAttribute(token)) |attr| {
                 style = style.setAttribute(attr, !not_modifier);
                 not_modifier = false;
                 continue;
             }
 
-            // Try to parse as color
             const parsed_color = parseColor(token) catch |err| {
                 return err;
             };
@@ -266,17 +263,14 @@ pub const Style = struct {
     }
 
     fn parseColor(token: []const u8) ParseError!Color {
-        // Named colors
         if (color_mod.named_colors.get(token)) |c| {
             return c;
         }
 
-        // Hex color (#RRGGBB or RRGGBB)
         if (token.len > 0 and token[0] == '#') {
             return Color.fromHex(token) catch return error.InvalidHexColor;
         }
 
-        // rgb(r,g,b) format
         if (std.mem.startsWith(u8, token, "rgb(") and std.mem.endsWith(u8, token, ")")) {
             const inner = token[4 .. token.len - 1];
             var parts = std.mem.splitScalar(u8, inner, ',');
@@ -292,14 +286,12 @@ pub const Style = struct {
             return Color.fromRgb(r, g, b);
         }
 
-        // color(N) for 256 palette
         if (std.mem.startsWith(u8, token, "color(") and std.mem.endsWith(u8, token, ")")) {
             const num_str = token[6 .. token.len - 1];
             const num = std.fmt.parseInt(u8, std.mem.trim(u8, num_str, " "), 10) catch return error.InvalidColorNumber;
             return Color.from256(num);
         }
 
-        // Just a number for 256 palette (e.g., "196")
         if (std.fmt.parseInt(u8, token, 10)) |num| {
             return Color.from256(num);
         } else |_| {}
@@ -312,9 +304,7 @@ pub const Style = struct {
 
         try writer.writeAll("\x1b[");
 
-        // SGR enable codes: 1=bold, 2=dim, 3=italic, 4=underline, 5=blink, 6=blink2, 7=reverse, 8=conceal, 9=strike, 53=overline, 21=underline2, 51=frame, 52=encircle
         const sgr_enable = [_]u8{ 1, 2, 3, 4, 5, 6, 7, 8, 9, 53, 21, 51, 52 };
-        // SGR disable codes
         const sgr_disable = [_]u8{ 22, 22, 23, 24, 25, 25, 27, 28, 29, 55, 24, 54, 54 };
 
         inline for (0..13) |i| {
@@ -328,7 +318,6 @@ pub const Style = struct {
             }
         }
 
-        // Foreground color
         if (self.color) |c| {
             const downgraded = c.downgrade(color_system);
             if (!first) try writer.writeByte(';');
@@ -336,7 +325,6 @@ pub const Style = struct {
             try downgraded.getAnsiCodes(true, writer);
         }
 
-        // Background color
         if (self.bgcolor) |c| {
             const downgraded = c.downgrade(color_system);
             if (!first) try writer.writeByte(';');
@@ -344,14 +332,12 @@ pub const Style = struct {
             try downgraded.getAnsiCodes(false, writer);
         }
 
-        // If nothing was written, default to reset
         if (first) {
             try writer.writeByte('0');
         }
 
         try writer.writeByte('m');
 
-        // Hyperlink (OSC 8)
         if (self.link) |url| {
             try writer.print("\x1b]8;;{s}\x1b\\", .{url});
         }
@@ -392,5 +378,3 @@ pub const Style = struct {
         return self.color == null and self.bgcolor == null and self.set_attributes == 0 and self.link == null;
     }
 };
-
-// Tests

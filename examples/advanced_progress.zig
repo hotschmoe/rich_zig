@@ -1,7 +1,3 @@
-//! Advanced Progress Example - Timing info, indeterminate progress
-//!
-//! Run with: zig build example-advanced_progress
-
 const std = @import("std");
 const rich = @import("rich_zig");
 
@@ -16,7 +12,6 @@ pub fn main(init: std.process.Init) !void {
     try console.printRenderable(rich.Rule.init().withTitle("Advanced Progress Example").withCharacters("="));
     try console.print("");
 
-    // Progress bar with timing information
     try console.print("[bold]Progress with Timing Info:[/]");
     {
         const bar = rich.ProgressBar.init(io)
@@ -29,7 +24,6 @@ pub fn main(init: std.process.Init) !void {
     }
     try console.print("");
 
-    // Indeterminate progress bar (unknown total)
     try console.print("[bold]Indeterminate Progress (unknown total):[/]");
     {
         const bar = rich.ProgressBar.init(io)
@@ -40,7 +34,6 @@ pub fn main(init: std.process.Init) !void {
     }
     try console.print("");
 
-    // Multiple progress bars at different completion levels
     try console.print("[bold]Progress at Different Stages:[/]");
     {
         const stages = [_]struct { desc: []const u8, completed: u64 }{
@@ -60,7 +53,6 @@ pub fn main(init: std.process.Init) !void {
     }
     try console.print("");
 
-    // Progress group with mixed states
     try console.print("[bold]Progress Group with Mixed States:[/]");
     {
         var arena = std.heap.ArenaAllocator.init(allocator);

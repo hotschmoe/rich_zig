@@ -47,7 +47,6 @@ pub const Markdown = struct {
 
             if (parseFenceOpen(trimmed)) |lang| {
                 if (!in_code_block) {
-                    // Flush any pending table
                     if (table_lines.items.len > 0) {
                         try self.emitTable(&table_lines, max_width, &segments, allocator);
                     }
@@ -73,13 +72,11 @@ pub const Markdown = struct {
                 continue;
             }
 
-            // Check if this could be a table row
             if (isTableRow(trimmed)) {
                 try table_lines.append(allocator, trimmed);
                 continue;
             }
 
-            // Not a table row - flush any pending table first
             if (table_lines.items.len > 0) {
                 try self.emitTable(&table_lines, max_width, &segments, allocator);
             }
@@ -114,7 +111,6 @@ pub const Markdown = struct {
             }
         }
 
-        // Flush any remaining content
         if (in_code_block and code_lines.items.len > 0) {
             try self.emitCodeBlock(&code_lines, code_block_lang, max_width, &segments, allocator);
         }
@@ -333,7 +329,6 @@ pub const Markdown = struct {
 
         const after_bullet = rest[2..];
 
-        // Check for task list syntax: [ ] or [x] or [X]
         if (after_bullet.len >= 3 and after_bullet[0] == '[' and after_bullet[2] == ']') {
             const checkbox_char = after_bullet[1];
             const checkbox: ?TaskCheckbox = if (checkbox_char == ' ')
@@ -514,7 +509,6 @@ pub const Markdown = struct {
         var pos: usize = 0;
 
         while (pos < text.len) {
-            // Try image first: ![alt](url)
             if (tryParseImage(text, pos)) |result| {
                 try spans.append(allocator, .{
                     .text = result.text,
@@ -525,7 +519,6 @@ pub const Markdown = struct {
                 continue;
             }
 
-            // Try link: [text](url)
             if (tryParseLink(text, pos)) |result| {
                 try spans.append(allocator, .{
                     .text = result.text,
@@ -563,11 +556,9 @@ pub const Markdown = struct {
                 continue;
             }
 
-            // Plain text - find next potential delimiter or end
             const plain_start = pos;
             pos = advanceToNextDelimiter(text, pos);
 
-            // If we hit an unmatched delimiter, skip it and continue
             if (pos < text.len and plain_start == pos) {
                 pos += 1;
                 pos = advanceToNextDelimiter(text, pos);
@@ -591,13 +582,10 @@ pub const Markdown = struct {
     };
 
     fn tryParseImage(text: []const u8, pos: usize) ?LinkResult {
-        // Image syntax: ![alt text](url) - same as link but with ! prefix
         if (pos >= text.len or text[pos] != '!') return null;
         return tryParseLink(text, pos + 1);
     }
 
-    /// Scans for a matching closing delimiter, respecting nesting.
-    /// Returns the position of the closing delimiter, or null if not found.
     fn findMatchingDelimiter(text: []const u8, start: usize, open: u8, close: u8) ?usize {
         var depth: usize = 1;
         var pos: usize = start;
@@ -643,7 +631,6 @@ pub const Markdown = struct {
         const c = text[pos];
         if (c != '*' and c != '_') return null;
 
-        // Try longest match first (bold+italic: 3, bold: 2, italic: 1)
         const patterns = [_]struct { count: usize, style: InlineSpan.StyleType }{
             .{ .count = 3, .style = .bold_italic },
             .{ .count = 2, .style = .bold },
@@ -679,7 +666,6 @@ pub const Markdown = struct {
     fn tryParseInlineCode(text: []const u8, pos: usize) ?InlineCodeResult {
         if (pos >= text.len or text[pos] != '`') return null;
 
-        // Count opening backticks (inline code uses 1-2, not 3+ like fenced blocks)
         var backtick_count: usize = 0;
         var p = pos;
         while (p < text.len and text[p] == '`') : (p += 1) {
@@ -690,7 +676,6 @@ pub const Markdown = struct {
         const content_start = pos + backtick_count;
         if (content_start >= text.len) return null;
 
-        // Find matching closing backticks (exact count, no trailing backticks)
         var search_pos = content_start;
         while (search_pos + backtick_count <= text.len) : (search_pos += 1) {
             if (!isRepeatedChar(text[search_pos..][0..backtick_count], '`')) continue;
@@ -708,12 +693,10 @@ pub const Markdown = struct {
     }
 
     fn tryParseStrikethrough(text: []const u8, pos: usize) ?InlineCodeResult {
-        // Strikethrough uses ~~ (GFM extension)
         if (pos + 2 > text.len) return null;
         if (text[pos] != '~' or text[pos + 1] != '~') return null;
 
         const content_start = pos + 2;
-        // Find closing ~~
         if (findClosingDelimiter(text, content_start, '~', 2)) |end| {
             return .{
                 .content = text[content_start..end],
@@ -762,7 +745,6 @@ pub const Markdown = struct {
 
         for (spans) |span| {
             if (span.style_type == .image) {
-                // Images: display as "[Image: alt text]" since terminals can't show images
                 const final_style: Style = if (base_style) |bs|
                     bs.combine(self.theme.image_style)
                 else
@@ -772,7 +754,6 @@ pub const Markdown = struct {
                 if (span.text.len > 0) {
                     try segments.append(allocator, Segment.styled(span.text, final_style));
                 } else {
-                    // If no alt text, show the URL instead
                     if (span.image_url) |url| {
                         try segments.append(allocator, Segment.styled(url, final_style));
                     }
@@ -811,5 +792,3 @@ pub const Markdown = struct {
         }
     }
 };
-
-// GFM Table tests

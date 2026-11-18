@@ -1,7 +1,3 @@
-//! Panel Example - Panels, semantic constructors, and box styles
-//!
-//! Run with: zig build example-panel
-
 const std = @import("std");
 const rich = @import("rich_zig");
 
@@ -16,26 +12,22 @@ pub fn main(init: std.process.Init) !void {
     try console.printRenderable(rich.Rule.init().withTitle("Panel Example").withCharacters("="));
     try console.print("");
 
-    // Basic panel
     const basic = rich.Panel.fromText(allocator, "This is a basic panel with default styling.");
     try console.printRenderable(basic);
     try console.print("");
 
-    // Panel with title and subtitle
     const titled = rich.Panel.fromText(allocator, "Panels can have titles and subtitles for better organization.")
         .withTitle("My Panel")
         .withSubtitle("A helpful subtitle");
     try console.printRenderable(titled);
     try console.print("");
 
-    // Panel with custom width
     const narrow = rich.Panel.fromText(allocator, "This panel has a fixed width.")
         .withTitle("Narrow Panel")
         .withWidth(40);
     try console.printRenderable(narrow);
     try console.print("");
 
-    // Semantic panels - pre-styled for common use cases
     try console.print("[bold]Semantic Panels:[/]");
     try console.print("");
 
@@ -52,7 +44,6 @@ pub fn main(init: std.process.Init) !void {
     try console.printRenderable(success);
     try console.print("");
 
-    // Different box styles - use the fluent methods
     try console.print("[bold]Box Styles:[/]");
     try console.print("");
 

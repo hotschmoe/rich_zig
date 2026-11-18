@@ -1,51 +1,14 @@
-//! rich_zig - A Zig port of Python's Rich library for terminal formatting
-//!
-//! This library provides beautiful terminal output with:
-//! - Styled text with colors and attributes
-//! - Unicode-aware text handling
-//! - Markup parsing for easy styling (theme-aware)
-//! - Renderables: panels, tables, progress bars, trees
-//! - Theme system for named, reusable styles
-//! - Measurement protocol for smart auto-sizing
-//! - Comptime pretty printer for Zig types
-//! - Auto-highlighter for numbers, URLs, paths, UUIDs
-//! - ANSI escape sequence parsing and stripping
-//! - Adaptive colors with automatic terminal downgrading
-//! - HSL color space conversion, blending, and gradients
-//! - WCAG contrast ratio checking for accessibility
-//! - Synchronized output (DEC mode 2026) for flicker-free rendering
-//! - Dark/light background detection
-//!
-//! ## Quick Start
-//! ```zig
-//! const rich = @import("rich_zig");
-//! const std = @import("std");
-//!
-//! pub fn main() !void {
-//!     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-//!     defer _ = gpa.deinit();
-//!     const allocator = gpa.allocator();
-//!
-//!     var console = rich.Console.init(allocator);
-//!     defer console.deinit();
-//!     try console.print("[bold red]Hello[/] [green]World[/]!");
-//! }
-//! ```
-
 const std = @import("std");
 
-/// Library version (semver), derived from `build.zig.zon` `.version` at build
-/// time; `-Dversion-meta=<str>` appends `+<str>`. See docs/VERSIONING.md.
+/// See docs/VERSIONING.md for version metadata.
 pub const version: []const u8 = @import("build_options").version;
 
-// Error types
 pub const errors = @import("errors.zig");
 pub const MarkupError = errors.MarkupError;
 pub const RenderError = errors.RenderError;
 pub const TableError = errors.TableError;
 pub const ConsoleError = errors.ConsoleError;
 
-// Phase 1: Core types
 pub const color = @import("color.zig");
 pub const Color = color.Color;
 pub const ColorType = color.ColorType;
@@ -71,7 +34,6 @@ pub const ControlType = segment.ControlType;
 pub const measure = @import("measure.zig");
 pub const Measurement = measure.Measurement;
 
-// Phase 2: Text and Markup
 pub const box = @import("box.zig");
 pub const BoxStyle = box.BoxStyle;
 
@@ -88,7 +50,6 @@ pub const ansi = @import("ansi.zig");
 pub const fromAnsi = ansi.fromAnsi;
 pub const stripAnsi = ansi.stripAnsi;
 
-// Phase 3: Terminal and Console
 pub const terminal = @import("terminal.zig");
 pub const TerminalInfo = terminal.TerminalInfo;
 pub const BackgroundMode = terminal.BackgroundMode;
@@ -102,7 +63,6 @@ pub const Console = console.Console;
 pub const ConsoleOptions = console.ConsoleOptions;
 pub const LogLevel = console.LogLevel;
 
-// Phase 4: Renderables
 pub const renderables = @import("renderables/mod.zig");
 pub const Panel = renderables.Panel;
 pub const Alignment = renderables.Alignment;
@@ -147,16 +107,13 @@ pub const MarkdownTheme = renderables.MarkdownTheme;
 pub const Header = renderables.Header;
 pub const HeaderLevel = renderables.HeaderLevel;
 
-// Emoji support
 pub const emoji = @import("emoji.zig");
 
-// Logging
 pub const logging = @import("logging.zig");
 pub const RichHandler = logging.RichHandler;
 pub const LogRecord = logging.LogRecord;
 pub const LevelStyles = logging.LevelStyles;
 
-// Traceback support
 pub const Traceback = logging.Traceback;
 pub const StackFrame = logging.StackFrame;
 pub const TracebackTheme = logging.TracebackTheme;
@@ -164,7 +121,6 @@ pub const TracebackOptions = logging.TracebackOptions;
 pub const traceHere = logging.traceHere;
 pub const traceError = logging.traceError;
 
-// Input prompts
 pub const prompt = @import("prompt.zig");
 pub const Prompt = prompt.Prompt;
 pub const IntPrompt = prompt.IntPrompt;
@@ -174,15 +130,9 @@ pub const PromptError = prompt.PromptError;
 pub const ValidationResult = prompt.ValidationResult;
 pub const ValidatorFn = prompt.ValidatorFn;
 
-// Pretty printing
 pub const pretty = @import("pretty.zig");
 pub const Pretty = pretty.Pretty;
 pub const PrettyTheme = pretty.PrettyTheme;
 pub const PrettyOptions = pretty.PrettyOptions;
 
-// Prelude: convenience module for rapid prototyping
 pub const prelude = @import("prelude.zig");
-
-// Re-export tests from all modules
-
-// Basic library functionality tests

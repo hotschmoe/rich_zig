@@ -469,7 +469,6 @@ fn isNegative(input: []const u8) bool {
 
 fn writeStyledPrompt(writer: anytype, allocator: std.mem.Allocator, prompt_text: []const u8) !void {
     var txt = Text.fromMarkup(allocator, prompt_text) catch {
-        // Fall back to plain text if markup parsing fails
         try writer.writeAll(prompt_text);
         return;
     };
@@ -511,7 +510,6 @@ fn readPassword(buf: []u8, stdin: std.fs.File) !?[]u8 {
     if (builtin.os.tag == .windows) {
         return readPasswordWindows(buf, stdin, stdout);
     } else if (builtin.os.tag == .wasi or builtin.cpu.arch == .wasm32) {
-        // No raw mode on WASM, fall back to regular read
         return stdin.reader().readUntilDelimiterOrEof(buf, '\n');
     } else {
         return readPasswordPosix(buf, stdin, stdout);
@@ -522,15 +520,12 @@ fn readPasswordPosix(buf: []u8, stdin: std.fs.File, stdout: anytype) !?[]u8 {
     const posix = std.posix;
     const fd = stdin.handle;
 
-    // Save current terminal settings
     var orig_termios: posix.termios = undefined;
     const tcgetattr_result = posix.system.tcgetattr(fd, &orig_termios);
     if (tcgetattr_result != 0) {
-        // Fall back to regular read if tcgetattr fails
         return stdin.reader().readUntilDelimiterOrEof(buf, '\n');
     }
 
-    // Disable echo
     var new_termios = orig_termios;
     new_termios.lflag.ECHO = false;
 
@@ -539,13 +534,11 @@ fn readPasswordPosix(buf: []u8, stdin: std.fs.File, stdout: anytype) !?[]u8 {
         return stdin.reader().readUntilDelimiterOrEof(buf, '\n');
     }
 
-    // Ensure we restore terminal settings
     defer {
         _ = posix.system.tcsetattr(fd, .FLUSH, &orig_termios);
         stdout.writeAll("\n") catch {};
     }
 
-    // Read character by character, showing asterisks
     var len: usize = 0;
     while (len < buf.len - 1) {
         const byte_read = stdin.reader().readByte() catch |err| switch (err) {
@@ -558,7 +551,6 @@ fn readPasswordPosix(buf: []u8, stdin: std.fs.File, stdout: anytype) !?[]u8 {
         }
 
         if (byte_read == 127 or byte_read == 8) {
-            // Backspace
             if (len > 0) {
                 len -= 1;
                 stdout.writeAll("\x08 \x08") catch {};
@@ -585,13 +577,11 @@ fn readPasswordWindows(buf: []u8, stdin: std.fs.File, stdout: anytype) !?[]u8 {
         return null;
     };
 
-    // Get current mode
     var orig_mode: windows.DWORD = 0;
     if (windows.kernel32.GetConsoleMode(handle, &orig_mode) == 0) {
         return null;
     }
 
-    // Disable echo and line input for character-by-character reading
     const ENABLE_ECHO_INPUT: windows.DWORD = 0x0004;
     const ENABLE_LINE_INPUT: windows.DWORD = 0x0002;
     const new_mode = orig_mode & ~(ENABLE_ECHO_INPUT | ENABLE_LINE_INPUT);
@@ -629,7 +619,6 @@ fn readPasswordWindows(buf: []u8, stdin: std.fs.File, stdout: anytype) !?[]u8 {
         }
 
         if (byte == 8) {
-            // Backspace
             if (len > 0) {
                 len -= 1;
                 stdout.writeAll("\x08 \x08") catch {};
@@ -647,5 +636,3 @@ fn readPasswordWindows(buf: []u8, stdin: std.fs.File, stdout: anytype) !?[]u8 {
 
     return buf[0..len];
 }
-
-// Tests

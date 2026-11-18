@@ -178,7 +178,6 @@ pub const Tree = struct {
         for (node.children.items, 0..) |*child, i| {
             const is_last = (i == node.children.items.len - 1);
 
-            // Render prefix based on ancestor levels (uses static string refs, no lifetime issues)
             for (levels.items) |has_more_siblings| {
                 if (has_more_siblings) {
                     try segments.append(allocator, Segment.styled(self.guide.vertical, node.guide_style));
@@ -196,7 +195,6 @@ pub const Tree = struct {
             try renderLabel(segments, allocator, child);
             try segments.append(allocator, Segment.line());
 
-            // Recurse
             if (child.children.items.len > 0 and child.expanded) {
                 try levels.append(allocator, !is_last);
                 try self.renderChildren(segments, allocator, child, levels);
@@ -205,5 +203,3 @@ pub const Tree = struct {
         }
     }
 };
-
-// Tests
