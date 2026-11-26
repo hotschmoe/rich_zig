@@ -1,9 +1,4 @@
-pub const MarkupError = error{
-    UnmatchedTag,
-    InvalidColorName,
-    InvalidStyleAttribute,
-    NestedTagMismatch,
-};
+pub const MarkupError = @import("markup.zig").MarkupError;
 
 pub const RenderError = error{
     OutOfMemory,

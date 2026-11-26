@@ -90,7 +90,7 @@ We aim to implement all features from the Rich library that are feasible in Zig 
 | Escaped brackets \[ \] | Y | Y | [x] | Literal brackets |
 | Tag with parameters | Y | Y | [x] | [link=url] |
 | Error: unbalanced brackets | Y | Y | [x] | Proper error |
-| Error: unclosed tag | Y | Y | [x] | At end of input |
+| Unclosed style extends to end | Y | Y | [x] | `UnclosedTag` retained here but never returned |
 | Error: invalid tag | Y | Y | [x] | Empty or malformed |
 
 ### Text with Spans (`text.zig`)

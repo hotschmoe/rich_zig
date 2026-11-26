@@ -1,0 +1,156 @@
+.{
+    .held_files = .{
+        "src/assert.zig",
+        "tools/tidy.zig",
+        "tools/fuzz.zig",
+        "tools/fuzz_generate.zig",
+        "tools/fuzz_check.zig",
+        "tools/fuzz_memory.zig",
+        "tools/fuzz_watch.zig",
+        "tools/fuzz_ownership.zig",
+        "tools/console_gate.zig",
+        "tools/declarations.zig",
+    },
+    .metrics = .{
+        "long_lines",
+        "long_functions",
+        "longest_function",
+        "assertion_deficit",
+        "usize_fields",
+        "self_recursion",
+        "mutual_recursion",
+        "while_true",
+        "camel_case",
+        "allocation",
+        "clock",
+        "environment",
+        "threads",
+        "files_io",
+        "processes",
+        "globals",
+        "scripts",
+        "tests",
+    },
+    .groups = .{
+        .{
+            .name = "build.zig",
+            .counts = .{
+                0, 0, 64, 8, 0, 0,
+                0, 0, 0,  0, 0, 0,
+                0, 0, 0,  0, 0, 0,
+            },
+        },
+        .{
+            .name = "examples",
+            .counts = .{
+                56, 15, 170, 38, 0, 0,
+                0,  0,  1,   19, 0, 0,
+                0,  0,  0,   0,  0, 0,
+            },
+        },
+        .{
+            .name = "repository",
+            .counts = .{
+                0, 0, 0, 0, 0, 0,
+                0, 0, 0, 0, 0, 0,
+                0, 0, 0, 0, 1, 0,
+            },
+        },
+        .{
+            .name = "src/*.zig",
+            .counts = .{
+                64, 9,  154, 420, 16, 1,
+                1,  4,  221, 190, 3,  16,
+                0,  28, 1,   0,   0,  0,
+            },
+        },
+        .{
+            .name = "src/assert.zig",
+            .counts = .{
+                0, 0, 3, 0, 0, 0,
+                0, 0, 0, 0, 0, 0,
+                0, 0, 0, 0, 0, 0,
+            },
+        },
+        .{
+            .name = "src/renderables",
+            .counts = .{
+                185, 9, 152, 638, 39, 2,
+                1,   0, 314, 366, 20, 0,
+                2,   2, 0,   0,   0,  0,
+            },
+        },
+        .{
+            .name = "tools/console_gate.zig",
+            .counts = .{
+                0, 0, 45, 0, 0, 0,
+                0, 0, 0,  4, 0, 1,
+                0, 8, 2,  0, 0, 0,
+            },
+        },
+        .{
+            .name = "tools/declarations.zig",
+            .counts = .{
+                0, 0, 36, 0, 0, 0,
+                0, 0, 0,  0, 0, 0,
+                0, 0, 0,  0, 0, 0,
+            },
+        },
+        .{
+            .name = "tools/fuzz.zig",
+            .counts = .{
+                0, 0,  39, 0, 0, 0,
+                0, 0,  0,  2, 3, 0,
+                0, 10, 0,  1, 0, 0,
+            },
+        },
+        .{
+            .name = "tools/fuzz_check.zig",
+            .counts = .{
+                0, 0, 51, 0, 0, 0,
+                0, 0, 0,  8, 0, 0,
+                0, 0, 0,  0, 0, 0,
+            },
+        },
+        .{
+            .name = "tools/fuzz_generate.zig",
+            .counts = .{
+                0, 0, 59, 0, 0, 0,
+                0, 0, 0,  0, 0, 0,
+                0, 0, 0,  0, 0, 0,
+            },
+        },
+        .{
+            .name = "tools/fuzz_memory.zig",
+            .counts = .{
+                0, 0, 15, 0, 0, 0,
+                0, 0, 0,  0, 0, 0,
+                0, 0, 0,  0, 0, 0,
+            },
+        },
+        .{
+            .name = "tools/fuzz_ownership.zig",
+            .counts = .{
+                0, 0, 36, 0, 0, 0,
+                0, 0, 0,  2, 0, 0,
+                0, 0, 0,  0, 0, 0,
+            },
+        },
+        .{
+            .name = "tools/fuzz_watch.zig",
+            .counts = .{
+                0, 0, 18, 0, 0, 0,
+                0, 0, 0,  0, 5, 0,
+                1, 0, 0,  0, 0, 0,
+            },
+        },
+        .{
+            .name = "tools/tidy.zig",
+            .counts = .{
+                0, 0, 47, 0, 0, 0,
+                0, 0, 0,  1, 2, 0,
+                0, 8, 1,  0, 0, 0,
+            },
+        },
+    },
+}

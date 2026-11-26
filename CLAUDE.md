@@ -136,7 +136,7 @@ we love you, Claude! do your best today
 A full-featured Zig port of Python's Rich library. Provides beautiful terminal output with styled text, tables, panels, progress bars, trees, and more.
 
 - **Version**: see `build.zig.zon` (exposed as `rich_zig.version`)
-- **Minimum Zig**: 0.17.0
+- **Minimum Zig**: 0.17.1
 - **No external dependencies** - uses only Zig standard library
 
 ---
@@ -148,7 +148,12 @@ zig build              # Build library and executable
 zig build run          # Run the comprehensive demo
 zig build test -j4     # Blocking end-to-end gate
 zig build test-heavy -j4 # Background example suite
-zig fmt src/           # Format before commits
+zig build tidy         # Exact TigerStyle ratchets
+zig build tidy -- --table # Measurement table
+zig build tidy -- --update # Record decreases only
+zig build fuzz -- --seed 1 # Seeded markup oracle
+zig build fuzz-heavy   # Background markup campaign
+zig fmt --check src/ tools/ build.zig # CI format check
 ```
 
 ---

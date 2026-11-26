@@ -5,6 +5,7 @@ const Segment = @import("segment.zig").Segment;
 pub const Tag = struct {
     name: []const u8,
     parameters: ?[]const u8 = null,
+    source: []const u8 = "",
 };
 
 pub const MarkupToken = union(enum) {
@@ -18,9 +19,20 @@ pub const MarkupError = error{
     InvalidTag,
     UnclosedTag,
     StyleParseError,
-};
+} || std.mem.Allocator.Error;
 
-pub fn parseMarkup(text: []const u8, allocator: std.mem.Allocator) ![]MarkupToken {
+pub fn tag_style(tag: Tag) Style.ParseError!Style {
+    if (tag.name.len == 0) return error.UnknownAttribute;
+    var numeric = true;
+    for (tag.name) |byte| numeric = numeric and std.ascii.isDigit(byte);
+    if (numeric) return error.UnknownAttribute;
+    return if (std.mem.eql(u8, tag.name, "link") and tag.parameters != null)
+        .{ .link = tag.parameters }
+    else
+        Style.parse(tag.name);
+}
+
+pub fn parseMarkup(text: []const u8, allocator: std.mem.Allocator) MarkupError![]MarkupToken {
     var tokens: std.ArrayList(MarkupToken) = .empty;
     errdefer tokens.deinit(allocator);
 
@@ -60,9 +72,13 @@ pub fn parseMarkup(text: []const u8, allocator: std.mem.Allocator) ![]MarkupToke
                     try tokens.append(allocator, .{ .open_tag = .{
                         .name = tag_content[0..eq_pos],
                         .parameters = tag_content[eq_pos + 1 ..],
+                        .source = text[i .. end + 1],
                     } });
                 } else {
-                    try tokens.append(allocator, .{ .open_tag = .{ .name = tag_content } });
+                    try tokens.append(allocator, .{ .open_tag = .{
+                        .name = tag_content,
+                        .source = text[i .. end + 1],
+                    } });
                 }
             }
 
@@ -81,6 +97,7 @@ pub fn parseMarkup(text: []const u8, allocator: std.mem.Allocator) ![]MarkupToke
     return tokens.toOwnedSlice(allocator);
 }
 
+/// Segment text and hyperlink URLs borrow the input.
 pub fn render(text: []const u8, base_style: Style, allocator: std.mem.Allocator) ![]Segment {
     const tokens = try parseMarkup(text, allocator);
     defer allocator.free(tokens);
@@ -102,15 +119,22 @@ pub fn render(text: []const u8, base_style: Style, allocator: std.mem.Allocator)
             },
             .open_tag => |tag| {
                 const current_style = style_stack.getLast();
-                const new_style = Style.parse(tag.name) catch {
-                    var literal_buf: [128]u8 = undefined;
-                    const literal = std.fmt.bufPrint(&literal_buf, "[{s}]", .{tag.name}) catch "[?]";
-                    try segments.append(allocator, Segment.styled(literal, current_style));
+                const new_style = tag_style(tag) catch {
+                    try segments.append(allocator, Segment.styled(tag.source, current_style));
                     continue;
                 };
                 try style_stack.append(allocator, current_style.combine(new_style));
             },
-            .close_tag => {
+            .close_tag => |name| {
+                if (name) |value| {
+                    _ = tag_style(.{ .name = value }) catch {
+                        try segments.append(allocator, Segment.styled(
+                            closing_source(value),
+                            style_stack.getLast(),
+                        ));
+                        continue;
+                    };
+                }
                 if (style_stack.items.len > 1) {
                     _ = style_stack.pop();
                 }
@@ -119,6 +143,11 @@ pub fn render(text: []const u8, base_style: Style, allocator: std.mem.Allocator)
     }
 
     return segments.toOwnedSlice(allocator);
+}
+
+pub fn closing_source(name: []const u8) []const u8 {
+    // A close_tag name is the slice between the source's "[/" and "]".
+    return (name.ptr - 2)[0 .. name.len + 3];
 }
 
 pub fn escape(text: []const u8, allocator: std.mem.Allocator) ![]u8 {
@@ -146,28 +175,7 @@ pub fn escape(text: []const u8, allocator: std.mem.Allocator) ![]u8 {
 }
 
 pub fn stripMarkup(text: []const u8, allocator: std.mem.Allocator) ![]u8 {
-    const tokens = try parseMarkup(text, allocator);
-    defer allocator.free(tokens);
-
-    var total_len: usize = 0;
-    for (tokens) |token| {
-        switch (token) {
-            .text => |txt| total_len += txt.len,
-            else => {},
-        }
-    }
-
-    const result = try allocator.alloc(u8, total_len);
-    var pos: usize = 0;
-    for (tokens) |token| {
-        switch (token) {
-            .text => |txt| {
-                @memcpy(result[pos..][0..txt.len], txt);
-                pos += txt.len;
-            },
-            else => {},
-        }
-    }
-
-    return result;
+    const segments = try render(text, .{}, allocator);
+    defer allocator.free(segments);
+    return @import("segment.zig").joinText(segments, allocator);
 }

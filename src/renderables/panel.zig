@@ -203,7 +203,7 @@ pub const Panel = struct {
 
         const content_measurement = Meas.fromText(switch (self.content) {
             .text => |t| t,
-            .styled_text => |st| st.text,
+            .styled_text => |st| st.plain,
             .segments => return Meas.init(border_width + 1, max_width),
         });
 

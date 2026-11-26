@@ -4,7 +4,7 @@ const std = @import("std");
 pub const version: []const u8 = @import("build_options").version;
 
 pub const errors = @import("errors.zig");
-pub const MarkupError = errors.MarkupError;
+pub const MarkupError = markup.MarkupError;
 pub const RenderError = errors.RenderError;
 pub const TableError = errors.TableError;
 pub const ConsoleError = errors.ConsoleError;
