@@ -143,8 +143,7 @@ pub fn main(init: std.process.Init) !void {
     try console.printPlain("   Atomic frame rendering with DEC mode 2026.");
     try console.print("");
 
-    var info = rich.terminal.detect(init.minimal.environ);
-    defer info.deinit();
+    const info = rich.terminal.detect(init.minimal.environ);
     try console.printPlain("   Console now uses sync output opportunistically on TTY.");
     const sync_str = std.fmt.bufPrint(&buf, "   Detected sync support: {s} (informational only)", .{if (info.supports_sync_output) "yes" else "no"}) catch "";
     try console.printPlain(sync_str);

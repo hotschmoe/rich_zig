@@ -51,6 +51,8 @@ pub const fromAnsi = ansi.fromAnsi;
 pub const stripAnsi = ansi.stripAnsi;
 
 pub const terminal = @import("terminal.zig");
+pub const host = @import("host.zig");
+pub const Host = host.Host;
 pub const TerminalInfo = terminal.TerminalInfo;
 pub const BackgroundMode = terminal.BackgroundMode;
 pub const beginSyncOutput = terminal.beginSyncOutput;

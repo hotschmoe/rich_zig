@@ -17,8 +17,7 @@ pub fn main(init: std.process.Init) !void {
 
     try console.print("[bold]Terminal Detection:[/]");
 
-    var term_info = rich.terminal.detect(init.minimal.environ);
-    defer term_info.deinit();
+    const term_info = rich.terminal.detect(init.minimal.environ);
 
     var buf: [128]u8 = undefined;
     const size_str = std.fmt.bufPrint(&buf, "  Size: {d}x{d}", .{ term_info.width, term_info.height }) catch "  Size: ?x?";

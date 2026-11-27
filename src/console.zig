@@ -9,6 +9,10 @@ const Color = @import("color.zig").Color;
 const terminal = @import("terminal.zig");
 const markup = @import("markup.zig");
 const Theme = @import("theme.zig").Theme;
+const assert = @import("assert").assert;
+const host_mod = @import("host.zig");
+const Host = host_mod.Host;
+const HostWriter = host_mod.HostWriter;
 
 pub const PagerOptions = struct {
     use_external: bool = true,
@@ -20,7 +24,7 @@ pub const PagerOptions = struct {
 
 pub const Pager = struct {
     allocator: std.mem.Allocator,
-    io: std.Io,
+    source: host_mod.Source,
     options: PagerOptions,
     terminal_height: u16,
     terminal_width: u16,
@@ -33,7 +37,7 @@ pub const Pager = struct {
     pub fn initWithOptions(allocator: std.mem.Allocator, console: *const Console, options: PagerOptions) Pager {
         return .{
             .allocator = allocator,
-            .io = console.io,
+            .source = console.source,
             .options = options,
             .terminal_height = console.height(),
             .terminal_width = console.width(),
@@ -42,19 +46,22 @@ pub const Pager = struct {
     }
 
     pub fn page(self: *Pager, content: []const u8) !void {
+        const host = self.source.host();
         if (!self.is_tty) {
-            var buf: [4096]u8 = undefined;
-            var stdout = std.Io.File.stdout().writerStreaming(self.io, &buf);
+            var buffer: [4096]u8 = undefined;
+            var stdout = HostWriter.init(host, .stdout, &buffer);
             try stdout.interface.writeAll(content);
             try stdout.interface.flush();
+            assert(stdout.interface.end == 0);
             return;
         }
 
         if (self.options.use_external) {
-            if (self.tryExternalPager(content)) return;
+            if (self.try_external_pager(host, content)) return;
         }
 
-        try self.internalPager(content);
+        assert(self.is_tty);
+        try self.internal_pager(host, content);
     }
 
     pub fn pageSegments(self: *Pager, segments: []const Segment) !void {
@@ -63,34 +70,34 @@ pub const Pager = struct {
         try self.page(text);
     }
 
-    fn tryExternalPager(self: *const Pager, content: []const u8) bool {
-        if (builtin.os.tag == .windows) {
-            return tryPagerCommand(self.io, "more", content);
+    fn try_external_pager(self: *const Pager, host: Host, content: []const u8) bool {
+        assert(self.is_tty);
+        if (builtin.os.tag == .windows) return host.page("more", content);
+
+        if (self.options.external_command) |command| {
+            if (host.page(command, content)) return true;
         }
 
-        if (self.options.external_command) |cmd| {
-            if (tryPagerCommand(self.io, cmd, content)) return true;
+        for ([_][]const u8{ "less", "more" }) |command| {
+            if (host.page(command, content)) return true;
         }
 
-        for ([_][]const u8{ "less", "more" }) |pager_cmd| {
-            if (tryPagerCommand(self.io, pager_cmd, content)) return true;
-        }
-
+        assert(self.is_tty);
         return false;
     }
 
-    fn internalPager(self: *Pager, content: []const u8) !void {
-        var out_buf: [4096]u8 = undefined;
-        var stdout = std.Io.File.stdout().writerStreaming(self.io, &out_buf);
-        var in_buf: [64]u8 = undefined;
-        var stdin_reader = std.Io.File.stdin().readerStreaming(self.io, &in_buf);
+    fn internal_pager(self: *Pager, host: Host, content: []const u8) !void {
+        var out_buffer: [4096]u8 = undefined;
+        var stdout = HostWriter.init(host, .stdout, &out_buffer);
 
         const lines = try self.splitLines(content);
         defer self.allocator.free(lines);
 
+        assert(lines.len > 0);
         if (lines.len == 0) return;
 
-        const page_size = self.terminal_height - 1;
+        const page_size: usize = if (self.terminal_height > 1) self.terminal_height - 1 else 1;
+        assert(page_size > 0);
         var current_line: usize = 0;
 
         while (current_line < lines.len) {
@@ -109,7 +116,9 @@ pub const Pager = struct {
             try stdout.interface.print("{s}({d} more lines, press Enter to continue, q to quit)", .{ self.options.prompt, remaining });
             try stdout.interface.flush();
 
-            const ch = stdin_reader.interface.takeByte() catch break;
+            var key: [1]u8 = undefined;
+            const count = host.read(&key) catch break;
+            if (count == 0) break;
 
             try stdout.interface.writeByte('\r');
             for (0..self.terminal_width) |_| {
@@ -118,7 +127,7 @@ pub const Pager = struct {
             try stdout.interface.writeByte('\r');
             try stdout.interface.flush();
 
-            if (std.mem.indexOfScalar(u8, self.options.quit_keys, ch) != null) {
+            if (std.mem.indexOfScalar(u8, self.options.quit_keys, key[0]) != null) {
                 break;
             }
         }
@@ -127,6 +136,7 @@ pub const Pager = struct {
 
     fn splitLines(self: *Pager, content: []const u8) ![]const []const u8 {
         var lines_list: std.ArrayList([]const u8) = .empty;
+        errdefer lines_list.deinit(self.allocator);
 
         var iter = std.mem.splitScalar(u8, content, '\n');
         while (iter.next()) |line| {
@@ -136,19 +146,6 @@ pub const Pager = struct {
         return lines_list.toOwnedSlice(self.allocator);
     }
 };
-
-fn tryPagerCommand(io: std.Io, cmd: []const u8, content: []const u8) bool {
-    var child = std.process.spawn(io, .{ .argv = &.{cmd}, .stdin = .pipe }) catch
-        return false;
-    defer child.kill(io);
-    const stdin = child.stdin.?;
-    var writer = stdin.writerStreaming(io, &.{});
-    writer.interface.writeAll(content) catch return false;
-    stdin.close(io);
-    child.stdin = null;
-    const term = child.wait(io) catch return false;
-    return term.success();
-}
 
 pub const LogLevel = enum {
     debug,
@@ -190,51 +187,74 @@ pub const Console = struct {
     allocator: std.mem.Allocator,
     io: std.Io,
     environ: std.process.Environ,
+    source: host_mod.Source,
     options: ConsoleOptions,
     terminal_info: terminal.TerminalInfo,
     current_style: Style,
     capture_buffer: ?std.ArrayList(u8),
-    write_buffer: []u8,
-    write_buffer_owned: bool,
+    write_buffer: [write_buffer_size]u8 = undefined,
     status_line_active: bool = false,
     status_line_length: usize = 0,
     theme: ?Theme,
 
-    const DEFAULT_BUFFER_SIZE = 4096;
+    const write_buffer_size = 4096;
 
     pub fn init(allocator: std.mem.Allocator, io: std.Io, environ: std.process.Environ) Console {
         return initWithOptions(allocator, io, environ, .{});
     }
 
     pub fn initWithOptions(allocator: std.mem.Allocator, io: std.Io, environ: std.process.Environ, options: ConsoleOptions) Console {
-        const info = terminal.detect(environ);
-        _ = terminal.enableVirtualTerminal();
-        _ = terminal.enableUtf8();
+        return init_source(allocator, host_mod.Source.from_io(io, environ), options);
+    }
 
-        const buffer = allocator.alloc(u8, DEFAULT_BUFFER_SIZE) catch unreachable;
+    pub fn initWithHost(allocator: std.mem.Allocator, bound: Host, options: ConsoleOptions) Console {
+        return init_source(allocator, .{ .custom = bound }, options);
+    }
+
+    fn init_source(allocator: std.mem.Allocator, source: host_mod.Source, options: ConsoleOptions) Console {
+        var probe_source = source;
+        const bound = probe_source.host();
+        _ = bound.set_mode(.virtual_terminal, true);
+        _ = bound.set_mode(.utf8_output, true);
+        const info = terminal.detect_host(bound);
+        assert(info.width > 0 and info.height > 0);
+        assert(info.is_tty or info.width == 80);
 
         return .{
             .allocator = allocator,
-            .io = io,
-            .environ = environ,
+            .io = switch (source) {
+                .real => |real| real.io,
+                .custom => std.Options.debug_io,
+            },
+            .environ = switch (source) {
+                .real => |real| real.environ,
+                .custom => .empty,
+            },
+            .source = source,
             .options = options,
             .terminal_info = info,
             .current_style = Style.empty,
             .capture_buffer = if (options.record) std.ArrayList(u8).empty else null,
-            .write_buffer = buffer,
-            .write_buffer_owned = true,
             .theme = options.theme,
         };
     }
 
     pub fn deinit(self: *Console) void {
-        self.terminal_info.deinit();
-        if (self.write_buffer_owned) {
-            self.allocator.free(self.write_buffer);
-        }
         if (self.capture_buffer) |*buf| {
             buf.deinit(self.allocator);
         }
+        self.* = undefined;
+    }
+
+    pub fn host(self: *Console) Host {
+        return self.source.host();
+    }
+
+    pub fn refresh_terminal(self: *Console) void {
+        const info = terminal.detect_host(self.source.host());
+        assert(info.width > 0 and info.height > 0);
+        assert(info.is_tty or info.width == 80);
+        self.terminal_info = info;
     }
 
     pub fn width(self: Console) u16 {
@@ -254,8 +274,8 @@ pub const Console = struct {
         return self.options.force_terminal or self.terminal_info.is_tty;
     }
 
-    fn getWriter(self: *Console) std.Io.File.Writer {
-        return std.Io.File.stdout().writerStreaming(self.io, self.write_buffer);
+    fn getWriter(self: *Console) HostWriter {
+        return HostWriter.init(self.source.host(), .stdout, &self.write_buffer);
     }
 
     pub fn print(self: *Console, text_markup: []const u8) !void {
@@ -308,7 +328,8 @@ pub const Console = struct {
     pub fn printSegments(self: *Console, segments: []const Segment) !void {
         var writer = self.getWriter();
 
-        if (self.isTty()) {
+        const synced = self.isTty() and !self.terminal_info.legacy_windows;
+        if (synced) {
             try writer.interface.writeAll(terminal.sync_output_begin);
         }
 
@@ -316,7 +337,7 @@ pub const Console = struct {
             try self.printSegment(seg, &writer.interface);
         }
 
-        if (self.isTty()) {
+        if (synced) {
             try writer.interface.writeAll(terminal.sync_output_end);
         }
 
@@ -352,7 +373,7 @@ pub const Console = struct {
             try self.resetStyle(writer);
         }
         if (seg.style) |s| {
-            if (s.link != null) {
+            if (s.link != null and !self.colors_disabled()) {
                 try Style.renderHyperlinkEnd(writer);
             }
         }
@@ -391,7 +412,7 @@ pub const Console = struct {
 
         if (title_opt) |title| {
             const title_len = @import("cells.zig").cellLen(title);
-            const total_rule_len = w - title_len - 2; // 2 for spaces around title
+            const total_rule_len = if (w > title_len + 2) w - (title_len + 2) else 0;
             const left_len = total_rule_len / 2;
             const right_len = total_rule_len - left_len;
 
@@ -463,6 +484,18 @@ pub const Console = struct {
         try writer.interface.flush();
     }
 
+    pub fn erase_lines(self: *Console, count: usize) !void {
+        assert(count > 0);
+        var writer = self.getWriter();
+        for (0..count) |_| {
+            try writer.interface.writeAll("\x1b[A");
+            try writer.interface.writeAll("\x1b[2K");
+        }
+        try writer.interface.writeAll("\r");
+        try writer.interface.flush();
+        assert(writer.interface.end == 0);
+    }
+
     pub fn showCursor(self: *Console) !void {
         try self.writeEscapeSequence("\x1b[?25h");
     }
@@ -486,7 +519,8 @@ pub const Console = struct {
     pub fn log(self: *Console, level: LogLevel, comptime fmt: []const u8, args: anytype) !void {
         var writer = self.getWriter();
 
-        const timestamp = std.Io.Timestamp.now(self.io, .real).toSeconds();
+        const wall_ns = self.source.host().now(.wall);
+        const timestamp = @divFloor(@max(wall_ns, 0), std.time.ns_per_s);
         const epoch_seconds: std.time.epoch.EpochSeconds = .{ .secs = @intCast(timestamp) };
         const day_seconds = epoch_seconds.getDaySeconds();
         const hours = day_seconds.getHoursIntoDay();
@@ -584,6 +618,7 @@ pub const Console = struct {
         InputCancelled,
         EndOfStream,
         OutOfMemory,
+        WriteFailed,
     };
 
     pub fn input(self: *Console, prompt_text: []const u8) InputError![]u8 {
@@ -592,8 +627,8 @@ pub const Console = struct {
 
     pub fn inputWithOptions(self: *Console, prompt_text: []const u8, options: InputOptions) InputError![]u8 {
         var writer = self.getWriter();
-        writer.interface.writeAll(prompt_text) catch return InputError.OutOfMemory;
-        self.writeDefaultSuffix(&writer.interface, options) catch return InputError.OutOfMemory;
+        writer.interface.writeAll(prompt_text) catch return InputError.WriteFailed;
+        self.writeDefaultSuffix(&writer.interface, options) catch return InputError.WriteFailed;
         return self.readAndProcessInput(options);
     }
 
@@ -610,10 +645,10 @@ pub const Console = struct {
 
         var writer = self.getWriter();
         for (segments) |seg| {
-            self.printSegment(seg, &writer.interface) catch return InputError.OutOfMemory;
+            self.printSegment(seg, &writer.interface) catch return InputError.WriteFailed;
         }
 
-        self.writeDefaultSuffix(&writer.interface, options) catch return InputError.OutOfMemory;
+        self.writeDefaultSuffix(&writer.interface, options) catch return InputError.WriteFailed;
         return self.readAndProcessInput(options);
     }
 
@@ -630,11 +665,10 @@ pub const Console = struct {
 
     fn readAndProcessInput(self: *Console, options: InputOptions) InputError![]u8 {
         var in_buf: [4096]u8 = undefined;
-        var stdin_reader = std.Io.File.stdin().readerStreaming(self.io, &in_buf);
-        const line = stdin_reader.interface.takeDelimiter('\n') catch |err| {
+        const line = self.source.host().read_line(&in_buf) catch |err| {
             return switch (err) {
-                error.StreamTooLong => InputError.OutOfMemory,
-                error.ReadFailed => InputError.EndOfStream,
+                error.LineTooLong => InputError.OutOfMemory,
+                else => InputError.EndOfStream,
             };
         };
 
