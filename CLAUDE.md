@@ -153,6 +153,7 @@ zig build tidy -- --table # Measurement table
 zig build tidy -- --update # Record decreases only
 zig build fuzz -- --seed 1 # Seeded markup oracle
 zig build fuzz-heavy   # Background markup campaign
+zig build sim -- --seed 1 --steps 120 # Seeded terminal simulator
 zig fmt --check src/ tools/ build.zig # CI format check
 ```
 
@@ -182,6 +183,8 @@ rich_zig/
 │   ├── highlighter.zig # Pattern-based auto-highlighting (numbers, URLs, paths)
 │   ├── ansi.zig        # ANSI escape sequence parsing and stripping
 │   │
+│   ├── host.zig        # Terminal host interface (every outside effect)
+│   ├── host_real.zig   # The real host: the only file that touches streams, clock, env
 │   ├── terminal.zig    # Terminal detection
 │   ├── console.zig     # Main console interface (theme-aware)
 │   ├── emoji.zig       # Emoji support

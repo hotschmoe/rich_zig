@@ -1,6 +1,8 @@
 .{
     .held_files = .{
         "src/assert.zig",
+        "src/host.zig",
+        "src/host_real.zig",
         "tools/tidy.zig",
         "tools/fuzz.zig",
         "tools/fuzz_generate.zig",
@@ -10,6 +12,12 @@
         "tools/fuzz_ownership.zig",
         "tools/console_gate.zig",
         "tools/declarations.zig",
+        "tools/sim.zig",
+        "tools/sim_check.zig",
+        "tools/sim_generate.zig",
+        "tools/sim_host.zig",
+        "tools/sim_run.zig",
+        "tools/sim_scan.zig",
     },
     .metrics = .{
         "long_lines",
@@ -59,9 +67,9 @@
         .{
             .name = "src/*.zig",
             .counts = .{
-                64, 9,  154, 420, 16, 1,
-                1,  4,  221, 190, 3,  16,
-                0,  28, 1,   0,   0,  0,
+                57, 8, 154, 385, 16, 1,
+                1,  4, 207, 188, 0,  0,
+                0,  0, 0,   0,   0,  0,
             },
         },
         .{
@@ -73,11 +81,27 @@
             },
         },
         .{
+            .name = "src/host.zig",
+            .counts = .{
+                0, 0, 33, 0, 0, 0,
+                0, 0, 0,  2, 0, 0,
+                0, 0, 0,  0, 0, 0,
+            },
+        },
+        .{
+            .name = "src/host_real.zig",
+            .counts = .{
+                0, 0,  23, 0, 0, 0,
+                0, 0,  0,  0, 4, 0,
+                0, 17, 1,  0, 0, 0,
+            },
+        },
+        .{
             .name = "src/renderables",
             .counts = .{
-                185, 9, 152, 638, 39, 2,
-                1,   0, 314, 366, 20, 0,
-                2,   2, 0,   0,   0,  0,
+                185, 9, 152, 620, 39, 2,
+                1,   0, 314, 366, 0,  0,
+                0,   0, 0,   0,   0,  0,
             },
         },
         .{
@@ -142,6 +166,54 @@
                 0, 0, 18, 0, 0, 0,
                 0, 0, 0,  0, 5, 0,
                 1, 0, 0,  0, 0, 0,
+            },
+        },
+        .{
+            .name = "tools/sim.zig",
+            .counts = .{
+                0, 0, 46, 0, 0, 0,
+                0, 0, 0,  7, 0, 0,
+                0, 7, 1,  2, 0, 0,
+            },
+        },
+        .{
+            .name = "tools/sim_check.zig",
+            .counts = .{
+                0, 0, 27, 0, 0, 0,
+                0, 0, 0,  0, 0, 0,
+                0, 0, 0,  0, 0, 0,
+            },
+        },
+        .{
+            .name = "tools/sim_generate.zig",
+            .counts = .{
+                0, 0, 25, 0, 0, 0,
+                0, 0, 0,  0, 0, 0,
+                0, 0, 0,  0, 0, 0,
+            },
+        },
+        .{
+            .name = "tools/sim_host.zig",
+            .counts = .{
+                0, 0, 25, 0, 0, 0,
+                0, 0, 0,  1, 0, 0,
+                0, 0, 0,  0, 0, 0,
+            },
+        },
+        .{
+            .name = "tools/sim_run.zig",
+            .counts = .{
+                0, 0, 40, 0, 0, 0,
+                0, 0, 0,  3, 0, 0,
+                0, 0, 0,  1, 0, 0,
+            },
+        },
+        .{
+            .name = "tools/sim_scan.zig",
+            .counts = .{
+                0, 0, 30, 0, 0, 0,
+                0, 0, 0,  0, 0, 0,
+                0, 0, 0,  0, 0, 0,
             },
         },
         .{

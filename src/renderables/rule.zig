@@ -73,7 +73,7 @@ pub const Rule = struct {
             const rule_len = if (width > title_len + 2) width - title_len - 2 else 0;
 
             const left_len: usize = switch (self.alignment) {
-                .left => 1,
+                .left => @min(1, rule_len),
                 .center => rule_len / 2,
                 .right => if (rule_len > 1) rule_len - 1 else 0,
             };

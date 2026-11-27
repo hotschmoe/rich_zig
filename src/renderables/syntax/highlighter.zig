@@ -3,6 +3,10 @@ const Segment = @import("../../segment.zig").Segment;
 const Style = @import("../../style.zig").Style;
 const Color = @import("../../color.zig").Color;
 const cells = @import("../../cells.zig");
+const assert = @import("assert").assert;
+const host_mod = @import("../../host.zig");
+
+const code_bytes_max: u32 = 64 * 1024 * 1024;
 
 const Language = @import("language.zig").Language;
 const SyntaxTheme = @import("theme.zig").SyntaxTheme;
@@ -65,12 +69,18 @@ pub const Syntax = struct {
     }
 
     pub fn loadFile(allocator: std.mem.Allocator, io: std.Io, path: []const u8) !Syntax {
-        const file = try std.Io.Dir.openFile(.cwd(), io, path, .{});
-        defer file.close(io);
+        var source = host_mod.Source.from_io(io, .empty);
+        return load_file_host(allocator, source.host(), path);
+    }
 
-        var read_buf: [4096]u8 = undefined;
-        var file_reader = file.reader(io, &read_buf);
-        const code = try file_reader.interface.allocRemaining(allocator, .unlimited);
+    pub fn load_file_host(
+        allocator: std.mem.Allocator,
+        host: host_mod.Host,
+        path: []const u8,
+    ) !Syntax {
+        assert(path.len > 0);
+        const code = try host.read_file_alloc(allocator, path, code_bytes_max);
+        assert(code.len <= code_bytes_max);
 
         return Syntax{
             .code = code,

@@ -43,13 +43,13 @@ pub fn build(b: *std.Build) void {
     run_cmd.addPassthruArgs();
 
     const test_step = b.step("test", "Build and run the blocking end-to-end examples");
+    const heavy_step = b.step("test-heavy", "Run the complete example suite");
     const checks = add_checks(b, mod, target);
     test_step.dependOn(&checks.fuzz.step);
     run_cmd.step.dependOn(&checks.tidy.step);
     test_step.dependOn(b.getInstallStep());
     test_step.dependOn(&checks.console_gate.step);
     checks.console_gate.addArtifactArg(exe);
-    const heavy_step = b.step("test-heavy", "Run the complete example suite");
 
     add_examples(.{
         .builder = b,
@@ -124,7 +124,7 @@ fn add_examples(config: ExampleBuild) void {
         standalone_run.step.dependOn(config.tidy_step);
 
         const blocking_names = [_][]const u8{
-            "hello", "panel", "table", "tree", "json_syntax", "markdown", "advanced_syntax",
+            "hello", "panel", "table", "json_syntax", "markdown", "advanced_syntax",
         };
         for (blocking_names) |blocking| {
             if (std.mem.eql(u8, name, blocking)) config.console_gate.addArtifactArg(example_exe);
@@ -184,7 +184,58 @@ fn add_checks(b: *std.Build, mod: *std.Build.Module, target: std.Build.ResolvedT
     runs[2].step.dependOn(&runs[0].step);
     runs[2].step.dependOn(b.getInstallStep());
     add_declarations(b, mod);
+    add_sim(b, mod, .{ .tidy = runs[0], .target = target });
     return .{ .tidy = runs[0], .fuzz = short_run, .console_gate = runs[2] };
+}
+
+fn sim_executable(
+    b: *std.Build,
+    mod: *std.Build.Module,
+    target: std.Build.ResolvedTarget,
+    optimize: std.builtin.OptimizeMode,
+) *std.Build.Step.Compile {
+    return b.addExecutable(.{
+        .name = "sim",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tools/sim.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "rich_zig", .module = mod },
+                .{ .name = "assert", .module = mod.import_table.get("assert").? },
+            },
+        }),
+    });
+}
+
+const SimSteps = struct {
+    tidy: *std.Build.Step.Run,
+    target: std.Build.ResolvedTarget,
+};
+
+fn add_sim(b: *std.Build, mod: *std.Build.Module, steps: SimSteps) void {
+    std.debug.assert(b.pkg_hash.len == 0);
+    const exe = sim_executable(b, mod, steps.target, .ReleaseSafe);
+    std.debug.assert(exe.kind == .exe);
+    const run = b.addRunArtifact(exe);
+    run.has_side_effects = true;
+    run.setCwd(b.path("."));
+    run.addPassthruArgs();
+    b.step("sim", "Run the seeded terminal simulator").dependOn(&run.step);
+
+    const gate = b.addRunArtifact(exe);
+    gate.has_side_effects = true;
+    gate.setCwd(b.path("."));
+    gate.addArgs(&.{ "--seed", "1", "--steps", "120", "--cross-process" });
+    gate.step.dependOn(&steps.tidy.step);
+    b.top_level_steps.get("test").?.step.dependOn(&gate.step);
+
+    const campaign = b.addRunArtifact(exe);
+    campaign.has_side_effects = true;
+    campaign.setCwd(b.path("."));
+    campaign.addArgs(&.{ "--seed", "0x72696368", "--seeds", "300", "--steps", "64" });
+    campaign.step.dependOn(&steps.tidy.step);
+    b.top_level_steps.get("test-heavy").?.step.dependOn(&campaign.step);
 }
 
 fn add_declarations(b: *std.Build, mod: *std.Build.Module) void {
@@ -217,6 +268,9 @@ fn add_declarations(b: *std.Build, mod: *std.Build.Module) void {
         });
         step.dependOn(&exe.step);
         b.installArtifact(exe);
+        const sim = sim_executable(b, mod, target, .Debug);
+        sim.root_module.addImport("rich_zig", library);
+        step.dependOn(&sim.step);
     }
     b.top_level_steps.get("test").?.step.dependOn(step);
 }

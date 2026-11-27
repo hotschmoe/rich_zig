@@ -3,6 +3,10 @@ const Style = @import("style.zig").Style;
 const Color = @import("color.zig").Color;
 const ColorSystem = @import("color.zig").ColorSystem;
 const terminal = @import("terminal.zig");
+const assert = @import("assert").assert;
+const host_mod = @import("host.zig");
+const real_host = @import("host_real.zig");
+const HostWriter = host_mod.HostWriter;
 const Segment = @import("segment.zig").Segment;
 const box = @import("box.zig");
 const Panel = @import("renderables/panel.zig").Panel;
@@ -88,11 +92,13 @@ pub const LogRecord = struct {
     line: ?u32 = null,
 
     pub fn init(io: std.Io, level: Level, message: []const u8) LogRecord {
-        return .{
-            .level = level,
-            .message = message,
-            .timestamp = std.Io.Timestamp.now(io, .real).toSeconds(),
-        };
+        const source = host_mod.Source.from_io(io, .empty);
+        return init_at(wall_seconds(source), level, message);
+    }
+
+    pub fn init_at(timestamp: i64, level: Level, message: []const u8) LogRecord {
+        assert(timestamp >= 0);
+        return .{ .level = level, .message = message, .timestamp = timestamp };
     }
 
     pub fn withPath(self: LogRecord, path: []const u8) LogRecord {
@@ -108,10 +114,13 @@ pub const LogRecord = struct {
     }
 };
 
+fn wall_seconds(source: host_mod.Source) i64 {
+    return @divFloor(@max(source.now(.wall), 0), std.time.ns_per_s);
+}
+
 pub const RichHandler = struct {
-    io: std.Io,
+    source: host_mod.Source,
     allocator: std.mem.Allocator,
-    writer: std.Io.File.Writer,
     styles: LevelStyles,
     format: FormatOptions,
     color_system: ColorSystem,
@@ -132,14 +141,36 @@ pub const RichHandler = struct {
         styles: LevelStyles,
         format: FormatOptions,
     ) RichHandler {
-        var term_info = terminal.detect(environ);
-        defer term_info.deinit();
-        const buffer = allocator.alloc(u8, BUFFER_SIZE) catch @panic("failed to allocate logging buffer");
+        const source = host_mod.Source.from_io(io, environ);
+        return init_source(allocator, source, styles, format);
+    }
+
+    pub fn initWithHost(
+        allocator: std.mem.Allocator,
+        bound: host_mod.Host,
+        styles: LevelStyles,
+        format: FormatOptions,
+    ) RichHandler {
+        return init_source(allocator, .{ .custom = bound }, styles, format);
+    }
+
+    fn init_source(
+        allocator: std.mem.Allocator,
+        source: host_mod.Source,
+        styles: LevelStyles,
+        format: FormatOptions,
+    ) RichHandler {
+        var probe_source = source;
+        const term_info = terminal.detect_host(probe_source.host());
+        const buffer = allocator.alloc(u8, BUFFER_SIZE) catch {
+            @panic("failed to allocate logging buffer");
+        };
+        assert(buffer.len == BUFFER_SIZE);
+        assert(term_info.width > 0);
 
         return .{
-            .io = io,
+            .source = source,
             .allocator = allocator,
-            .writer = std.Io.File.stdout().writerStreaming(io, buffer),
             .styles = styles,
             .format = format,
             .color_system = term_info.color_system,
@@ -169,7 +200,8 @@ pub const RichHandler = struct {
             return;
         }
 
-        const writer = &self.writer.interface;
+        var host_writer = HostWriter.init(self.source.host(), .stdout, self.write_buffer);
+        const writer = &host_writer.interface;
 
         if (self.format.show_timestamp) {
             try self.writeTimestamp(record.timestamp, writer);
@@ -272,19 +304,19 @@ pub const RichHandler = struct {
     }
 
     pub fn debug(self: *RichHandler, message: []const u8) !void {
-        try self.emit(LogRecord.init(self.io, .debug, message));
+        try self.emit(LogRecord.init_at(wall_seconds(self.source), .debug, message));
     }
 
     pub fn info(self: *RichHandler, message: []const u8) !void {
-        try self.emit(LogRecord.init(self.io, .info, message));
+        try self.emit(LogRecord.init_at(wall_seconds(self.source), .info, message));
     }
 
     pub fn warn(self: *RichHandler, message: []const u8) !void {
-        try self.emit(LogRecord.init(self.io, .warn, message));
+        try self.emit(LogRecord.init_at(wall_seconds(self.source), .warn, message));
     }
 
     pub fn err(self: *RichHandler, message: []const u8) !void {
-        try self.emit(LogRecord.init(self.io, .err, message));
+        try self.emit(LogRecord.init_at(wall_seconds(self.source), .err, message));
     }
 };
 
@@ -294,6 +326,26 @@ pub fn stdLogFn(
     comptime format: []const u8,
     args: anytype,
 ) void {
+    var buf: [64]u8 = undefined;
+    const locked = real_host.lock_stderr(&buf);
+    defer locked.unlock();
+    assert(locked.wall_seconds >= 0);
+    const stderr = locked.writer;
+    write_log_line(stderr, locked.colors, locked.wall_seconds, level, scope, format, args) catch {
+        return;
+    };
+}
+
+pub fn write_log_line(
+    stderr: *std.Io.Writer,
+    colors_enabled: bool,
+    wall_seconds_now: i64,
+    comptime level: std.log.Level,
+    comptime scope: @TypeOf(.enum_literal),
+    comptime format: []const u8,
+    args: anytype,
+) std.Io.Writer.Error!void {
+    assert(wall_seconds_now >= 0);
     const level_style = switch (level) {
         .debug => Style.empty.dim(),
         .info => Style.empty.foreground(Color.blue),
@@ -301,45 +353,35 @@ pub fn stdLogFn(
         .err => Style.empty.foreground(Color.red).bold(),
     };
     const timestamp_style = Style.empty.dim();
-
     const scope_str = if (scope == .default) "" else @tagName(scope);
-
-    var buf: [64]u8 = undefined;
-    const locked = std.debug.lockStderr(&buf);
-    defer std.debug.unlockStderr();
-    const stderr = &locked.file_writer.interface;
-    const colors_enabled = locked.terminal_mode != .no_color;
-
-    const timestamp = std.Io.Timestamp.now(std.Options.debug_io, .real).toSeconds();
-    const epoch_seconds: std.time.epoch.EpochSeconds = .{ .secs = @intCast(timestamp) };
+    const epoch_seconds: std.time.epoch.EpochSeconds = .{ .secs = @intCast(wall_seconds_now) };
     const day_seconds = epoch_seconds.getDaySeconds();
 
-    if (colors_enabled) timestamp_style.renderAnsi(.truecolor, stderr) catch return;
-    stderr.print("{d:0>2}:{d:0>2}:{d:0>2}", .{
+    if (colors_enabled) try timestamp_style.renderAnsi(.truecolor, stderr);
+    try stderr.print("{d:0>2}:{d:0>2}:{d:0>2}", .{
         day_seconds.getHoursIntoDay(),
         day_seconds.getMinutesIntoHour(),
         day_seconds.getSecondsIntoMinute(),
-    }) catch return;
-    if (colors_enabled) Style.renderReset(stderr) catch return;
-    stderr.writeAll(" ") catch return;
+    });
+    if (colors_enabled) try Style.renderReset(stderr);
+    try stderr.writeAll(" ");
 
-    if (colors_enabled) level_style.renderAnsi(.truecolor, stderr) catch return;
-    stderr.print("[{s}]", .{Level.fromStdLevel(level).toString()}) catch return;
-    if (colors_enabled) Style.renderReset(stderr) catch return;
+    if (colors_enabled) try level_style.renderAnsi(.truecolor, stderr);
+    try stderr.print("[{s}]", .{Level.fromStdLevel(level).toString()});
+    if (colors_enabled) try Style.renderReset(stderr);
 
     if (scope_str.len > 0) {
-        stderr.writeAll(" ") catch return;
-        if (colors_enabled)
-            Style.empty.foreground(Color.cyan).dim().renderAnsi(.truecolor, stderr) catch return;
-        stderr.print("({s})", .{scope_str}) catch return;
-        if (colors_enabled) Style.renderReset(stderr) catch return;
+        try stderr.writeAll(" ");
+        if (colors_enabled) try Style.empty.foreground(Color.cyan).dim().renderAnsi(.truecolor, stderr);
+        try stderr.print("({s})", .{scope_str});
+        if (colors_enabled) try Style.renderReset(stderr);
     }
 
-    stderr.writeAll(" ") catch return;
-
-    stderr.print(format, args) catch return;
-    stderr.writeByte('\n') catch return;
-    stderr.flush() catch return;
+    try stderr.writeAll(" ");
+    try stderr.print(format, args);
+    try stderr.writeByte('\n');
+    try stderr.flush();
+    assert(stderr.end == 0);
 }
 
 pub fn scopedLog(comptime scope: @TypeOf(.enum_literal)) type {
@@ -440,8 +482,11 @@ pub const TracebackOptions = struct {
     syntax_theme: SyntaxTheme = SyntaxTheme.default,
 };
 
+const source_bytes_max: u32 = 1024 * 1024;
+
 pub const Traceback = struct {
     io: std.Io,
+    source: host_mod.Source,
     allocator: std.mem.Allocator,
     message: ?[]const u8 = null,
     error_name: ?[]const u8 = null,
@@ -453,6 +498,7 @@ pub const Traceback = struct {
     pub fn init(io: std.Io, allocator: std.mem.Allocator) Traceback {
         return .{
             .io = io,
+            .source = host_mod.Source.from_io(io, .empty),
             .allocator = allocator,
             .frames = std.ArrayList(StackFrame).empty,
             .source_cache = std.StringHashMap([]const []const u8).init(allocator),
@@ -615,12 +661,11 @@ pub const Traceback = struct {
             return lines;
         }
 
-        const file = std.Io.Dir.cwd().openFile(self.io, file_path, .{}) catch return null;
-        defer file.close(self.io);
-
-        var read_buf: [4096]u8 = undefined;
-        var file_reader = file.reader(self.io, &read_buf);
-        const content = file_reader.interface.allocRemaining(self.allocator, .limited64(1024 * 1024)) catch return null;
+        const content = self.source.host().read_file_alloc(
+            self.allocator,
+            file_path,
+            source_bytes_max,
+        ) catch return null;
         defer self.allocator.free(content);
 
         var line_list: std.ArrayList([]const u8) = .empty;

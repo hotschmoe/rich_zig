@@ -13,7 +13,7 @@ const Context = struct {
 pub fn main(init: std.process.Init) !void {
     const allocator = init.arena.allocator();
     const args = try init.minimal.args.toSlice(allocator);
-    if (args.len != 9) return error.ExpectedEightPrograms;
+    if (args.len != 8) return error.ExpectedSevenPrograms;
     const memory = try allocator.alloc(u8, memory_max);
     var environments: [modes]std.process.Environ.Map = undefined;
     for (&environments, 0..) |*environment, mode| {

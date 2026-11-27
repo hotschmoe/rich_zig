@@ -3,18 +3,34 @@ const Segment = @import("../../segment.zig").Segment;
 const Style = @import("../../style.zig").Style;
 const Color = @import("../../color.zig").Color;
 const ProgressBar = @import("bar.zig").ProgressBar;
+const host_mod = @import("../../host.zig");
+const assert = @import("assert").assert;
+const live_mod = @import("../live.zig");
+const Live = live_mod.Live;
 
 pub const ProgressGroup = struct {
     bars: std.ArrayList(ProgressBar),
     allocator: std.mem.Allocator,
-    io: std.Io,
+    source: host_mod.Source,
 
     pub fn init(allocator: std.mem.Allocator, io: std.Io) ProgressGroup {
         return .{
             .bars = std.ArrayList(ProgressBar).empty,
             .allocator = allocator,
-            .io = io,
+            .source = host_mod.Source.from_io(io, .empty),
         };
+    }
+
+    pub fn initWithHost(allocator: std.mem.Allocator, bound: host_mod.Host) ProgressGroup {
+        return .{
+            .bars = std.ArrayList(ProgressBar).empty,
+            .allocator = allocator,
+            .source = .{ .custom = bound },
+        };
+    }
+
+    fn new_bar(self: ProgressGroup) ProgressBar {
+        return .{ .source = self.source };
     }
 
     pub fn deinit(self: *ProgressGroup) void {
@@ -22,14 +38,14 @@ pub const ProgressGroup = struct {
     }
 
     pub fn addTask(self: *ProgressGroup, description: []const u8, total: usize) !*ProgressBar {
-        try self.bars.append(self.allocator, ProgressBar.init(self.io)
+        try self.bars.append(self.allocator, self.new_bar()
             .withDescription(description)
             .withTotal(total));
         return &self.bars.items[self.bars.items.len - 1];
     }
 
     pub fn addTaskWithTiming(self: *ProgressGroup, description: []const u8, total: usize) !*ProgressBar {
-        try self.bars.append(self.allocator, ProgressBar.init(self.io)
+        try self.bars.append(self.allocator, self.new_bar()
             .withDescription(description)
             .withTotal(total)
             .withTiming());
@@ -80,20 +96,27 @@ pub const ProgressGroup = struct {
 
 pub const ProgressDisplay = struct {
     group: *ProgressGroup,
-    live: ?*@import("../live.zig").Live = null,
-    refresh_thread: ?std.Thread = null,
-    should_stop: std.atomic.Value(bool) = std.atomic.Value(bool).init(false),
+    live: ?*Live = null,
     refresh_ms: u64 = 100,
     allocator: std.mem.Allocator,
-    io: std.Io,
-    mutex: std.Io.Mutex = .init,
+    source: host_mod.Source,
+    last_tick_ms: ?i64 = null,
+    is_running: bool = false,
 
     pub fn init(allocator: std.mem.Allocator, io: std.Io, group: *ProgressGroup) ProgressDisplay {
         return .{
             .group = group,
             .allocator = allocator,
-            .io = io,
+            .source = host_mod.Source.from_io(io, .empty),
         };
+    }
+
+    pub fn initWithHost(
+        allocator: std.mem.Allocator,
+        bound: host_mod.Host,
+        group: *ProgressGroup,
+    ) ProgressDisplay {
+        return .{ .group = group, .allocator = allocator, .source = .{ .custom = bound } };
     }
 
     pub fn withRefreshRate(self: ProgressDisplay, ms: u64) ProgressDisplay {
@@ -102,60 +125,49 @@ pub const ProgressDisplay = struct {
         return pd;
     }
 
-    pub fn withLive(self: ProgressDisplay, live: *@import("../live.zig").Live) ProgressDisplay {
+    pub fn withLive(self: ProgressDisplay, live: *Live) ProgressDisplay {
         var pd = self;
         pd.live = live;
         return pd;
     }
 
     pub fn start(self: *ProgressDisplay) !void {
-        if (self.refresh_thread != null) return;
-
-        if (self.live) |live| {
-            try live.start();
-        }
-
-        self.should_stop.store(false, .release);
-        self.refresh_thread = try std.Thread.spawn(.{}, autoRefreshThread, .{self});
+        if (self.is_running) return;
+        if (self.live) |live| try live.start();
+        self.is_running = true;
+        self.last_tick_ms = null;
+        assert(self.is_running);
+        assert(self.live == null or self.live.?.is_started);
     }
 
-    pub fn stop(self: *ProgressDisplay) void {
-        if (self.refresh_thread) |thread| {
-            self.should_stop.store(true, .release);
-            thread.join();
-            self.refresh_thread = null;
-
-            if (self.live) |live| {
-                live.stop() catch {};
-            }
-        }
+    pub fn stop(self: *ProgressDisplay) !void {
+        if (!self.is_running) return;
+        self.is_running = false;
+        if (self.live) |live| try live.stop();
+        assert(!self.is_running);
+        assert(self.live == null or !self.live.?.is_started);
     }
 
-    fn autoRefreshThread(self: *ProgressDisplay) void {
-        const sleep_duration = std.Io.Duration.fromMilliseconds(@intCast(self.refresh_ms));
-        while (!self.should_stop.load(.acquire)) {
-            std.Io.sleep(self.io, sleep_duration, .awake) catch {};
+    pub fn tick(self: *ProgressDisplay, at_ms: i64) !bool {
+        if (!self.is_running) return false;
+        const live = self.live orelse return false;
+        if (!live_mod.is_due(self.last_tick_ms, at_ms, self.refresh_ms)) return false;
+        self.last_tick_ms = at_ms;
 
-            if (self.should_stop.load(.acquire)) break;
+        var arena = std.heap.ArenaAllocator.init(self.allocator);
+        defer arena.deinit();
+        const segments = try self.group.render(live.console.width(), arena.allocator());
+        assert(live.is_started);
+        try live.forceUpdate(segments);
+        assert(self.last_tick_ms.? == at_ms);
+        return true;
+    }
 
-            self.mutex.lockUncancelable(self.io);
-            const live = self.live;
-            self.mutex.unlock(self.io);
-
-            if (live) |l| {
-                var arena = std.heap.ArenaAllocator.init(self.allocator);
-                defer arena.deinit();
-
-                const segments = self.group.render(80, arena.allocator()) catch continue;
-                l.forceUpdate(segments) catch {};
-            }
-        }
+    pub fn wait(self: *ProgressDisplay, duration_ms: u64) !void {
+        try live_mod.wait_loop(self.source.host(), duration_ms, self.refresh_ms, self);
     }
 
     pub fn advanceSpinners(self: *ProgressDisplay) void {
-        self.mutex.lockUncancelable(self.io);
-        defer self.mutex.unlock(self.io);
-
         for (self.group.bars.items) |*bar| {
             if (bar.indeterminate) {
                 bar.advancePulse();
@@ -415,17 +427,25 @@ pub const Progress = struct {
     completed: usize = 0,
     total: usize = 100,
     description: ?[]const u8 = null,
-    start_time: ?i96 = null,
+    start_time: ?i64 = null,
     indeterminate: bool = false,
     separator: []const u8 = " ",
     allocator: std.mem.Allocator,
-    io: std.Io,
+    source: host_mod.Source,
 
     pub fn init(allocator: std.mem.Allocator, io: std.Io) Progress {
         return .{
             .columns = std.ArrayList(ProgressColumn).empty,
             .allocator = allocator,
-            .io = io,
+            .source = host_mod.Source.from_io(io, .empty),
+        };
+    }
+
+    pub fn initWithHost(allocator: std.mem.Allocator, bound: host_mod.Host) Progress {
+        return .{
+            .columns = std.ArrayList(ProgressColumn).empty,
+            .allocator = allocator,
+            .source = .{ .custom = bound },
         };
     }
 
@@ -480,7 +500,7 @@ pub const Progress = struct {
 
     pub fn withTiming(self: Progress) Progress {
         var p = self;
-        p.start_time = std.Io.Timestamp.now(p.io, .awake).toNanoseconds();
+        p.start_time = p.source.now(.monotonic);
         return p;
     }
 
@@ -511,10 +531,11 @@ pub const Progress = struct {
 
     pub fn calculateElapsed(self: Progress) u64 {
         const start = self.start_time orelse return 0;
-        const now = std.Io.Timestamp.now(self.io, .awake).toNanoseconds();
-        const diff = now - start;
+        const diff = self.source.now(.monotonic) -| start;
         if (diff <= 0) return 0;
-        return @as(u64, @intCast(diff)) / std.time.ns_per_s;
+        const seconds = @as(u64, @intCast(diff)) / std.time.ns_per_s;
+        assert(seconds <= std.math.maxInt(i64));
+        return seconds;
     }
 
     pub fn estimateRemaining(self: Progress) ?u64 {
@@ -528,7 +549,7 @@ pub const Progress = struct {
         if (rate == 0) return null;
 
         const remaining: f64 = @as(f64, @floatFromInt(self.total - self.completed)) / rate;
-        return @intFromFloat(remaining);
+        return std.math.lossyCast(u64, remaining);
     }
 
     pub fn calculateSpeed(self: Progress) f64 {
@@ -548,7 +569,7 @@ pub const Progress = struct {
             .description = self.description,
             .is_finished = self.isFinished(),
             .is_indeterminate = self.indeterminate,
-            .current_ms = std.Io.Timestamp.now(self.io, .real).toMilliseconds(),
+            .current_ms = @divFloor(self.source.now(.wall), std.time.ns_per_ms),
         };
     }
 

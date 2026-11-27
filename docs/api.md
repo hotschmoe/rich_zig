@@ -690,7 +690,8 @@ Detects terminal capabilities including size, color support, TTY status, and Uni
 
 | Function | Returns | Description |
 |----------|---------|-------------|
-| `detect()` | `TerminalInfo` | Detect terminal capabilities |
+| `detect(environ)` | `TerminalInfo` | Detect terminal capabilities |
+| `detect_host(host)` | `TerminalInfo` | The same, through a `Host` |
 | `enableVirtualTerminal()` | `bool` | Enable ANSI on Windows |
 | `enableUtf8()` | `bool` | Enable UTF-8 on Windows |
 
@@ -704,10 +705,12 @@ pub const TerminalInfo = struct {
     is_tty: bool = false,
     supports_unicode: bool = true,
     supports_hyperlinks: bool = false,
-    term: ?[]const u8 = null,
-    term_program: ?[]const u8 = null,
+    term: ?EnvText = null,
+    term_program: ?EnvText = null,
     supports_sync_output: bool = false,
     background_mode: BackgroundMode = .unknown,
+    no_color: bool = false,
+    legacy_windows: bool = false,
 };
 ```
 
@@ -742,19 +745,24 @@ DEC private mode 2026 for atomic frame rendering. Console uses this opportunisti
 Explicit `ConsoleOptions.color_system` overrides environment detection;
 `ConsoleOptions.no_color` always disables SGR output. Otherwise `NO_COLOR` wins,
 then `FORCE_COLOR`, then `TERM=dumb` or a non-terminal disables colour.
-Empty `NO_COLOR` permits normal detection. `terminal.detect` returns `TerminalInfo`;
-call its `deinit()` to release retained Windows environment strings.
+Empty `NO_COLOR` permits normal detection. A terminal whose virtual-terminal mode cannot be
+enabled (a legacy Windows console) gets no colour unless `FORCE_COLOR` is set. `terminal.detect`
+returns `TerminalInfo`, which owns no memory; `EnvText.slice()` gives `term` and `term_program`.
 
 `Prompt.ask(io, environ)`, `IntPrompt.ask(io, environ)`, `FloatPrompt.ask(io, environ)`
 and `Confirm.ask(io, environ)` take the Zig 0.17.1 I/O context and environment
-explicitly; prompts follow the same colour precedence as Console.
+explicitly; prompts follow the same colour precedence as Console. Each has an `ask_host(host)`
+twin that takes a `Host` (see `rich_zig.host`), as do `Console.initWithHost`,
+`RichHandler.initWithHost`, `ProgressBar.initWithHost`, `ProgressGroup.initWithHost`,
+`ProgressDisplay.initWithHost` and `Progress.initWithHost`. A write failure is reported as
+`error.WriteFailed`, never as `OutOfMemory`.
 
 #### Example
 
 ```zig
 const terminal = @import("rich_zig").terminal;
 
-const info = terminal.detect();
+const info = terminal.detect(environ);
 std.debug.print("Terminal: {d}x{d}\n", .{ info.width, info.height });
 std.debug.print("Color: {s}\n", .{ @tagName(info.color_system) });
 std.debug.print("TTY: {}\n", .{ info.is_tty });
@@ -1279,7 +1287,7 @@ while (!done) {
     defer allocator.free(segments);
     try console.printSegments(segments);
     spinner.advance();
-    std.time.sleep(100 * std.time.ns_per_ms);
+    try console.host().wait(100 * std.time.ns_per_ms);
 }
 ```
 
@@ -1532,9 +1540,9 @@ var live = Live.init(&console);
 | `stop()` | `!void` | End live display (shows cursor) |
 | `update(segments: []const Segment)` | `!void` | Update displayed content |
 | `forceUpdate(segments)` | `!void` | Update ignoring rate limit |
-| `setContent(segments)` | `void` | Set content for auto-refresh |
-| `startAutoRefresh(allocator)` | `!void` | Begin background refresh |
-| `stopAutoRefresh()` | `void` | Stop background refresh |
+| `setContent(segments)` | `void` | Set the content that `tick` and `wait` refresh |
+| `tick(now_ms: i64)` | `!bool` | Render the content if the refresh interval has passed; the caller supplies the time |
+| `wait(duration_ms: u64)` | `!void` | Tick and wait on the calling thread for the duration; no thread is started |
 
 #### Example
 
@@ -1549,7 +1557,7 @@ while (!done) {
     const segments = try renderable.render(80, allocator);
     defer allocator.free(segments);
     try live.update(segments);
-    std.time.sleep(100 * std.time.ns_per_ms);
+    try console.host().wait(100 * std.time.ns_per_ms);
 }
 ```
 

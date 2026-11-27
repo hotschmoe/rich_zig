@@ -2,6 +2,8 @@ const std = @import("std");
 const Segment = @import("../segment.zig").Segment;
 const segment_mod = @import("../segment.zig");
 const Console = @import("../console.zig").Console;
+const assert = @import("assert").assert;
+const host_mod = @import("../host.zig");
 
 pub const OverflowMode = enum {
     visible,
@@ -9,20 +11,48 @@ pub const OverflowMode = enum {
     scroll,
 };
 
+pub const wait_rounds_extra: u64 = 3;
+
+pub fn is_due(last_ms: ?i64, at_ms: i64, interval_ms: u64) bool {
+    const last = last_ms orelse return true;
+    if (at_ms < last) return true;
+    const elapsed: u64 = @intCast(at_ms -| last);
+    assert(at_ms >= last);
+    assert(elapsed <= std.math.maxInt(i64));
+    return elapsed >= interval_ms;
+}
+
+pub fn now_ms(host: host_mod.Host) i64 {
+    return @divFloor(host.now(.monotonic), std.time.ns_per_ms);
+}
+
+pub fn wait_loop(host: host_mod.Host, duration_ms: u64, interval_ms: u64, target: anytype) !void {
+    const interval = @max(interval_ms, 1);
+    const rounds_max = duration_ms / interval + wait_rounds_extra;
+    const begin = now_ms(host);
+    var rounds: u64 = 0;
+    while (rounds < rounds_max) : (rounds += 1) {
+        const now = now_ms(host);
+        _ = try target.tick(now);
+        const elapsed: u64 = if (now > begin) @intCast(now - begin) else 0;
+        if (elapsed >= duration_ms) return;
+        const step_ms = @min(duration_ms - elapsed, interval);
+        assert(step_ms > 0);
+        assert(rounds < rounds_max);
+        try host.wait(step_ms * std.time.ns_per_ms);
+    }
+}
+
 pub const Live = struct {
     console: *Console,
     min_refresh_ms: u64 = 50,
-    last_refresh_time: i64 = 0,
+    last_refresh_time: ?i64 = null,
     lines_rendered: usize = 0,
     is_started: bool = false,
     overflow_mode: OverflowMode = .visible,
     max_lines: ?usize = null,
     scroll_offset: usize = 0,
     content: ?[]const Segment = null,
-    content_mutex: std.Io.Mutex = .init,
-    refresh_thread: ?std.Thread = null,
-    should_stop: std.atomic.Value(bool) = std.atomic.Value(bool).init(false),
-    allocator: ?std.mem.Allocator = null,
 
     pub fn init(console: *Console) Live {
         return .{
@@ -53,7 +83,7 @@ pub const Live = struct {
     }
 
     pub fn scrollDown(self: *Live, lines: usize) void {
-        self.scroll_offset += lines;
+        self.scroll_offset +|= lines;
     }
 
     pub fn scrollToTop(self: *Live) void {
@@ -73,75 +103,55 @@ pub const Live = struct {
         try self.console.hideCursor();
         self.is_started = true;
         self.lines_rendered = 0;
+        self.last_refresh_time = null;
+        assert(self.is_started);
+        assert(self.lines_rendered == 0);
     }
 
     pub fn stop(self: *Live) !void {
         if (!self.is_started) return;
-        self.stopAutoRefresh();
-        try self.console.showCursor();
         self.is_started = false;
+        try self.console.showCursor();
+        assert(!self.is_started);
     }
 
     pub fn setContent(self: *Live, segments: []const Segment) void {
-        self.content_mutex.lockUncancelable(self.console.io);
-        defer self.content_mutex.unlock(self.console.io);
         self.content = segments;
     }
 
-    pub fn startAutoRefresh(self: *Live, allocator: std.mem.Allocator) !void {
-        if (self.refresh_thread != null) return;
-
-        self.allocator = allocator;
-        self.should_stop.store(false, .release);
-        self.refresh_thread = try std.Thread.spawn(.{}, autoRefreshThread, .{self});
+    pub fn tick(self: *Live, at_ms: i64) !bool {
+        if (!self.is_started) return false;
+        const segments = self.content orelse return false;
+        if (!is_due(self.last_refresh_time, at_ms, self.min_refresh_ms)) return false;
+        self.last_refresh_time = at_ms;
+        try self.renderSegments(segments);
+        assert(self.last_refresh_time.? == at_ms);
+        assert(self.is_started);
+        return true;
     }
 
-    pub fn stopAutoRefresh(self: *Live) void {
-        if (self.refresh_thread) |thread| {
-            self.should_stop.store(true, .release);
-            thread.join();
-            self.refresh_thread = null;
-        }
-    }
-
-    fn autoRefreshThread(self: *Live) void {
-        while (!self.should_stop.load(.acquire)) {
-            const delay: std.Io.Duration = .fromMilliseconds(@intCast(self.min_refresh_ms));
-            std.Io.sleep(self.console.io, delay, .awake) catch |err| {
-                std.debug.print("live refresh sleep failed: {s}\n", .{@errorName(err)});
-                return;
-            };
-
-            if (self.should_stop.load(.acquire)) break;
-
-            self.content_mutex.lockUncancelable(self.console.io);
-            const segments = self.content;
-            self.content_mutex.unlock(self.console.io);
-
-            if (segments) |segs| {
-                self.renderSegments(segs) catch {};
-                self.last_refresh_time = std.Io.Clock.real.now(self.console.io).toMilliseconds();
-            }
-        }
+    pub fn wait(self: *Live, duration_ms: u64) !void {
+        try wait_loop(self.console.host(), duration_ms, self.min_refresh_ms, self);
     }
 
     pub fn update(self: *Live, segments: []const Segment) !void {
         if (!self.is_started) return;
 
-        const now = std.Io.Clock.real.now(self.console.io).toMilliseconds();
-        if (now - self.last_refresh_time < @as(i64, @intCast(self.min_refresh_ms))) {
-            return;
-        }
+        const now = now_ms(self.console.host());
+        if (!is_due(self.last_refresh_time, now, self.min_refresh_ms)) return;
         self.last_refresh_time = now;
+        assert(self.is_started);
 
         try self.renderSegments(segments);
+        assert(self.last_refresh_time.? == now);
     }
 
     pub fn forceUpdate(self: *Live, segments: []const Segment) !void {
         if (!self.is_started) return;
 
+        assert(self.is_started);
         try self.renderSegments(segments);
-        self.last_refresh_time = std.Io.Clock.real.now(self.console.io).toMilliseconds();
+        self.last_refresh_time = now_ms(self.console.host());
     }
 
     fn renderSegments(self: *Live, segments: []const Segment) !void {
@@ -208,20 +218,10 @@ pub const Live = struct {
 
     fn clearPrevious(self: *Live) !void {
         if (self.lines_rendered == 0) return;
-
-        const stdout = std.Io.File.stdout();
-        var writer = stdout.writerStreaming(self.console.io, self.console.write_buffer);
-
-        for (0..self.lines_rendered) |_| {
-            try writer.interface.writeAll("\x1b[A");
-            try writer.interface.writeAll("\x1b[2K");
-        }
-        try writer.interface.writeAll("\r");
-        try writer.interface.flush();
+        try self.console.erase_lines(self.lines_rendered);
     }
 
-    pub fn shouldRefresh(self: Live) bool {
-        const now = std.Io.Clock.real.now(self.console.io).toMilliseconds();
-        return now - self.last_refresh_time >= @as(i64, @intCast(self.min_refresh_ms));
+    pub fn shouldRefresh(self: *Live) bool {
+        return is_due(self.last_refresh_time, now_ms(self.console.host()), self.min_refresh_ms);
     }
 };

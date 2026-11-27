@@ -2,6 +2,8 @@ const std = @import("std");
 const Segment = @import("../../segment.zig").Segment;
 const Style = @import("../../style.zig").Style;
 const Color = @import("../../color.zig").Color;
+const host_mod = @import("../../host.zig");
+const assert = @import("assert").assert;
 
 const percentage_strings = blk: {
     var strings: [101][5]u8 = undefined;
@@ -29,7 +31,7 @@ pub const SpeedUnit = enum {
 };
 
 pub const ProgressBar = struct {
-    io: std.Io,
+    source: host_mod.Source,
     completed: usize = 0,
     total: usize = 100,
     width: usize = 40,
@@ -42,7 +44,7 @@ pub const ProgressBar = struct {
 
     description: ?[]const u8 = null,
     description_style: Style = Style.empty,
-    start_time: ?i96 = null,
+    start_time: ?i64 = null,
     show_percentage: bool = true,
     show_elapsed: bool = false,
     show_eta: bool = false,
@@ -57,7 +59,11 @@ pub const ProgressBar = struct {
     transient: bool = false,
 
     pub fn init(io: std.Io) ProgressBar {
-        return .{ .io = io };
+        return .{ .source = host_mod.Source.from_io(io, .empty) };
+    }
+
+    pub fn initWithHost(bound: host_mod.Host) ProgressBar {
+        return .{ .source = .{ .custom = bound } };
     }
 
     pub fn withCompleted(self: ProgressBar, c: usize) ProgressBar {
@@ -104,7 +110,7 @@ pub const ProgressBar = struct {
 
     pub fn withTiming(self: ProgressBar) ProgressBar {
         var p = self;
-        p.start_time = std.Io.Timestamp.now(p.io, .awake).toNanoseconds();
+        p.start_time = p.source.now(.monotonic);
         p.show_elapsed = true;
         p.show_eta = true;
         return p;
@@ -113,7 +119,7 @@ pub const ProgressBar = struct {
     pub fn withElapsed(self: ProgressBar) ProgressBar {
         var p = self;
         if (p.start_time == null) {
-            p.start_time = std.Io.Timestamp.now(p.io, .awake).toNanoseconds();
+            p.start_time = p.source.now(.monotonic);
         }
         p.show_elapsed = true;
         return p;
@@ -122,7 +128,7 @@ pub const ProgressBar = struct {
     pub fn withEta(self: ProgressBar) ProgressBar {
         var p = self;
         if (p.start_time == null) {
-            p.start_time = std.Io.Timestamp.now(p.io, .awake).toNanoseconds();
+            p.start_time = p.source.now(.monotonic);
         }
         p.show_eta = true;
         return p;
@@ -131,7 +137,7 @@ pub const ProgressBar = struct {
     pub fn withSpeed(self: ProgressBar) ProgressBar {
         var p = self;
         if (p.start_time == null) {
-            p.start_time = std.Io.Timestamp.now(p.io, .awake).toNanoseconds();
+            p.start_time = p.source.now(.monotonic);
         }
         p.show_speed = true;
         return p;
@@ -142,7 +148,7 @@ pub const ProgressBar = struct {
         p.speed_unit = unit;
         p.speed_suffix = suffix;
         if (p.start_time == null) {
-            p.start_time = std.Io.Timestamp.now(p.io, .awake).toNanoseconds();
+            p.start_time = p.source.now(.monotonic);
         }
         p.show_speed = true;
         return p;
@@ -178,10 +184,11 @@ pub const ProgressBar = struct {
 
     pub fn calculateElapsed(self: ProgressBar) u64 {
         const start = self.start_time orelse return 0;
-        const now = std.Io.Timestamp.now(self.io, .awake).toNanoseconds();
-        const diff = now - start;
+        const diff = self.source.now(.monotonic) -| start;
         if (diff <= 0) return 0;
-        return @as(u64, @intCast(diff)) / std.time.ns_per_s;
+        const seconds = @as(u64, @intCast(diff)) / std.time.ns_per_s;
+        assert(seconds <= std.math.maxInt(i64));
+        return seconds;
     }
 
     pub fn estimateRemaining(self: ProgressBar) ?u64 {
@@ -195,7 +202,7 @@ pub const ProgressBar = struct {
         if (rate == 0) return null;
 
         const remaining: f64 = @as(f64, @floatFromInt(self.total - self.completed)) / rate;
-        return @intFromFloat(remaining);
+        return std.math.lossyCast(u64, remaining);
     }
 
     pub fn calculateSpeed(self: ProgressBar) f64 {
@@ -234,12 +241,13 @@ pub const ProgressBar = struct {
     }
 
     pub fn advancePulse(self: *ProgressBar) void {
+        if (self.width == 0) return;
         self.pulse_position = (self.pulse_position + 1) % self.width;
     }
 
     pub fn reset(self: *ProgressBar) void {
         self.completed = 0;
-        self.start_time = std.Io.Timestamp.now(self.io, .awake).toNanoseconds();
+        self.start_time = self.source.now(.monotonic);
         self.pulse_position = 0;
     }
 

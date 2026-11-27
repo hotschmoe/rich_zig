@@ -260,7 +260,7 @@ while (i <= 100) : (i += 5) {
 
     try console.writer.writeAll("\r");
     try console.printRenderable(bar);
-    std.time.sleep(100 * std.time.ns_per_ms);
+    try console.host().wait(100 * std.time.ns_per_ms);
 }
 ```
 
@@ -349,6 +349,8 @@ src/
 +-- cells.zig          # Unicode width calculations
 +-- text.zig           # Text with styled spans
 +-- markup.zig         # Markup parser [bold]...[/]
++-- host.zig           # Terminal host interface
++-- host_real.zig      # Real host (streams, environment, clock, processes)
 +-- terminal.zig       # Terminal detection
 +-- console.zig        # Output management
 +-- measure.zig        # Measurement protocol

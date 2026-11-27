@@ -25,28 +25,66 @@ Its symbol text arena lives with Traceback so frame names and file paths stay va
 The standard log callback uses the locked stderr terminal mode for SGR suppression;
 RichHandler carries detection's no-colour flag until `setColorSystem` explicitly overrides it.
 
-## console.zig, terminal.zig, prompt.zig, renderables/live.zig
+## host.zig, host_real.zig
 
-All stdout writers use `writerStreaming`, including pager output, live cursor
-clearing, logging and prompts. A fresh positional writer restarts at offset zero
-for a regular file, even when earlier calls already flushed output there.
-The stderr logging callback uses std's locked streaming writer.
+`Host` is a context pointer and a table of functions: write and flush for stdout and
+stderr, read for stdin, capability probes, size, environment lookup, mode changes, a
+monotonic and a wall clock, wait, pager start and file read. Everything the library does to
+the outside world goes through it. `host_real.zig` is the only file in `src/` that touches
+`std.Io` streams, the environment, the clock, processes or the console modes; its tidy
+counts are the seam inventory. Nothing in it is reached unless a Console, handler, prompt or
+progress value is built, so a wasm consumer that only parses markup compiles none of it.
 
-Terminal detection carries suppression separately from `ColorSystem.standard`,
-which still means sixteen colours. Nonempty NO_COLOR wins over FORCE_COLOR;
-FORCE_COLOR wins over TERM=dumb and non-terminal detection. Console's explicit
-colour-system option overrides detection, while its no_color option always wins.
-Windows conversions used by capability checks are freed in scope; the two retained
-terminal-name strings are freed by `TerminalInfo.deinit`, called by Console,
-RichHandler and the terminal examples. POSIX strings remain borrowed.
+Writes are unbuffered at the host and may be short. `write_all` retries until done and gives
+up with `WriteFailed` after eight consecutive zero-byte writes. `HostWriter` adapts the
+host to `std.Io.Writer`: its first failure is sticky, so nothing is written after a failure
+has been reported, and its flush calls the host's flush. The failure is the typed error
+`WriteFailed`; the old code reported write failures from prompts as `OutOfMemory`.
 
-Prompt `ask` calls now receive an explicit I/O context and environment; prompt
-and validation colours follow Console's suppression rules. Password echo/masking and
-pager selection retain their previous control flow. Live refresh uses I/O sleep
-instead of removed std.time.sleep. The old std.io/std.fs prompt operations and
-Child.init pager spawn were invisible to tidy's modern file/process names: the
-API migration exposes file calls 14 -> 28 and process calls 0 -> 1, without adding
-an I/O or process path.
+`Source` holds either the real host's state (an `Io` and an `Environ`, both plain values)
+or a caller's `Host`. The real host cannot be a bare pointer in these structs, because
+Console, ProgressBar and the others are returned and copied by value; the owner derives the
+`Host` from its own storage at each use. This keeps `Console.init(allocator, io, environ)`,
+`ProgressBar.init(io)`, `Prompt.ask(io, environ)` and the other `io` entry points working
+unchanged; each has an `...WithHost`, `init_source` or `ask_host` twin that takes a `Host`.
+
+The clock operation is called `wait`, not `sleep`: tidy counts calls named `sleep` as clock
+access, and the interface file is not the seam. Environment values are copied into the
+caller's buffer (256 bytes, longer values are truncated), so no lookup allocates and nothing
+needs freeing on Windows. A terminal that reports zero columns or rows has no size, and
+detection falls back to 80 by 24. Password input is a mode (`password_input`) plus ordinary
+reads: the library masks and handles backspace, the host only hides the echo (ECHO off on
+POSIX as before; echo and line input off on Windows, with `ReadConsoleA`). The std logging
+callback cannot be given a host, so the seam provides `lock_stderr` and `stdLogFn` formats
+through `write_log_line`, which the simulator drives directly.
+
+## console.zig, terminal.zig, prompt.zig, logging.zig, renderables/live.zig, renderables/progress
+
+Terminal detection carries suppression separately from `ColorSystem.standard`, which
+still means sixteen colours. Nonempty NO_COLOR wins over FORCE_COLOR; FORCE_COLOR (any
+value, including empty) wins over TERM=dumb, a legacy Windows console and non-terminal
+detection. Console's explicit colour-system option overrides detection, while its no_color
+option always wins. A terminal whose virtual-terminal mode cannot be enabled (legacy
+Windows console) gets no colour and no synchronized-output sequences unless forced.
+`TerminalInfo` no longer owns strings: `term` and `term_program` are 64-byte copies, so
+`deinit` is gone. `Console.refresh_terminal` re-reads the size after a resize. The hyperlink
+closer is written only when the opener was, so NO_COLOR output has no OSC 8 sequence.
+
+Console reads stdin one byte at a time through the host, as the prompts already did; a
+buffered reader dropped the lines after the first when input was piped. Console's write
+buffer is an inline array, so `init` cannot fail.
+
+Live refresh and progress groups no longer spawn a thread. `Live.tick(now_ms)` and
+`ProgressDisplay.tick(now_ms)` render when the refresh interval has passed; `wait(ms)`
+loops tick and `host.wait` on the calling thread and is bounded by the duration over the
+refresh interval plus three rounds. A clock that steps backwards counts as due, so a display
+cannot freeze until the clock catches up. `startAutoRefresh` and `stopAutoRefresh` were
+removed rather than kept as no-ops: a thread would make the bytes depend on scheduling and
+would need locking around every console write. The caller drives ticks, either itself or
+through `wait`.
+
+Progress structs read the monotonic clock through their own `Source`; elapsed time is a
+saturating difference and a clock that went backwards reads as zero.
 
 ## tools/tidy.zig
 
@@ -85,8 +123,8 @@ paths. Each file has its own group, excluded from its directory's counts, and
 must meet every style target independently of its stored numbers. It must
 exist, be in scope and not be skipped or generated. Duplicate and noncanonical
 paths fail. Updates preserve the entire list, including when a file is missing;
-they never remove entries. rich_zig holds `src/assert.zig`, `tools/tidy.zig` and
-each `tools/fuzz*.zig` source individually.
+they never remove entries. rich_zig holds `src/assert.zig`, `src/host.zig`, `src/host_real.zig`, `tools/tidy.zig`,
+each `tools/fuzz*.zig` and each `tools/sim*.zig` source individually.
 Seam inventories and globals may be nonzero; style targets are zero, with
 longest function at most 70. Moving a held file
 out of a group also moves its assertion demand and surplus credit.
@@ -337,7 +375,7 @@ verify that explicit hyperlink parameters still win.
 
 ## tools/console_gate.zig
 
-The blocking examples run twice in each of five environments, once with pipes and
+The seven blocking programs (the main binary and six examples) run twice in each of five environments, once with pipes and
 once with regular stdout/stderr files. Both streams must match byte for byte and
 all colour-disabled modes reject SGR. Captures are evidence, never golden files.
 Startup reserves 32 MiB for process collection and creates environment maps;
@@ -379,3 +417,40 @@ verifies the saved input matches it; changed generator semantics produce
 insufficient for replay. No failure corpus is added to the blocking gate.
 `fuzz-heavy` fixes a background seed for reproducibility; additional CLI seeds
 provide independent campaigns. No subprocess is spawned while configuring builds.
+
+## tools/sim.zig, sim_host.zig, sim_generate.zig, sim_run.zig, sim_check.zig, sim_scan.zig
+
+`zig build sim -- --seed N --steps M [--seeds K] [--replay file] [--cross-process] [--verbose]`.
+A seed generates a terminal and a script; the same seed always generates the same bytes.
+`sim_host.zig` implements `Host`: scripted size, tty flags, environment, legacy Windows,
+password and pager results, input bytes, a clock that only moves when the script or
+`wait` moves it, and write failures and short writes that apply to one step. Writes land
+in 2 MiB captures. The library under test uses a fixed 48 MiB tracker (the allocator from
+`fuzz_memory.zig`), reset between steps when nothing is live; limits are named constants.
+
+`sim_generate.zig` draws the terminal (width 1 to 200 or a Console width override of
+0 to 50, which is how zero and one column widths arrive), environment variables, colour
+options and 22 step kinds, with text made of ASCII, wide, combining, right-to-left and very
+long words and markup that includes literal and unknown tags. `sim_run.zig` builds each
+renderable and prints it through a real `Console`; expected text is generated alongside the
+markup, not derived from the library. `sim_scan.zig` parses escape sequences and measures cell
+width with its own tables; it shares no code with `cells.zig`. `sim_check.zig` checks:
+
+- same seed, same bytes: a second run in the process and (with `--cross-process`) a child
+  process digest;
+- no visible line wider than the terminal for a renderable that promises to fit;
+- every SGR and OSC 8 closed by the end of a print, cursor and alternate-screen state paired
+  by the end of a live display, synchronized output balanced;
+- no SGR or OSC 8 when colour is disabled (computed from the documented precedence), and the
+  visible text equal to a run with colour forced on;
+- a write failure is the typed `WriteFailed`, nothing is accepted after it within the step,
+  a short write changes no byte (run with and without short writes), no step leaks;
+- progress and live frames depend only on tick times: the run is repeated with the monotonic
+  clock shifted by a constant;
+- a typed password never reaches stdout.
+
+Table, panel and columns do not wrap or shrink their content, so their promise to fit is
+made only when the generated content fits at its natural width; the number of prints wider
+than the terminal below that width is reported as `wider_than_terminal` and is not a
+failure. Tree and progress bars make no promise. A failing seed is saved under
+`zig-out/sim/` for `--replay`; it is fixed or filed and is not added to the blocking gate.
