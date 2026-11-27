@@ -106,7 +106,11 @@ pub const Live = struct {
 
     fn autoRefreshThread(self: *Live) void {
         while (!self.should_stop.load(.acquire)) {
-            std.time.sleep(self.min_refresh_ms * std.time.ns_per_ms);
+            const delay: std.Io.Duration = .fromMilliseconds(@intCast(self.min_refresh_ms));
+            std.Io.sleep(self.console.io, delay, .awake) catch |err| {
+                std.debug.print("live refresh sleep failed: {s}\n", .{@errorName(err)});
+                return;
+            };
 
             if (self.should_stop.load(.acquire)) break;
 
@@ -206,7 +210,7 @@ pub const Live = struct {
         if (self.lines_rendered == 0) return;
 
         const stdout = std.Io.File.stdout();
-        var writer = stdout.writer(self.console.io, self.console.write_buffer);
+        var writer = stdout.writerStreaming(self.console.io, self.console.write_buffer);
 
         for (0..self.lines_rendered) |_| {
             try writer.interface.writeAll("\x1b[A");

@@ -50,7 +50,7 @@ try console.print("[bold]Bold text[/]");
 try console.print("[red]Red text[/]");
 try console.print("[bold red on white]Bold red text on white background[/]");
 try console.print("[italic dim]Subtle italic text[/]");
-try console.print("[link=https://ziglang.org]Visit Zig[/link]");
+try console.print("[link=https://ziglang.org]Visit Zig[/]");
 ```
 
 Styles can be combined: `[bold italic underline red]`
@@ -60,9 +60,20 @@ Available styles:
 - **Emphasis**: `italic`, `underline`, `strikethrough`
 - **Colors**: `red`, `green`, `blue`, `yellow`, `magenta`, `cyan`, `white`, `black`
 - **Background**: `on red`, `on blue`, etc.
-- **Links**: `[link=URL]text[/link]`
+- **Links**: `[link=URL]text[/]`
 
-Close any style with `[/]` or use specific closing tags like `[/bold]`.
+Close the latest style with `[/]` or a recognized name such as `[/bold]`.
+A named closer also pops the latest style; it does not search by name.
+Unclosed styles apply through the end: `[green]Ready` is valid.
+Unknown tags stay literal, so `[green][OK][/]` prints a green `[OK]`.
+The same applies to unknown closers, `[=value]`, `[[nested]]` and array notation
+such as `[1]`; use `[color(1)]` for indexed colour. `[]` is invalid, and a `[` with
+no following `]` is unbalanced. `Text.fromMarkup` and its themed version own their
+text, spans and URLs, so the markup input can be freed after parsing.
+
+Nonempty `NO_COLOR` disables colour even with `FORCE_COLOR`; an explicit
+`ConsoleOptions.color_system` overrides detection. Otherwise `FORCE_COLOR`
+enables colour on a pipe or file, and `TERM=dumb` or a non-terminal disables it.
 
 ## Your First Panel
 

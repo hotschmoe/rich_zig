@@ -4,6 +4,7 @@ const Segment = @import("segment.zig").Segment;
 const markup = @import("markup.zig");
 const cells = @import("cells.zig");
 const Theme = @import("theme.zig").Theme;
+const assert = @import("assert").assert;
 
 pub const Span = struct {
     start: usize,
@@ -18,6 +19,7 @@ pub const Text = struct {
     allocator: std.mem.Allocator,
     owns_plain: bool = false,
     owns_spans: bool = false,
+    owned_links: []const u8 = "",
 
     pub fn init(allocator: std.mem.Allocator) Text {
         return .{
@@ -49,59 +51,14 @@ pub const Text = struct {
     }
 
     pub fn fromMarkup(allocator: std.mem.Allocator, text: []const u8) !Text {
-        const tokens = try markup.parseMarkup(text, allocator);
-        defer allocator.free(tokens);
-
-        var plain_buf: std.ArrayList(u8) = .empty;
-        defer plain_buf.deinit(allocator);
-
-        var spans_buf: std.ArrayList(Span) = .empty;
-        defer spans_buf.deinit(allocator);
-
-        var style_stack: std.ArrayList(Style) = .empty;
-        defer style_stack.deinit(allocator);
-        try style_stack.append(allocator, Style.empty);
-
-        for (tokens) |token| {
-            switch (token) {
-                .text => |txt| {
-                    const start = plain_buf.items.len;
-                    try plain_buf.appendSlice(allocator, txt);
-                    const end = plain_buf.items.len;
-
-                    const current_style = style_stack.getLast();
-                    if (!current_style.isEmpty()) {
-                        try spans_buf.append(allocator, .{
-                            .start = start,
-                            .end = end,
-                            .style = current_style,
-                        });
-                    }
-                },
-                .open_tag => |tag| {
-                    const current_style = style_stack.getLast();
-                    const new_style = Style.parse(tag.name) catch continue;
-                    try style_stack.append(allocator, current_style.combine(new_style));
-                },
-                .close_tag => {
-                    if (style_stack.items.len > 1) {
-                        _ = style_stack.pop();
-                    }
-                },
-            }
-        }
-
-        return .{
-            .plain = try plain_buf.toOwnedSlice(allocator),
-            .spans = try spans_buf.toOwnedSlice(allocator),
-            .style = Style.empty,
-            .allocator = allocator,
-            .owns_plain = true,
-            .owns_spans = true,
-        };
+        return from_markup(allocator, text, null);
     }
 
     pub fn fromMarkupWithTheme(allocator: std.mem.Allocator, text: []const u8, theme: Theme) !Text {
+        return from_markup(allocator, text, theme);
+    }
+
+    fn from_markup(allocator: std.mem.Allocator, text: []const u8, theme: ?Theme) !Text {
         const tokens = try markup.parseMarkup(text, allocator);
         defer allocator.free(tokens);
 
@@ -116,28 +73,38 @@ pub const Text = struct {
         try style_stack.append(allocator, Style.empty);
 
         for (tokens) |token| {
+            assert(style_stack.items.len > 0);
+            assert(style_stack.items.len <= tokens.len + 1);
             switch (token) {
                 .text => |txt| {
-                    const start = plain_buf.items.len;
-                    try plain_buf.appendSlice(allocator, txt);
-                    const end = plain_buf.items.len;
-
-                    const current_style = style_stack.getLast();
-                    if (!current_style.isEmpty()) {
-                        try spans_buf.append(allocator, .{
-                            .start = start,
-                            .end = end,
-                            .style = current_style,
-                        });
-                    }
+                    try append_literal(allocator, &plain_buf, &spans_buf, txt, style_stack.getLast());
                 },
                 .open_tag => |tag| {
                     const current_style = style_stack.getLast();
-                    const new_style = theme.get(tag.name) orelse
-                        (Style.parse(tag.name) catch continue);
+                    const named = if (tag.parameters == null)
+                        (if (theme) |t| t.get(tag.name) else null)
+                    else
+                        null;
+                    const new_style = named orelse (markup.tag_style(tag) catch {
+                        try append_literal(allocator, &plain_buf, &spans_buf, tag.source, current_style);
+                        continue;
+                    });
                     try style_stack.append(allocator, current_style.combine(new_style));
                 },
-                .close_tag => {
+                .close_tag => |name| {
+                    if (name) |value| {
+                        const named = if (theme) |t| t.get(value) else null;
+                        _ = named orelse (markup.tag_style(.{ .name = value }) catch {
+                            try append_literal(
+                                allocator,
+                                &plain_buf,
+                                &spans_buf,
+                                markup.closing_source(value),
+                                style_stack.getLast(),
+                            );
+                            continue;
+                        });
+                    }
                     if (style_stack.items.len > 1) {
                         _ = style_stack.pop();
                     }
@@ -145,17 +112,94 @@ pub const Text = struct {
             }
         }
 
-        return .{
-            .plain = try plain_buf.toOwnedSlice(allocator),
-            .spans = try spans_buf.toOwnedSlice(allocator),
+        const plain = try plain_buf.toOwnedSlice(allocator);
+        errdefer allocator.free(plain);
+        const spans = try spans_buf.toOwnedSlice(allocator);
+        errdefer allocator.free(spans);
+        return (Text{
+            .plain = plain,
+            .spans = spans,
             .style = Style.empty,
             .allocator = allocator,
             .owns_plain = true,
             .owns_spans = true,
-        };
+        }).copy_links();
+    }
+
+    fn append_literal(
+        allocator: std.mem.Allocator,
+        plain: *std.ArrayList(u8),
+        spans: *std.ArrayList(Span),
+        literal: []const u8,
+        style: Style,
+    ) !void {
+        assert(literal.len > 0);
+        const start = plain.items.len;
+        try plain.appendSlice(allocator, literal);
+        if (!style.isEmpty()) try spans.append(allocator, .{
+            .start = start,
+            .end = plain.items.len,
+            .style = style,
+        });
+        assert(plain.items.len - start == literal.len);
+    }
+
+    fn copy_links(self: Text) !Text {
+        assert(self.owns_spans or self.spans.len == 0);
+        var result = self;
+        result.owned_links = "";
+        var base = [_]Span{.{ .start = 0, .end = self.plain.len, .style = self.style }};
+        const groups = [_][]Span{ &base, @constCast(result.spans) };
+        var count: usize = 0;
+        for (groups) |spans| {
+            for (spans) |span| count += @intFromBool(span.style.link != null);
+        }
+        if (count == 0) return result;
+        var offsets = std.AutoHashMap(LinkKey, LinkCopy).init(self.allocator);
+        defer offsets.deinit();
+        try offsets.ensureTotalCapacity(std.math.cast(u32, count) orelse return error.OutOfMemory);
+        var length: usize = 0;
+        for (groups) |spans| {
+            for (spans) |span| {
+                assert(span.start <= span.end and span.end <= self.plain.len);
+                if (span.style.link) |link| {
+                    const entry = offsets.getOrPutAssumeCapacity(link_key(link));
+                    if (entry.found_existing) continue;
+                    entry.value_ptr.* = .{ .bytes = link, .start = @intCast(length) };
+                    length = std.math.add(usize, length, link.len) catch return error.OutOfMemory;
+                }
+            }
+        }
+        const links = try self.allocator.alloc(u8, length);
+        var values = offsets.valueIterator();
+        for (0..offsets.count()) |_| {
+            const value = values.next().?;
+            const start: usize = @intCast(value.start);
+            @memcpy(links[start..][0..value.bytes.len], value.bytes);
+        }
+        for (groups) |spans| {
+            for (spans) |*span| {
+                if (span.style.link) |link| {
+                    const start: usize = @intCast(offsets.get(link_key(link)).?.start);
+                    assert(start + link.len <= links.len);
+                    span.style.link = links[start..][0..link.len];
+                }
+            }
+        }
+        result.style = base[0].style;
+        result.owned_links = links;
+        return result;
+    }
+
+    const LinkKey = struct { address: u64, length: u64 };
+    const LinkCopy = struct { bytes: []const u8, start: u64 };
+
+    fn link_key(link: []const u8) LinkKey {
+        return .{ .address = @intCast(@intFromPtr(link.ptr)), .length = @intCast(link.len) };
     }
 
     pub fn deinit(self: *Text) void {
+        self.allocator.free(self.owned_links);
         if (self.owns_spans and self.spans.len > 0) {
             self.allocator.free(self.spans);
         }
@@ -227,10 +271,12 @@ pub const Text = struct {
         const offset = self.plain.len;
 
         const new_plain = try self.allocator.alloc(u8, self.plain.len + other.plain.len);
+        errdefer self.allocator.free(new_plain);
         @memcpy(new_plain[0..self.plain.len], self.plain);
         @memcpy(new_plain[self.plain.len..], other.plain);
 
         const new_spans = try self.allocator.alloc(Span, self.spans.len + other.spans.len);
+        errdefer self.allocator.free(new_spans);
         @memcpy(new_spans[0..self.spans.len], self.spans);
         for (other.spans, 0..) |span, i| {
             new_spans[self.spans.len + i] = .{
@@ -240,17 +286,16 @@ pub const Text = struct {
             };
         }
 
-        if (self.owns_plain and self.plain.len > 0) {
-            self.allocator.free(@constCast(self.plain));
-        }
-        if (self.owns_spans and self.spans.len > 0) {
-            self.allocator.free(self.spans);
-        }
-
-        self.plain = new_plain;
-        self.spans = new_spans;
-        self.owns_plain = true;
-        self.owns_spans = true;
+        const result = try (Text{
+            .plain = new_plain,
+            .spans = new_spans,
+            .style = self.style,
+            .allocator = self.allocator,
+            .owns_plain = true,
+            .owns_spans = true,
+        }).copy_links();
+        self.deinit();
+        self.* = result;
     }
 
     pub fn slice(self: Text, start: usize, end: usize) Text {
@@ -286,6 +331,7 @@ pub const Text = struct {
         const actual_start = @min(start, actual_end);
 
         var new_spans = try self.allocator.alloc(Span, self.spans.len + 1);
+        errdefer self.allocator.free(new_spans);
         @memcpy(new_spans[0..self.spans.len], self.spans);
         new_spans[self.spans.len] = .{
             .start = actual_start,
@@ -293,11 +339,16 @@ pub const Text = struct {
             .style = style,
         };
 
+        var result = self.*;
+        result.spans = new_spans;
+        result.owns_spans = true;
+        result = try result.copy_links();
+        self.allocator.free(self.owned_links);
         if (self.owns_spans and self.spans.len > 0) {
             self.allocator.free(self.spans);
         }
 
-        self.spans = new_spans;
+        self.* = result;
         self.owns_spans = true;
     }
 
@@ -306,15 +357,16 @@ pub const Text = struct {
         errdefer self.allocator.free(new_plain);
 
         const new_spans = try self.allocator.dupe(Span, self.spans);
+        errdefer self.allocator.free(new_spans);
 
-        return .{
+        return (Text{
             .plain = new_plain,
             .spans = new_spans,
             .style = self.style,
             .allocator = self.allocator,
             .owns_plain = true,
             .owns_spans = true,
-        };
+        }).copy_links();
     }
 
     pub fn truncate(self: Text, max_cells: usize, ellipsis: []const u8) !Text {
@@ -360,14 +412,14 @@ pub const Text = struct {
             }
         }
 
-        return .{
+        return (Text{
             .plain = new_plain,
             .spans = new_spans,
             .style = self.style,
             .allocator = self.allocator,
             .owns_plain = true,
             .owns_spans = true,
-        };
+        }).copy_links();
     }
 
     pub fn alignLeft(self: Text, width: usize) !Text {
@@ -383,15 +435,16 @@ pub const Text = struct {
         @memset(new_plain[self.plain.len..], ' ');
 
         const new_spans = try self.allocator.dupe(Span, self.spans);
+        errdefer self.allocator.free(new_spans);
 
-        return .{
+        return (Text{
             .plain = new_plain,
             .spans = new_spans,
             .style = self.style,
             .allocator = self.allocator,
             .owns_plain = true,
             .owns_spans = true,
-        };
+        }).copy_links();
     }
 
     pub fn alignRight(self: Text, width: usize) !Text {
@@ -416,14 +469,14 @@ pub const Text = struct {
             };
         }
 
-        return .{
+        return (Text{
             .plain = new_plain,
             .spans = new_spans,
             .style = self.style,
             .allocator = self.allocator,
             .owns_plain = true,
             .owns_spans = true,
-        };
+        }).copy_links();
     }
 
     pub fn alignCenter(self: Text, width: usize) !Text {
@@ -451,14 +504,14 @@ pub const Text = struct {
             };
         }
 
-        return .{
+        return (Text{
             .plain = new_plain,
             .spans = new_spans,
             .style = self.style,
             .allocator = self.allocator,
             .owns_plain = true,
             .owns_spans = true,
-        };
+        }).copy_links();
     }
 
     pub fn wrap(self: Text, max_width: usize) ![]Text {
@@ -572,14 +625,14 @@ pub const Text = struct {
             }
         }
 
-        return .{
+        return (Text{
             .plain = new_plain,
             .spans = new_spans,
             .style = self.style,
             .allocator = self.allocator,
             .owns_plain = true,
             .owns_spans = true,
-        };
+        }).copy_links();
     }
 
     pub fn justify(self: Text, width: usize) !Text {
@@ -654,14 +707,16 @@ pub const Text = struct {
             };
         }
 
-        return .{
-            .plain = try new_plain.toOwnedSlice(self.allocator),
+        const plain = try new_plain.toOwnedSlice(self.allocator);
+        errdefer self.allocator.free(plain);
+        return (Text{
+            .plain = plain,
             .spans = new_spans,
             .style = self.style,
             .allocator = self.allocator,
             .owns_plain = true,
             .owns_spans = true,
-        };
+        }).copy_links();
     }
 
     pub fn highlightPattern(self: Text, pattern: []const u8, style: Style) !Text {
@@ -702,13 +757,13 @@ pub const Text = struct {
             };
         }
 
-        return .{
+        return (Text{
             .plain = new_plain,
             .spans = new_spans,
             .style = self.style,
             .allocator = self.allocator,
             .owns_plain = true,
             .owns_spans = true,
-        };
+        }).copy_links();
     }
 };

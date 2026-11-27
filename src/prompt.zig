@@ -2,6 +2,8 @@ const std = @import("std");
 const Console = @import("console.zig").Console;
 const Text = @import("text.zig").Text;
 const Style = @import("style.zig").Style;
+const assert = @import("assert").assert;
+const terminal = @import("terminal.zig");
 
 pub const PromptError = error{
     OutOfMemory,
@@ -84,12 +86,17 @@ pub const Prompt = struct {
         return p;
     }
 
-    pub fn ask(self: Prompt) PromptError![]u8 {
-        const stdout = std.io.getStdOut().writer();
-        const stdin = std.io.getStdIn();
+    pub fn ask(self: Prompt, io: std.Io, environ: std.process.Environ) PromptError![]u8 {
+        var info = terminal.detect(environ);
+        defer info.deinit();
+        const colors = prompt_colors(self.console, info);
+        var output = std.Io.File.stdout().writerStreaming(io, &.{});
+        const stdout = &output.interface;
+        const stdin = std.Io.File.stdin();
 
         while (true) {
-            writeStyledPrompt(stdout, self.allocator, self.prompt_text) catch return PromptError.OutOfMemory;
+            writeStyledPrompt(stdout, self.allocator, self.prompt_text, colors) catch
+                return PromptError.OutOfMemory;
 
             if (self.show_choices and self.choices != null) {
                 const choices = self.choices.?;
@@ -109,9 +116,9 @@ pub const Prompt = struct {
 
             var input_buf: [4096]u8 = undefined;
             const line: ?[]u8 = if (self.password)
-                readPassword(&input_buf, stdin) catch return PromptError.OutOfMemory
+                readPassword(io, &input_buf, stdin) catch return PromptError.OutOfMemory
             else
-                stdin.reader().readUntilDelimiterOrEof(&input_buf, '\n') catch return PromptError.OutOfMemory;
+                read_line(io, stdin, &input_buf) catch return PromptError.OutOfMemory;
 
             const raw = line orelse return PromptError.EndOfStream;
             var trimmed = stripCarriageReturn(raw);
@@ -140,7 +147,7 @@ pub const Prompt = struct {
                     }
                 }
                 if (!valid) {
-                    printChoiceError(stdout, choices) catch {};
+                    printChoiceError(stdout, choices, colors) catch {};
                     continue;
                 }
             }
@@ -149,7 +156,7 @@ pub const Prompt = struct {
                 switch (validate(trimmed)) {
                     .valid => {},
                     .invalid => |msg| {
-                        printValidationError(stdout, msg) catch {};
+                        printValidationError(stdout, msg, colors) catch {};
                         continue;
                     },
                 }
@@ -206,12 +213,17 @@ pub const IntPrompt = struct {
         return p;
     }
 
-    pub fn ask(self: IntPrompt) PromptError!i64 {
-        const stdout = std.io.getStdOut().writer();
-        const stdin = std.io.getStdIn();
+    pub fn ask(self: IntPrompt, io: std.Io, environ: std.process.Environ) PromptError!i64 {
+        var info = terminal.detect(environ);
+        defer info.deinit();
+        const colors = prompt_colors(self.console, info);
+        var output = std.Io.File.stdout().writerStreaming(io, &.{});
+        const stdout = &output.interface;
+        const stdin = std.Io.File.stdin();
 
         while (true) {
-            writeStyledPrompt(stdout, self.allocator, self.prompt_text) catch return PromptError.OutOfMemory;
+            writeStyledPrompt(stdout, self.allocator, self.prompt_text, colors) catch
+                return PromptError.OutOfMemory;
 
             if (self.min != null or self.max != null) {
                 stdout.writeAll(" [") catch return PromptError.OutOfMemory;
@@ -232,7 +244,7 @@ pub const IntPrompt = struct {
             stdout.writeAll(": ") catch return PromptError.OutOfMemory;
 
             var input_buf: [256]u8 = undefined;
-            const line = stdin.reader().readUntilDelimiterOrEof(&input_buf, '\n') catch return PromptError.OutOfMemory;
+            const line = read_line(io, stdin, &input_buf) catch return PromptError.OutOfMemory;
 
             const raw = line orelse return PromptError.EndOfStream;
             const trimmed = stripCarriageReturn(raw);
@@ -245,7 +257,7 @@ pub const IntPrompt = struct {
             }
 
             const value = std.fmt.parseInt(i64, trimmed, 10) catch {
-                printValidationError(stdout, "Please enter a valid integer") catch {};
+                printValidationError(stdout, "Please enter a valid integer", colors) catch {};
                 continue;
             };
 
@@ -253,7 +265,7 @@ pub const IntPrompt = struct {
                 if (value < m) {
                     var buf: [64]u8 = undefined;
                     const msg = std.fmt.bufPrint(&buf, "Value must be at least {d}", .{m}) catch "Value too small";
-                    printValidationError(stdout, msg) catch {};
+                    printValidationError(stdout, msg, colors) catch {};
                     continue;
                 }
             }
@@ -262,7 +274,7 @@ pub const IntPrompt = struct {
                 if (value > m) {
                     var buf: [64]u8 = undefined;
                     const msg = std.fmt.bufPrint(&buf, "Value must be at most {d}", .{m}) catch "Value too large";
-                    printValidationError(stdout, msg) catch {};
+                    printValidationError(stdout, msg, colors) catch {};
                     continue;
                 }
             }
@@ -318,12 +330,17 @@ pub const FloatPrompt = struct {
         return p;
     }
 
-    pub fn ask(self: FloatPrompt) PromptError!f64 {
-        const stdout = std.io.getStdOut().writer();
-        const stdin = std.io.getStdIn();
+    pub fn ask(self: FloatPrompt, io: std.Io, environ: std.process.Environ) PromptError!f64 {
+        var info = terminal.detect(environ);
+        defer info.deinit();
+        const colors = prompt_colors(self.console, info);
+        var output = std.Io.File.stdout().writerStreaming(io, &.{});
+        const stdout = &output.interface;
+        const stdin = std.Io.File.stdin();
 
         while (true) {
-            writeStyledPrompt(stdout, self.allocator, self.prompt_text) catch return PromptError.OutOfMemory;
+            writeStyledPrompt(stdout, self.allocator, self.prompt_text, colors) catch
+                return PromptError.OutOfMemory;
 
             if (self.min != null or self.max != null) {
                 stdout.writeAll(" [") catch return PromptError.OutOfMemory;
@@ -344,7 +361,7 @@ pub const FloatPrompt = struct {
             stdout.writeAll(": ") catch return PromptError.OutOfMemory;
 
             var input_buf: [256]u8 = undefined;
-            const line = stdin.reader().readUntilDelimiterOrEof(&input_buf, '\n') catch return PromptError.OutOfMemory;
+            const line = read_line(io, stdin, &input_buf) catch return PromptError.OutOfMemory;
 
             const raw = line orelse return PromptError.EndOfStream;
             const trimmed = stripCarriageReturn(raw);
@@ -357,7 +374,7 @@ pub const FloatPrompt = struct {
             }
 
             const value = std.fmt.parseFloat(f64, trimmed) catch {
-                printValidationError(stdout, "Please enter a valid number") catch {};
+                printValidationError(stdout, "Please enter a valid number", colors) catch {};
                 continue;
             };
 
@@ -365,7 +382,7 @@ pub const FloatPrompt = struct {
                 if (value < m) {
                     var buf: [64]u8 = undefined;
                     const msg = std.fmt.bufPrint(&buf, "Value must be at least {d:.2}", .{m}) catch "Value too small";
-                    printValidationError(stdout, msg) catch {};
+                    printValidationError(stdout, msg, colors) catch {};
                     continue;
                 }
             }
@@ -374,7 +391,7 @@ pub const FloatPrompt = struct {
                 if (value > m) {
                     var buf: [64]u8 = undefined;
                     const msg = std.fmt.bufPrint(&buf, "Value must be at most {d:.2}", .{m}) catch "Value too large";
-                    printValidationError(stdout, msg) catch {};
+                    printValidationError(stdout, msg, colors) catch {};
                     continue;
                 }
             }
@@ -409,12 +426,17 @@ pub const Confirm = struct {
         return p;
     }
 
-    pub fn ask(self: Confirm) PromptError!bool {
-        const stdout = std.io.getStdOut().writer();
-        const stdin = std.io.getStdIn();
+    pub fn ask(self: Confirm, io: std.Io, environ: std.process.Environ) PromptError!bool {
+        var info = terminal.detect(environ);
+        defer info.deinit();
+        const colors = prompt_colors(self.console, info);
+        var output = std.Io.File.stdout().writerStreaming(io, &.{});
+        const stdout = &output.interface;
+        const stdin = std.Io.File.stdin();
 
         while (true) {
-            writeStyledPrompt(stdout, self.allocator, self.prompt_text) catch return PromptError.OutOfMemory;
+            writeStyledPrompt(stdout, self.allocator, self.prompt_text, colors) catch
+                return PromptError.OutOfMemory;
 
             const hint = if (self.default) |def|
                 if (def) "Y/n" else "y/N"
@@ -423,7 +445,7 @@ pub const Confirm = struct {
             stdout.print(" [{s}]: ", .{hint}) catch return PromptError.OutOfMemory;
 
             var input_buf: [64]u8 = undefined;
-            const line = stdin.reader().readUntilDelimiterOrEof(&input_buf, '\n') catch return PromptError.OutOfMemory;
+            const line = read_line(io, stdin, &input_buf) catch return PromptError.OutOfMemory;
 
             const raw = line orelse return PromptError.EndOfStream;
             const trimmed = stripCarriageReturn(raw);
@@ -441,7 +463,7 @@ pub const Confirm = struct {
             if (isAffirmative(lower)) return true;
             if (isNegative(lower)) return false;
 
-            printValidationError(stdout, "Please enter y or n") catch {};
+            printValidationError(stdout, "Please enter y or n", colors) catch {};
         }
     }
 };
@@ -467,7 +489,12 @@ fn isNegative(input: []const u8) bool {
         std.mem.eql(u8, input, "0");
 }
 
-fn writeStyledPrompt(writer: anytype, allocator: std.mem.Allocator, prompt_text: []const u8) !void {
+fn writeStyledPrompt(
+    writer: anytype,
+    allocator: std.mem.Allocator,
+    prompt_text: []const u8,
+    colors: bool,
+) !void {
     var txt = Text.fromMarkup(allocator, prompt_text) catch {
         try writer.writeAll(prompt_text);
         return;
@@ -482,48 +509,60 @@ fn writeStyledPrompt(writer: anytype, allocator: std.mem.Allocator, prompt_text:
 
     for (segments) |seg| {
         const has_style = if (seg.style) |s| !s.isEmpty() else false;
-        if (has_style) try seg.style.?.renderAnsi(.truecolor, writer);
+        if (has_style and colors) try seg.style.?.renderAnsi(.truecolor, writer);
         try writer.writeAll(seg.text);
-        if (has_style) try Style.renderReset(writer);
+        if (has_style and colors) try Style.renderReset(writer);
     }
 }
 
-fn printValidationError(writer: anytype, msg: []const u8) !void {
-    try writer.writeAll("\x1b[31mError: ");
+fn printValidationError(writer: anytype, msg: []const u8, colors: bool) !void {
+    if (colors) try writer.writeAll("\x1b[31m");
+    try writer.writeAll("Error: ");
     try writer.writeAll(msg);
-    try writer.writeAll("\x1b[0m\n");
+    if (colors) try Style.renderReset(writer);
+    try writer.writeAll("\n");
 }
 
-fn printChoiceError(writer: anytype, choices: []const []const u8) !void {
-    try writer.writeAll("\x1b[31mPlease select from: ");
+fn printChoiceError(writer: anytype, choices: []const []const u8, colors: bool) !void {
+    if (colors) try writer.writeAll("\x1b[31m");
+    try writer.writeAll("Please select from: ");
     for (choices, 0..) |choice, i| {
         if (i > 0) try writer.writeAll(", ");
         try writer.writeAll(choice);
     }
-    try writer.writeAll("\x1b[0m\n");
+    if (colors) try Style.renderReset(writer);
+    try writer.writeAll("\n");
 }
 
-fn readPassword(buf: []u8, stdin: std.fs.File) !?[]u8 {
+fn prompt_colors(console: ?*Console, info: terminal.TerminalInfo) bool {
+    return if (console) |c|
+        !c.options.no_color and (c.options.color_system != null or !c.terminal_info.no_color)
+    else
+        !info.no_color;
+}
+
+fn readPassword(io: std.Io, buf: []u8, stdin: std.Io.File) !?[]u8 {
     const builtin = @import("builtin");
-    const stdout = std.io.getStdOut().writer();
+    var output = std.Io.File.stdout().writerStreaming(io, &.{});
+    const stdout = &output.interface;
 
     if (builtin.os.tag == .windows) {
         return readPasswordWindows(buf, stdin, stdout);
     } else if (builtin.os.tag == .wasi or builtin.cpu.arch == .wasm32) {
-        return stdin.reader().readUntilDelimiterOrEof(buf, '\n');
+        return read_line(io, stdin, buf);
     } else {
-        return readPasswordPosix(buf, stdin, stdout);
+        return readPasswordPosix(io, buf, stdin, stdout);
     }
 }
 
-fn readPasswordPosix(buf: []u8, stdin: std.fs.File, stdout: anytype) !?[]u8 {
+fn readPasswordPosix(io: std.Io, buf: []u8, stdin: std.Io.File, stdout: anytype) !?[]u8 {
     const posix = std.posix;
     const fd = stdin.handle;
 
     var orig_termios: posix.termios = undefined;
     const tcgetattr_result = posix.system.tcgetattr(fd, &orig_termios);
     if (tcgetattr_result != 0) {
-        return stdin.reader().readUntilDelimiterOrEof(buf, '\n');
+        return read_line(io, stdin, buf);
     }
 
     var new_termios = orig_termios;
@@ -531,7 +570,7 @@ fn readPasswordPosix(buf: []u8, stdin: std.fs.File, stdout: anytype) !?[]u8 {
 
     const tcsetattr_result = posix.system.tcsetattr(fd, .FLUSH, &new_termios);
     if (tcsetattr_result != 0) {
-        return stdin.reader().readUntilDelimiterOrEof(buf, '\n');
+        return read_line(io, stdin, buf);
     }
 
     defer {
@@ -540,8 +579,9 @@ fn readPasswordPosix(buf: []u8, stdin: std.fs.File, stdout: anytype) !?[]u8 {
     }
 
     var len: usize = 0;
+    var reader = stdin.readerStreaming(io, &.{});
     while (len < buf.len - 1) {
-        const byte_read = stdin.reader().readByte() catch |err| switch (err) {
+        const byte_read = reader.interface.takeByte() catch |err| switch (err) {
             error.EndOfStream => break,
             else => return err,
         };
@@ -569,16 +609,13 @@ fn readPasswordPosix(buf: []u8, stdin: std.fs.File, stdout: anytype) !?[]u8 {
     return buf[0..len];
 }
 
-fn readPasswordWindows(buf: []u8, stdin: std.fs.File, stdout: anytype) !?[]u8 {
-    _ = stdin;
+fn readPasswordWindows(buf: []u8, stdin: std.Io.File, stdout: anytype) !?[]u8 {
     const windows = std.os.windows;
 
-    const handle = windows.GetStdHandle(windows.STD_INPUT_HANDLE) catch {
-        return null;
-    };
+    const handle = stdin.handle;
 
     var orig_mode: windows.DWORD = 0;
-    if (windows.kernel32.GetConsoleMode(handle, &orig_mode) == 0) {
+    if (!win32.GetConsoleMode(handle, &orig_mode).toBool()) {
         return null;
     }
 
@@ -586,12 +623,12 @@ fn readPasswordWindows(buf: []u8, stdin: std.fs.File, stdout: anytype) !?[]u8 {
     const ENABLE_LINE_INPUT: windows.DWORD = 0x0002;
     const new_mode = orig_mode & ~(ENABLE_ECHO_INPUT | ENABLE_LINE_INPUT);
 
-    if (windows.kernel32.SetConsoleMode(handle, new_mode) == 0) {
+    if (!win32.SetConsoleMode(handle, new_mode).toBool()) {
         return null;
     }
 
     defer {
-        _ = windows.kernel32.SetConsoleMode(handle, orig_mode);
+        _ = win32.SetConsoleMode(handle, orig_mode);
         stdout.writeAll("\n") catch {};
     }
 
@@ -600,7 +637,7 @@ fn readPasswordWindows(buf: []u8, stdin: std.fs.File, stdout: anytype) !?[]u8 {
         var chars_read: windows.DWORD = 0;
         var char_buf: [1]u8 = undefined;
 
-        const read_result = windows.kernel32.ReadConsoleA(
+        const read_result = win32.ReadConsoleA(
             handle,
             &char_buf,
             1,
@@ -608,7 +645,7 @@ fn readPasswordWindows(buf: []u8, stdin: std.fs.File, stdout: anytype) !?[]u8 {
             null,
         );
 
-        if (read_result == 0 or chars_read == 0) {
+        if (!read_result.toBool() or chars_read == 0) {
             break;
         }
 
@@ -636,3 +673,31 @@ fn readPasswordWindows(buf: []u8, stdin: std.fs.File, stdout: anytype) !?[]u8 {
 
     return buf[0..len];
 }
+
+fn read_line(io: std.Io, file: std.Io.File, buffer: []u8) !?[]u8 {
+    assert(buffer.len > 0);
+    var reader = file.readerStreaming(io, &.{});
+    var length: usize = 0;
+    while (length < buffer.len) : (length += 1) {
+        const byte = reader.interface.takeByte() catch |err| switch (err) {
+            error.EndOfStream => return if (length == 0) null else buffer[0..length],
+            else => return err,
+        };
+        if (byte == '\n') return buffer[0..length];
+        buffer[length] = byte;
+    }
+    return error.StreamTooLong;
+}
+
+const win32 = if (@import("builtin").os.tag == .windows) struct {
+    const w = std.os.windows;
+    extern "kernel32" fn GetConsoleMode(w.HANDLE, *w.DWORD) callconv(.winapi) w.BOOL;
+    extern "kernel32" fn SetConsoleMode(w.HANDLE, w.DWORD) callconv(.winapi) w.BOOL;
+    extern "kernel32" fn ReadConsoleA(
+        w.HANDLE,
+        [*]u8,
+        w.DWORD,
+        *w.DWORD,
+        ?*anyopaque,
+    ) callconv(.winapi) w.BOOL;
+} else struct {};

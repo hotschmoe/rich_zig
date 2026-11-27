@@ -43,36 +43,45 @@ pub const TerminalInfo = struct {
     term_program: ?[]const u8 = null,
     supports_sync_output: bool = false,
     background_mode: BackgroundMode = .unknown,
+    no_color: bool = false,
+    owns_environment: bool = false,
+
+    pub fn deinit(self: *TerminalInfo) void {
+        if (self.owns_environment) {
+            free_env(self.term);
+            free_env(self.term_program);
+        }
+        self.* = undefined;
+    }
 };
 
 const TerminalSize = struct { width: u16, height: u16 };
 
 pub fn detect(environ: std.process.Environ) TerminalInfo {
-    var info = TerminalInfo{};
+    var info = TerminalInfo{ .owns_environment = builtin.os.tag == .windows };
 
     info.term = getEnv(environ, "TERM");
     info.term_program = getEnv(environ, "TERM_PROGRAM");
 
     info.is_tty = isTty();
 
-    if (!info.is_tty) {
-        if (getEnv(environ, "FORCE_COLOR")) |_| {
-            info.color_system = .truecolor;
-        } else {
-            info.color_system = .standard;
-        }
-        return info;
+    const no_color = getEnv(environ, "NO_COLOR");
+    defer free_env(no_color);
+    const force_color = getEnv(environ, "FORCE_COLOR");
+    defer free_env(force_color);
+    info.no_color = if (no_color) |value| value.len != 0 else false;
+    if (force_color != null) {
+        info.color_system = .truecolor;
+    } else {
+        info.no_color = info.no_color or !info.is_tty or
+            (if (info.term) |term| std.mem.eql(u8, term, "dumb") else false);
+        info.color_system = if (info.no_color) .standard else detectColorSystem(environ);
     }
+    if (!info.is_tty) return info;
 
     const size = getTerminalSize();
     info.width = size.width;
     info.height = size.height;
-
-    if (getEnv(environ, "NO_COLOR")) |_| {
-        info.color_system = .standard;
-    } else {
-        info.color_system = detectColorSystem(environ);
-    }
 
     info.supports_hyperlinks = detectHyperlinks(environ);
 
@@ -117,6 +126,12 @@ fn getEnvWindows(environ: std.process.Environ, name: []const u8) ?[]const u8 {
     return std.unicode.utf16LeToUtf8Alloc(std.heap.page_allocator, w_val) catch null;
 }
 
+fn free_env(value: ?[]const u8) void {
+    if (builtin.os.tag == .windows) {
+        if (value) |bytes| std.heap.page_allocator.free(bytes);
+    }
+}
+
 fn getTerminalSize() TerminalSize {
     if (builtin.os.tag == .windows) {
         return getTerminalSizeWindows();
@@ -153,12 +168,14 @@ fn getTerminalSizePosix() TerminalSize {
 
 fn detectColorSystem(environ: std.process.Environ) ColorSystem {
     if (getEnv(environ, "COLORTERM")) |ct| {
+        defer free_env(ct);
         if (std.mem.eql(u8, ct, "truecolor") or std.mem.eql(u8, ct, "24bit")) {
             return .truecolor;
         }
     }
 
     if (getEnv(environ, "TERM")) |term| {
+        defer free_env(term);
         if (std.mem.indexOf(u8, term, "256color") != null or
             std.mem.indexOf(u8, term, "256") != null)
         {
@@ -170,6 +187,7 @@ fn detectColorSystem(environ: std.process.Environ) ColorSystem {
     }
 
     if (getEnv(environ, "TERM_PROGRAM")) |prog| {
+        defer free_env(prog);
         const truecolor_terminals = [_][]const u8{
             "iTerm.app",
             "Apple_Terminal",
@@ -186,11 +204,13 @@ fn detectColorSystem(environ: std.process.Environ) ColorSystem {
         }
     }
 
-    if (getEnv(environ, "WT_SESSION")) |_| {
+    if (getEnv(environ, "WT_SESSION")) |value| {
+        defer free_env(value);
         return .truecolor;
     }
 
     if (getEnv(environ, "ConEmuANSI")) |ce| {
+        defer free_env(ce);
         if (std.mem.eql(u8, ce, "ON")) {
             return .truecolor;
         }
@@ -201,6 +221,7 @@ fn detectColorSystem(environ: std.process.Environ) ColorSystem {
 
 fn detectHyperlinks(environ: std.process.Environ) bool {
     if (getEnv(environ, "TERM_PROGRAM")) |prog| {
+        defer free_env(prog);
         const supported = [_][]const u8{
             "iTerm.app",
             "WezTerm",
@@ -214,7 +235,8 @@ fn detectHyperlinks(environ: std.process.Environ) bool {
         }
     }
 
-    if (getEnv(environ, "WT_SESSION")) |_| {
+    if (getEnv(environ, "WT_SESSION")) |value| {
+        defer free_env(value);
         return true;
     }
 
@@ -223,6 +245,7 @@ fn detectHyperlinks(environ: std.process.Environ) bool {
 
 fn detectSyncOutput(environ: std.process.Environ) bool {
     if (getEnv(environ, "TERM_PROGRAM")) |prog| {
+        defer free_env(prog);
         const supported = [_][]const u8{
             "WezTerm", "kitty", "Alacritty", "contour", "mintty",
         };
@@ -230,10 +253,12 @@ fn detectSyncOutput(environ: std.process.Environ) bool {
             if (std.mem.eql(u8, prog, t)) return true;
         }
     }
-    if (getEnv(environ, "WT_SESSION")) |_| {
+    if (getEnv(environ, "WT_SESSION")) |value| {
+        defer free_env(value);
         return true;
     }
     if (getEnv(environ, "TERM")) |term| {
+        defer free_env(term);
         if (std.mem.startsWith(u8, term, "foot")) return true;
     }
     return false;
@@ -241,6 +266,7 @@ fn detectSyncOutput(environ: std.process.Environ) bool {
 
 fn detectBackground(environ: std.process.Environ) BackgroundMode {
     if (getEnv(environ, "COLORFGBG")) |fgbg| {
+        defer free_env(fgbg);
         if (std.mem.lastIndexOfScalar(u8, fgbg, ';')) |sep| {
             const bg_str = fgbg[sep + 1 ..];
             const bg = std.fmt.parseInt(u8, bg_str, 10) catch return .unknown;
@@ -248,6 +274,7 @@ fn detectBackground(environ: std.process.Environ) BackgroundMode {
         }
     }
     if (getEnv(environ, "TERM_PROGRAM")) |prog| {
+        defer free_env(prog);
         if (std.mem.eql(u8, prog, "Apple_Terminal")) return .light;
     }
     return .dark;

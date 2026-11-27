@@ -44,7 +44,7 @@ pub const Pager = struct {
     pub fn page(self: *Pager, content: []const u8) !void {
         if (!self.is_tty) {
             var buf: [4096]u8 = undefined;
-            var stdout = std.Io.File.stdout().writer(self.io, &buf);
+            var stdout = std.Io.File.stdout().writerStreaming(self.io, &buf);
             try stdout.interface.writeAll(content);
             try stdout.interface.flush();
             return;
@@ -65,15 +65,15 @@ pub const Pager = struct {
 
     fn tryExternalPager(self: *const Pager, content: []const u8) bool {
         if (builtin.os.tag == .windows) {
-            return tryPagerCommand("more", content);
+            return tryPagerCommand(self.io, "more", content);
         }
 
         if (self.options.external_command) |cmd| {
-            if (tryPagerCommand(cmd, content)) return true;
+            if (tryPagerCommand(self.io, cmd, content)) return true;
         }
 
         for ([_][]const u8{ "less", "more" }) |pager_cmd| {
-            if (tryPagerCommand(pager_cmd, content)) return true;
+            if (tryPagerCommand(self.io, pager_cmd, content)) return true;
         }
 
         return false;
@@ -81,7 +81,7 @@ pub const Pager = struct {
 
     fn internalPager(self: *Pager, content: []const u8) !void {
         var out_buf: [4096]u8 = undefined;
-        var stdout = std.Io.File.stdout().writer(self.io, &out_buf);
+        var stdout = std.Io.File.stdout().writerStreaming(self.io, &out_buf);
         var in_buf: [64]u8 = undefined;
         var stdin_reader = std.Io.File.stdin().readerStreaming(self.io, &in_buf);
 
@@ -122,6 +122,7 @@ pub const Pager = struct {
                 break;
             }
         }
+        try stdout.interface.flush();
     }
 
     fn splitLines(self: *Pager, content: []const u8) ![]const []const u8 {
@@ -136,20 +137,17 @@ pub const Pager = struct {
     }
 };
 
-fn tryPagerCommand(cmd: []const u8, content: []const u8) bool {
-    var child = std.process.Child.init(&.{cmd}, std.heap.page_allocator);
-    child.stdin_behavior = .Pipe;
-
-    child.spawn() catch return false;
-
-    if (child.stdin) |stdin| {
-        stdin.writeAll(content) catch {};
-        stdin.close();
-        child.stdin = null;
-    }
-
-    _ = child.wait() catch return false;
-    return true;
+fn tryPagerCommand(io: std.Io, cmd: []const u8, content: []const u8) bool {
+    var child = std.process.spawn(io, .{ .argv = &.{cmd}, .stdin = .pipe }) catch
+        return false;
+    defer child.kill(io);
+    const stdin = child.stdin.?;
+    var writer = stdin.writerStreaming(io, &.{});
+    writer.interface.writeAll(content) catch return false;
+    stdin.close(io);
+    child.stdin = null;
+    const term = child.wait(io) catch return false;
+    return term.success();
 }
 
 pub const LogLevel = enum {
@@ -230,6 +228,7 @@ pub const Console = struct {
     }
 
     pub fn deinit(self: *Console) void {
+        self.terminal_info.deinit();
         if (self.write_buffer_owned) {
             self.allocator.free(self.write_buffer);
         }
@@ -256,7 +255,7 @@ pub const Console = struct {
     }
 
     fn getWriter(self: *Console) std.Io.File.Writer {
-        return std.Io.File.stdout().writer(self.io, self.write_buffer);
+        return std.Io.File.stdout().writerStreaming(self.io, self.write_buffer);
     }
 
     pub fn print(self: *Console, text_markup: []const u8) !void {
@@ -360,15 +359,20 @@ pub const Console = struct {
     }
 
     fn setStyle(self: *Console, style: Style, writer: anytype) !void {
-        if (self.options.no_color) return;
+        if (self.colors_disabled()) return;
         try style.renderAnsi(self.colorSystem(), writer);
         self.current_style = style;
     }
 
     fn resetStyle(self: *Console, writer: anytype) !void {
-        if (self.options.no_color) return;
+        if (self.colors_disabled()) return;
         try Style.renderReset(writer);
         self.current_style = Style.empty;
+    }
+
+    fn colors_disabled(self: Console) bool {
+        return self.options.no_color or
+            (self.options.color_system == null and self.terminal_info.no_color);
     }
 
     fn writeLine(self: *Console) !void {

@@ -115,6 +115,7 @@ pub const RichHandler = struct {
     styles: LevelStyles,
     format: FormatOptions,
     color_system: ColorSystem,
+    no_color: bool = false,
     min_level: Level,
     write_buffer: []u8,
 
@@ -131,16 +132,18 @@ pub const RichHandler = struct {
         styles: LevelStyles,
         format: FormatOptions,
     ) RichHandler {
-        const term_info = terminal.detect(environ);
+        var term_info = terminal.detect(environ);
+        defer term_info.deinit();
         const buffer = allocator.alloc(u8, BUFFER_SIZE) catch @panic("failed to allocate logging buffer");
 
         return .{
             .io = io,
             .allocator = allocator,
-            .writer = std.Io.File.stdout().writer(io, buffer),
+            .writer = std.Io.File.stdout().writerStreaming(io, buffer),
             .styles = styles,
             .format = format,
             .color_system = term_info.color_system,
+            .no_color = term_info.no_color,
             .min_level = .debug,
             .write_buffer = buffer,
         };
@@ -157,6 +160,7 @@ pub const RichHandler = struct {
 
     pub fn setColorSystem(self: *RichHandler, color_system: ColorSystem) *RichHandler {
         self.color_system = color_system;
+        self.no_color = false;
         return self;
     }
 
@@ -196,7 +200,7 @@ pub const RichHandler = struct {
         const minutes = day_seconds.getMinutesIntoHour();
         const seconds = day_seconds.getSecondsIntoMinute();
 
-        try self.styles.timestamp.renderAnsi(self.color_system, writer);
+        if (!self.no_color) try self.styles.timestamp.renderAnsi(self.color_system, writer);
 
         switch (self.format.timestamp_format) {
             .time_only => {
@@ -221,25 +225,25 @@ pub const RichHandler = struct {
             },
         }
 
-        try Style.renderReset(writer);
+        if (!self.no_color) try Style.renderReset(writer);
     }
 
     fn writeLevel(self: *RichHandler, level: Level, writer: anytype) !void {
         const level_str = level.toString();
         const level_style = self.styles.styleFor(level);
 
-        try level_style.renderAnsi(self.color_system, writer);
+        if (!self.no_color) try level_style.renderAnsi(self.color_system, writer);
         try writer.print("[{s}]", .{level_str});
 
         const written_len = level_str.len + 2; // +2 for brackets
         const target_width = self.format.level_width + 2;
         for (written_len..target_width) |_| try writer.writeByte(' ');
 
-        try Style.renderReset(writer);
+        if (!self.no_color) try Style.renderReset(writer);
     }
 
     fn writePath(self: *RichHandler, path: []const u8, line: ?u32, writer: anytype) !void {
-        try self.styles.path.renderAnsi(self.color_system, writer);
+        if (!self.no_color) try self.styles.path.renderAnsi(self.color_system, writer);
 
         var display_path = path;
         if (self.format.path_width) |max_width| {
@@ -256,14 +260,15 @@ pub const RichHandler = struct {
             try writer.print(":{d}", .{ln});
         }
 
-        try Style.renderReset(writer);
+        if (!self.no_color) try Style.renderReset(writer);
     }
 
     fn writeMessage(self: *RichHandler, message: []const u8, writer: anytype) !void {
         const styled = !self.styles.message.isEmpty();
-        if (styled) try self.styles.message.renderAnsi(self.color_system, writer);
+        if (styled and !self.no_color)
+            try self.styles.message.renderAnsi(self.color_system, writer);
         try writer.writeAll(message);
-        if (styled) try Style.renderReset(writer);
+        if (styled and !self.no_color) try Style.renderReset(writer);
     }
 
     pub fn debug(self: *RichHandler, message: []const u8) !void {
@@ -303,29 +308,31 @@ pub fn stdLogFn(
     const locked = std.debug.lockStderr(&buf);
     defer std.debug.unlockStderr();
     const stderr = &locked.file_writer.interface;
+    const colors_enabled = locked.terminal_mode != .no_color;
 
     const timestamp = std.Io.Timestamp.now(std.Options.debug_io, .real).toSeconds();
     const epoch_seconds: std.time.epoch.EpochSeconds = .{ .secs = @intCast(timestamp) };
     const day_seconds = epoch_seconds.getDaySeconds();
 
-    timestamp_style.renderAnsi(.truecolor, stderr) catch return;
+    if (colors_enabled) timestamp_style.renderAnsi(.truecolor, stderr) catch return;
     stderr.print("{d:0>2}:{d:0>2}:{d:0>2}", .{
         day_seconds.getHoursIntoDay(),
         day_seconds.getMinutesIntoHour(),
         day_seconds.getSecondsIntoMinute(),
     }) catch return;
-    Style.renderReset(stderr) catch return;
+    if (colors_enabled) Style.renderReset(stderr) catch return;
     stderr.writeAll(" ") catch return;
 
-    level_style.renderAnsi(.truecolor, stderr) catch return;
+    if (colors_enabled) level_style.renderAnsi(.truecolor, stderr) catch return;
     stderr.print("[{s}]", .{Level.fromStdLevel(level).toString()}) catch return;
-    Style.renderReset(stderr) catch return;
+    if (colors_enabled) Style.renderReset(stderr) catch return;
 
     if (scope_str.len > 0) {
         stderr.writeAll(" ") catch return;
-        Style.empty.foreground(Color.cyan).dim().renderAnsi(.truecolor, stderr) catch return;
+        if (colors_enabled)
+            Style.empty.foreground(Color.cyan).dim().renderAnsi(.truecolor, stderr) catch return;
         stderr.print("({s})", .{scope_str}) catch return;
-        Style.renderReset(stderr) catch return;
+        if (colors_enabled) Style.renderReset(stderr) catch return;
     }
 
     stderr.writeAll(" ") catch return;
@@ -441,6 +448,7 @@ pub const Traceback = struct {
     frames: std.ArrayList(StackFrame),
     options: TracebackOptions = .{},
     source_cache: std.StringHashMap([]const []const u8),
+    symbol_text: std.heap.ArenaAllocator,
 
     pub fn init(io: std.Io, allocator: std.mem.Allocator) Traceback {
         return .{
@@ -448,6 +456,7 @@ pub const Traceback = struct {
             .allocator = allocator,
             .frames = std.ArrayList(StackFrame).empty,
             .source_cache = std.StringHashMap([]const []const u8).init(allocator),
+            .symbol_text = .init(allocator),
         };
     }
 
@@ -462,6 +471,7 @@ pub const Traceback = struct {
         }
         self.source_cache.deinit();
         self.frames.deinit(self.allocator);
+        self.symbol_text.deinit();
     }
 
     pub fn withMessage(self: Traceback, msg: []const u8) Traceback {
@@ -487,19 +497,17 @@ pub const Traceback = struct {
     }
 
     pub fn captureCurrentTrace(self: *Traceback, skip_frames: usize) !void {
-        var stack_trace = std.builtin.StackTrace{
-            .instruction_addresses = undefined,
-            .index = 0,
-        };
         var addresses: [32]usize = undefined;
-        stack_trace.instruction_addresses = &addresses;
-
-        std.debug.captureStackTrace(@returnAddress(), &stack_trace);
+        const stack_trace = std.debug.captureCurrentStackTrace(.{
+            .first_address = @returnAddress(),
+        }, &addresses);
 
         const debug_info = std.debug.getSelfDebugInfo() catch return;
+        var symbols: std.ArrayList(std.debug.Symbol) = .empty;
+        defer symbols.deinit(self.allocator);
 
         var frame_idx: usize = 0;
-        for (stack_trace.instruction_addresses[0..stack_trace.index]) |addr| {
+        for (stack_trace.return_addresses) |addr| {
             if (addr == 0) break;
 
             if (frame_idx < skip_frames) {
@@ -509,16 +517,27 @@ pub const Traceback = struct {
 
             var frame = StackFrame{ .address = addr };
 
-            if (debug_info.getSymbolAtAddress(self.allocator, addr)) |symbol| {
-                if (symbol.symbol_name) |name| {
-                    frame.function = name;
-                }
+            symbols.clearRetainingCapacity();
+            debug_info.getSymbols(
+                self.io,
+                self.allocator,
+                self.symbol_text.allocator(),
+                addr,
+                false,
+                &symbols,
+            ) catch |err| switch (err) {
+                error.OutOfMemory => return error.OutOfMemory,
+                else => {},
+            };
+            if (symbols.items.len > 0) {
+                const symbol = symbols.items[0];
+                if (symbol.name) |name| frame.function = name;
                 if (symbol.source_location) |loc| {
                     frame.file = loc.file_name;
                     frame.line = @intCast(loc.line);
                     frame.column = @intCast(loc.column);
                 }
-            } else |_| {}
+            }
 
             try self.addFrame(frame);
             frame_idx += 1;

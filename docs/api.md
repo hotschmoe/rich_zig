@@ -495,6 +495,11 @@ Styled text with span-based formatting. Stores plain text content alongside styl
 | `Text.fromPlain(allocator, text)` | Create from plain string (borrowed) |
 | `Text.fromPlainOwned(allocator, text)` | Create from string (allocator owns copy) |
 | `Text.fromMarkup(allocator, text)` | Parse BBCode-like markup syntax |
+| `Text.fromMarkupWithTheme(allocator, text, theme)` | Parse markup with named theme styles |
+
+Both markup constructors own their plain text, spans and hyperlink URL bytes.
+The input and theme may be released after construction. Cloning, appending and
+other owning copies copy URLs too; `slice` and `withStyle` are borrowed views.
 
 #### Methods
 
@@ -547,9 +552,19 @@ BBCode-like markup parser for inline text styling. Supports nested tags, escaped
 #### Syntax
 
 - **Open tag**: `[bold]`, `[red]`, `[bold red on white]`
-- **Close tag**: `[/]` (closes any) or `[/bold]` (specific)
+- **Close tag**: `[/]` or a recognized name such as `[/bold]`, each popping the latest style
 - **Escaped brackets**: `\[` and `\]`
-- **Parameters**: `[link=https://example.com]text[/link]`
+- **Parameters**: `[link=https://example.com]text[/]`
+
+Unknown opening and closing tags remain literal, byte for byte, and never change
+the style stack. A recognized named closer does not search by name. Unclosed
+styles extend to the end. `[=value]` and `[[nested]]` are literal; `[1]` is literal
+array notation (use `[color(1)]` for indexed colour). Only `[]` is `InvalidTag`;
+an opening `[` with no following `]` is `UnbalancedBracket`. `UnclosedTag` stays
+in `MarkupError` but is not returned.
+
+Tokens and `render` segment text and URLs borrow the input. Free the returned
+array with the allocator and keep the input alive until the array is no longer used.
 
 #### Functions
 
@@ -571,6 +586,7 @@ pub const MarkupToken = union(enum) {
 pub const Tag = struct {
     name: []const u8,
     parameters: ?[]const u8 = null,
+    source: []const u8 = "",
 };
 ```
 
@@ -717,11 +733,21 @@ DEC private mode 2026 for atomic frame rendering. Console uses this opportunisti
 
 #### Environment Variables
 
-- `NO_COLOR`: Disables color output
+- `NO_COLOR`: A nonempty value disables SGR output, including when `FORCE_COLOR` is set
 - `FORCE_COLOR`: Forces color output even when not a TTY
 - `TERM`: Terminal type (used for capability detection)
 - `TERM_PROGRAM`: Terminal program name
 - `COLORTERM`: Color capability hint
+
+Explicit `ConsoleOptions.color_system` overrides environment detection;
+`ConsoleOptions.no_color` always disables SGR output. Otherwise `NO_COLOR` wins,
+then `FORCE_COLOR`, then `TERM=dumb` or a non-terminal disables colour.
+Empty `NO_COLOR` permits normal detection. `terminal.detect` returns `TerminalInfo`;
+call its `deinit()` to release retained Windows environment strings.
+
+`Prompt.ask(io, environ)`, `IntPrompt.ask(io, environ)`, `FloatPrompt.ask(io, environ)`
+and `Confirm.ask(io, environ)` take the Zig 0.17.1 I/O context and environment
+explicitly; prompts follow the same colour precedence as Console.
 
 #### Example
 

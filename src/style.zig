@@ -278,6 +278,7 @@ pub const Style = struct {
             const r_str = parts.next() orelse return error.InvalidHexColor;
             const g_str = parts.next() orelse return error.InvalidHexColor;
             const b_str = parts.next() orelse return error.InvalidHexColor;
+            if (parts.next() != null) return error.InvalidHexColor;
 
             const r = std.fmt.parseInt(u8, std.mem.trim(u8, r_str, " "), 10) catch return error.InvalidHexColor;
             const g = std.fmt.parseInt(u8, std.mem.trim(u8, g_str, " "), 10) catch return error.InvalidHexColor;

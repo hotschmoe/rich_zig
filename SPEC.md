@@ -139,7 +139,7 @@ pub const Color = union(enum) {
 | COLORTERM=24bit | Truecolor | 24-bit |
 | TERM contains "256" | 256-color | 8-bit |
 | TERM contains "color" | Standard | 4-bit |
-| NO_COLOR set | None | 0-bit |
+| NO_COLOR set and nonempty | Suppressed unless forced in code | 0-bit |
 
 ### Style (`style.zig`)
 
@@ -238,8 +238,33 @@ BBCode-style markup parser.
 | Error | Condition |
 |-------|-----------|
 | UnbalancedBracket | `[` without matching `]` |
-| UnclosedTag | Tag opened but never closed |
-| InvalidTag | Empty tag `[]` or malformed |
+| UnclosedTag | Retained in the error set for callers; never returned |
+| InvalidTag | Empty tag `[]` |
+
+`Text.fromMarkup` and `Text.fromMarkupWithTheme` return spans ordered by increasing
+byte offset, with nonempty, nonoverlapping ranges within `plain`. Valid UTF-8 input
+produces ranges on UTF-8 boundaries. Invalid UTF-8 text is preserved byte for byte;
+these APIs do not validate or repair it. An unclosed style applies to the end of
+the input. A recognized named closer pops the most recent style, just as `[/]`
+does; it does not search for its name. Recognized closers on an empty stack are ignored.
+There is no close-all tag: repeat `[/]` to empty the stack.
+
+Opening and closing tags that are not styles are literal text, with their bytes
+unchanged, in Text, themed Text and `markup.render`. They neither push nor pop a
+style. Styles are recognized by `Style.parse`, the supplied theme, or `link=...`.
+Bare numeric tags such as `[1]` are literal array notation; use `[color(1)]` or a
+compound style such as `[bold 1]` for indexed colours. Invalid colours are literal
+too. `[=value]` and tags containing `[` are accepted as text. Empty styled content
+is allowed; the empty tag `[]` is rejected. Whitespace-only
+style tags have no effect. `\]` also escapes a bracket; a trailing backslash is
+literal. A backslash immediately before a tag escapes its opening bracket instead.
+
+`[link=url]` attaches a hyperlink URL to its styled text; close it with `[/]`.
+Tokens and `markup.render` segments borrow the input, including URLs. Their input
+must outlive them. Text owns plain bytes, spans and copied URLs; its clones and
+other owning copies remain valid after the input or original Text is released.
+`slice` and `withStyle` are views and borrow their original Text. There is
+no public styled Text-to-markup operation.
 
 ### Console (`console.zig`)
 
@@ -404,10 +429,18 @@ pub const Measurement = struct {
 | Truecolor | COLORTERM contains "truecolor" or "24bit" |
 | 256-color | TERM contains "256" |
 | Basic color | TERM set and not "dumb" |
-| No color | NO_COLOR set |
+| No color | NO_COLOR set and nonempty |
 | Force color | FORCE_COLOR set |
 | Width/Height | ioctl TIOCGWINSZ or Windows API |
 | Unicode | LC_ALL/LANG contains "UTF" or Windows >= 10 |
+
+Colour precedence: explicit `ConsoleOptions.no_color` disables SGR output;
+otherwise an explicit `color_system` in code overrides detection. Detection gives
+nonempty `NO_COLOR` priority over `FORCE_COLOR`; `FORCE_COLOR` permits colour on
+pipes and files and overrides `TERM=dumb`. Without either override, `TERM=dumb`
+and non-terminals disable SGR output. An empty `NO_COLOR` does not disable colour.
+All stdout and stderr file writers stream at the current file position, so repeated
+calls append when redirected to a regular file as well as through a pipe or terminal.
 
 ### Legacy Windows Console
 
